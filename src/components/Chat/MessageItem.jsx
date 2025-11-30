@@ -1,8 +1,7 @@
 // src/components/Chat/MessageItem.jsx
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef } from "react";
 import { doc, updateDoc, deleteDoc } from "firebase/firestore";
 import { db } from "../../firebaseConfig";
-import EmojiPicker from "./EmojiPicker";
 
 const COLORS = {
   primary: "#34B7F1",
@@ -10,13 +9,10 @@ const COLORS = {
   darkCard: "#1b1b1b",
   darkText: "#fff",
   mutedText: "#888",
-  grayBorder: "rgba(0,0,0,0.06)",
-  edited: "#999",
   reactionBg: "#111",
 };
 
 const SPACING = { sm: 8, lg: 14, borderRadius: 12 };
-
 const QUICK_REACTIONS = ["❤️", "😂", "👍", "😮", "😢", "💖"];
 
 export default function MessageItem({
@@ -27,6 +23,8 @@ export default function MessageItem({
   setReplyTo,
   pinnedMessage,
   setPinnedMessage,
+  onReplyClick,
+  enableSwipeReply = true,
 }) {
   const isMine = message.senderId === myUid;
   const containerRef = useRef(null);
@@ -35,7 +33,7 @@ export default function MessageItem({
   const [showReactions, setShowReactions] = useState(false);
   const [emojiPos, setEmojiPos] = useState({ top: 0, left: 0 });
 
-  // For swipe-to-reply
+  // Swipe to reply
   const touchStartX = useRef(0);
   const touchDelta = useRef(0);
 
@@ -45,27 +43,29 @@ export default function MessageItem({
       : "";
 
   const togglePin = async () => {
+    const chatRef = doc(db, "chats", chatId);
     const msgRef = doc(db, "chats", chatId, "messages", message.id);
-    const newPin = !message.pinned;
-    await updateDoc(msgRef, { pinned: newPin });
-    if (newPin) setPinnedMessage(message);
-    else setPinnedMessage(null);
+    const newPin = pinnedMessage?.id !== message.id;
+    await updateDoc(chatRef, { pinnedMessageId: newPin ? message.id : null });
+    setPinnedMessage(newPin ? message : null);
     setMenuOpen(false);
   };
 
   const deleteMessage = async () => {
     if (!confirm("Delete this message?")) return;
-    await deleteDoc(doc(db, "chats", chatId, "messages", message.id));
+    await updateDoc(doc(db, "chats", chatId, "messages", message.id), { deleted: true });
+    setMenuOpen(false);
   };
 
   const copyMessage = async () => {
     await navigator.clipboard.writeText(message.text || message.mediaUrl || "");
     alert("Copied!");
+    setMenuOpen(false);
   };
 
   const openReactions = () => {
     const rect = containerRef.current.getBoundingClientRect();
-    setEmojiPos({ top: rect.top - 50 + window.scrollY, left: rect.left + rect.width / 2 });
+    setEmojiPos({ top: rect.top + window.scrollY - 50, left: rect.left + rect.width / 2 });
     setShowReactions(true);
   };
 
@@ -75,17 +75,19 @@ export default function MessageItem({
     setShowReactions(false);
   };
 
-  // ---------------- Swipe to reply ----------------
   const handleTouchStart = (e) => {
+    if (!enableSwipeReply) return;
     touchStartX.current = e.touches[0].clientX;
     touchDelta.current = 0;
   };
 
   const handleTouchMove = (e) => {
+    if (!enableSwipeReply) return;
     touchDelta.current = e.touches[0].clientX - touchStartX.current;
   };
 
   const handleTouchEnd = () => {
+    if (!enableSwipeReply) return;
     if (touchDelta.current > 80) setReplyTo(message);
   };
 
@@ -106,7 +108,7 @@ export default function MessageItem({
       onTouchStart={handleTouchStart}
       onTouchMove={handleTouchMove}
       onTouchEnd={handleTouchEnd}
-      onLongPress={openReactions} // Custom long-press logic or library
+      onLongPress={openReactions} // Custom or library for long press
     >
       {/* Message bubble */}
       <div
@@ -121,19 +123,30 @@ export default function MessageItem({
           position: "relative",
         }}
       >
+        {message.replyTo && (
+          <div
+            onClick={() => onReplyClick?.(message.replyTo.id)}
+            style={{
+              fontSize: 12,
+              fontStyle: "italic",
+              borderLeft: `2px solid ${COLORS.mutedText}`,
+              paddingLeft: 4,
+              marginBottom: 4,
+              cursor: "pointer",
+              opacity: 0.7,
+            }}
+          >
+            ↪ {message.replyTo.text.slice(0, 50)}
+          </div>
+        )}
+
         {message.text && <div>{message.text}</div>}
+
         {message.mediaUrl && message.mediaType === "image" && (
-          <img
-            src={message.mediaUrl}
-            style={{ maxWidth: "100%", borderRadius: SPACING.borderRadius }}
-          />
+          <img src={message.mediaUrl} style={{ maxWidth: "100%", borderRadius: SPACING.borderRadius }} />
         )}
         {message.mediaUrl && message.mediaType === "video" && (
-          <video
-            src={message.mediaUrl}
-            controls
-            style={{ maxWidth: "100%", borderRadius: SPACING.borderRadius }}
-          />
+          <video src={message.mediaUrl} controls style={{ maxWidth: "100%", borderRadius: SPACING.borderRadius }} />
         )}
         {message.mediaUrl && message.mediaType === "audio" && <audio src={message.mediaUrl} controls />}
         {message.mediaUrl && message.mediaType === "file" && (
@@ -147,7 +160,7 @@ export default function MessageItem({
           {fmtTime(message.createdAt)}
         </div>
 
-        {/* Quick Reactions display */}
+        {/* Reactions */}
         {message.reactions && Object.values(message.reactions).filter(Boolean).length > 0 && (
           <div style={{ display: "flex", gap: 2, marginTop: 4 }}>
             {Object.values(message.reactions)
@@ -170,46 +183,42 @@ export default function MessageItem({
         )}
       </div>
 
-      {/* Context menu */}
+      {/* Context Menu */}
       {menuOpen && (
         <div
           style={{
             position: "absolute",
             top: -SPACING.lg,
             right: 0,
-            background: COLORS.lightCard,
-            border: `1px solid ${COLORS.grayBorder}`,
+            background: isDark ? COLORS.darkCard : COLORS.lightCard,
+            border: `1px solid ${COLORS.mutedText}`,
             borderRadius: SPACING.borderRadius,
             zIndex: 10,
+            display: "flex",
+            flexDirection: "column",
           }}
         >
-          <button
-            style={{ padding: 8, width: "100%", textAlign: "left" }}
-            onClick={() => {
-              setReplyTo(message);
-              setMenuOpen(false);
-            }}
-          >
+          <button style={{ padding: 6, cursor: "pointer" }} onClick={() => setReplyTo(message)}>
             Reply
           </button>
-          <button style={{ padding: 8, width: "100%", textAlign: "left" }} onClick={copyMessage}>
+          <button style={{ padding: 6, cursor: "pointer" }} onClick={copyMessage}>
             Copy
           </button>
-          <button style={{ padding: 8, width: "100%", textAlign: "left" }} onClick={togglePin}>
-            {message.pinned ? "Unpin" : "Pin"}
+          <button style={{ padding: 6, cursor: "pointer" }} onClick={togglePin}>
+            {pinnedMessage?.id === message.id ? "Unpin" : "Pin"}
           </button>
           {isMine && (
-            <button style={{ padding: 8, width: "100%", textAlign: "left" }} onClick={deleteMessage}>
+            <button style={{ padding: 6, cursor: "pointer", color: "red" }} onClick={deleteMessage}>
               Delete
             </button>
           )}
-          <button style={{ padding: 8, width: "100%", textAlign: "left" }} onClick={() => setMenuOpen(false)}>
+          <button style={{ padding: 6, cursor: "pointer" }} onClick={() => setMenuOpen(false)}>
             Close
           </button>
         </div>
       )}
 
-      {/* Quick Reactions Bar (Long Press) */}
+      {/* Reactions bar (long press) */}
       {showReactions && (
         <div
           style={{
@@ -217,7 +226,7 @@ export default function MessageItem({
             top: emojiPos.top,
             left: emojiPos.left,
             transform: "translate(-50%, -100%)",
-            background: isDark ? "#222" : "#fff",
+            background: isDark ? COLORS.darkCard : COLORS.lightCard,
             borderRadius: 30,
             padding: 6,
             display: "flex",
@@ -227,20 +236,13 @@ export default function MessageItem({
           }}
         >
           {QUICK_REACTIONS.map((e) => (
-            <span
-              key={e}
-              style={{ fontSize: 20, cursor: "pointer" }}
-              onClick={() => applyReaction(e)}
-            >
+            <span key={e} style={{ fontSize: 20, cursor: "pointer" }} onClick={() => applyReaction(e)}>
               {e}
             </span>
           ))}
           <span
             style={{ fontSize: 20, cursor: "pointer" }}
-            onClick={() => {
-              setShowReactions(false);
-              EmojiPicker.open({ onSelect: applyReaction, position: emojiPos });
-            }}
+            onClick={() => setShowReactions(false)}
           >
             ➕
           </span>
