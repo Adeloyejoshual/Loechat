@@ -1,4 +1,4 @@
-// src/components/Chat/ChatConversationPage.jsx
+// src/components/ChatConversationPage.jsx
 import React, { useEffect, useState, useRef, useContext } from "react";
 import { useParams } from "react-router-dom";
 import {
@@ -9,6 +9,8 @@ import {
   onSnapshot,
   serverTimestamp,
   doc,
+  updateDoc,
+  getDoc,
 } from "firebase/firestore";
 import { db, auth } from "../firebaseConfig";
 import { ThemeContext } from "../context/ThemeContext";
@@ -19,6 +21,8 @@ import MessageItem from "./Chat/MessageItem";
 import ChatInput from "./Chat/ChatInput";
 import ImagePreviewModal from "./Chat/ImagePreviewModal";
 import axios from "axios";
+import { toast, ToastContainer } from "react-toastify";
+import "react-toastify/dist/ReactToastify.css";
 
 export default function ChatConversationPage() {
   const { chatId } = useParams();
@@ -29,6 +33,7 @@ export default function ChatConversationPage() {
 
   const messagesRefEl = useRef(null);
   const endRef = useRef(null);
+  const messageRefs = useRef({});
 
   const [chatInfo, setChatInfo] = useState(null);
   const [friendInfo, setFriendInfo] = useState(null);
@@ -41,6 +46,9 @@ export default function ChatConversationPage() {
   const [typingUsers, setTypingUsers] = useState([]);
   const [isAtBottom, setIsAtBottom] = useState(true);
   const [showPreview, setShowPreview] = useState(false);
+
+  // Long press context menu
+  const [contextMenu, setContextMenu] = useState({ visible: false, x: 0, y: 0, message: null });
 
   // -------------------- Load chat & friend info --------------------
   useEffect(() => {
@@ -94,7 +102,9 @@ export default function ChatConversationPage() {
     const q = query(messagesRef, orderBy("createdAt", "asc"));
 
     const unsub = onSnapshot(q, (snap) => {
-      const docs = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      const docs = snap.docs
+        .filter((d) => !d.data()?.deleted)
+        .map((d) => ({ id: d.id, ...d.data() }));
       setMessages(docs);
       if (isAtBottom) endRef.current?.scrollIntoView({ behavior: "smooth" });
       setLoadingMsgs(false);
@@ -107,12 +117,10 @@ export default function ChatConversationPage() {
   useEffect(() => {
     const el = messagesRefEl.current;
     if (!el) return;
-
     const onScroll = () => {
       const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
       setIsAtBottom(atBottom);
     };
-
     el.addEventListener("scroll", onScroll);
     return () => el.removeEventListener("scroll", onScroll);
   }, []);
@@ -136,7 +144,6 @@ export default function ChatConversationPage() {
   const groupMessagesByDay = (msgs) => {
     const grouped = [];
     let lastDate = null;
-
     msgs.forEach((msg) => {
       const timestamp = msg.createdAt || new Date();
       const dateStr = formatDateSeparator(timestamp);
@@ -146,11 +153,16 @@ export default function ChatConversationPage() {
       }
       grouped.push({ type: "message", data: msg });
     });
-
     return grouped;
   };
 
   const groupedMessages = groupMessagesByDay(messages);
+
+  // -------------------- Scroll to original message --------------------
+  const scrollToMessage = (messageId) => {
+    const el = messageRefs.current[messageId];
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+  };
 
   // -------------------- Send text message --------------------
   const sendTextMessage = async () => {
@@ -190,10 +202,9 @@ export default function ChatConversationPage() {
     }
   };
 
-  // -------------------- Send media messages (Cloudinary) --------------------
+  // -------------------- Send media messages --------------------
   const sendMediaMessage = async (files) => {
     if (!files || files.length === 0) return;
-
     setShowPreview(false);
 
     for (let f of files) {
@@ -205,7 +216,6 @@ export default function ChatConversationPage() {
         ? "audio"
         : "file";
 
-      // Upload to Cloudinary
       const formData = new FormData();
       formData.append("file", f);
       formData.append("upload_preset", "YOUR_CLOUDINARY_PRESET"); // replace
@@ -242,6 +252,56 @@ export default function ChatConversationPage() {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
   };
 
+  // -------------------- Context menu actions --------------------
+  const handleLongPress = (e, message) => {
+    e.preventDefault();
+    const rect = e.currentTarget.getBoundingClientRect();
+    setContextMenu({
+      visible: true,
+      x: rect.left + rect.width / 2,
+      y: rect.bottom + 10,
+      message,
+    });
+  };
+
+  const closeContextMenu = () => setContextMenu({ visible: false, x: 0, y: 0, message: null });
+
+  const handleReaction = async (emoji) => {
+    if (!contextMenu.message) return;
+    const msgRef = doc(db, "chats", chatId, "messages", contextMenu.message.id);
+    await updateDoc(msgRef, { [`reactions.${myUid}`]: emoji });
+    toast.success(`Reacted with ${emoji}`);
+    closeContextMenu();
+  };
+
+  const handleCopy = async () => {
+    if (!contextMenu.message) return;
+    await navigator.clipboard.writeText(contextMenu.message.text || "");
+    toast.info("Message copied");
+    closeContextMenu();
+  };
+
+  const handleReply = () => {
+    if (!contextMenu.message) return;
+    setReplyTo(contextMenu.message);
+    closeContextMenu();
+  };
+
+  const handlePin = async () => {
+    if (!contextMenu.message) return;
+    await updateDoc(doc(db, "chats", chatId), { pinnedMessageId: contextMenu.message.id });
+    toast.success("Message pinned");
+    closeContextMenu();
+  };
+
+  const handleDelete = async () => {
+    if (!contextMenu.message) return;
+    if (!window.confirm("Are you sure you want to delete this message?")) return;
+    await updateDoc(doc(db, "chats", chatId, "messages", contextMenu.message.id), { deleted: true });
+    toast.info("Message deleted");
+    closeContextMenu();
+  };
+
   return (
     <div
       style={{
@@ -250,15 +310,11 @@ export default function ChatConversationPage() {
         height: "100vh",
         backgroundColor: wallpaper || (isDark ? "#0b0b0b" : "#f5f5f5"),
         color: isDark ? "#fff" : "#000",
+        position: "relative",
       }}
     >
       {/* Header */}
-      <ChatHeader
-        friendId={friendInfo?.id}
-        chatId={chatId}
-        onClearChat={() => {}}
-        onSearch={() => {}}
-      />
+      <ChatHeader friendId={friendInfo?.id} chatId={chatId} pinnedMessage={pinnedMessage} />
 
       {/* Pinned message */}
       {pinnedMessage && (
@@ -278,9 +334,7 @@ export default function ChatConversationPage() {
 
       {/* Messages */}
       <div ref={messagesRefEl} style={{ flex: 1, overflowY: "auto", padding: 8 }}>
-        {loadingMsgs && (
-          <div style={{ textAlign: "center", marginTop: 12 }}>Loading...</div>
-        )}
+        {loadingMsgs && <div style={{ textAlign: "center", marginTop: 12 }}>Loading...</div>}
 
         {groupedMessages.map((item, idx) =>
           item.type === "date-separator" ? (
@@ -289,46 +343,35 @@ export default function ChatConversationPage() {
               style={{
                 textAlign: "center",
                 margin: "10px 0",
-                position: "relative",
                 fontSize: 12,
                 color: isDark ? "#aaa" : "#555",
               }}
             >
-              <span
-                style={{
-                  background: isDark ? "#0b0b0b" : "#f5f5f5",
-                  padding: "0 8px",
-                  position: "relative",
-                  zIndex: 1,
-                }}
-              >
-                {item.date}
-              </span>
-              <hr
-                style={{
-                  position: "absolute",
-                  top: "50%",
-                  left: 0,
-                  width: "100%",
-                  borderColor: isDark ? "#555" : "#ccc",
-                  zIndex: 0,
-                }}
-              />
+              {item.date}
             </div>
           ) : (
-            <MessageItem
+            <div
               key={item.data.id}
-              message={item.data}
-              myUid={myUid}
-              isDark={isDark}
-              chatId={chatId}
-              setReplyTo={setReplyTo}
-              pinnedMessage={pinnedMessage}
-              setPinnedMessage={setPinnedMessage}
-            />
+              ref={(el) => (messageRefs.current[item.data.id] = el)}
+              onContextMenu={(e) => handleLongPress(e, item.data)}
+              onTouchStart={(e) => {
+                const timeout = setTimeout(() => handleLongPress(e, item.data), 600);
+                e.currentTarget._longPressTimeout = timeout;
+              }}
+              onTouchEnd={(e) => clearTimeout(e.currentTarget._longPressTimeout)}
+            >
+              <MessageItem
+                message={item.data}
+                myUid={myUid}
+                isDark={isDark}
+                chatId={chatId}
+                setReplyTo={setReplyTo}
+                onReplyClick={scrollToMessage}
+                enableSwipeReply
+              />
+            </div>
           )
         )}
-
         {typingUsers.length > 0 && (
           <div style={{ fontSize: 12, color: "#888", margin: 4 }}>
             {typingUsers.join(", ")} typing...
@@ -355,15 +398,62 @@ export default function ChatConversationPage() {
       {showPreview && selectedFiles.length > 0 && (
         <ImagePreviewModal
           files={selectedFiles}
-          onRemove={(i) =>
-            setSelectedFiles((prev) => prev.filter((_, idx) => idx !== i))
-          }
+          onRemove={(i) => setSelectedFiles((prev) => prev.filter((_, idx) => idx !== i))}
           onSend={() => sendMediaMessage(selectedFiles)}
           onCancel={() => setShowPreview(false)}
           onAddFiles={() => document.getElementById("file-input")?.click()}
           isDark={isDark}
         />
       )}
+
+      {/* Context Menu */}
+      {contextMenu.visible && (
+        <div
+          style={{
+            position: "absolute",
+            top: contextMenu.y,
+            left: contextMenu.x,
+            transform: "translateX(-50%)",
+            background: isDark ? "#222" : "#fff",
+            border: "1px solid #888",
+            borderRadius: 12,
+            padding: 10,
+            zIndex: 9999,
+            boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
+            minWidth: 180,
+          }}
+        >
+          <div style={{ display: "flex", justifyContent: "space-around", marginBottom: 8 }}>
+            {["😝", "💟", "💝", "😜"].map((emoji) => (
+              <span
+                key={emoji}
+                style={{ fontSize: 20, cursor: "pointer" }}
+                onClick={() => handleReaction(emoji)}
+              >
+                {emoji}
+              </span>
+            ))}
+            <span style={{ fontSize: 20, cursor: "pointer" }}>+</span>
+          </div>
+          <div style={{ borderTop: `1px solid ${isDark ? "#555" : "#ccc"}`, marginTop: 4 }} />
+          <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 6 }}>
+            <button style={{ cursor: "pointer" }} onClick={handleCopy}>
+              Copy
+            </button>
+            <button style={{ cursor: "pointer" }} onClick={handleReply}>
+              Reply
+            </button>
+            <button style={{ cursor: "pointer" }} onClick={handlePin}>
+              Pin
+            </button>
+            <button style={{ cursor: "pointer", color: "red" }} onClick={handleDelete}>
+              Delete
+            </button>
+          </div>
+        </div>
+      )}
+
+      <ToastContainer position="top-center" autoClose={1500} hideProgressBar />
     </div>
   );
 }
