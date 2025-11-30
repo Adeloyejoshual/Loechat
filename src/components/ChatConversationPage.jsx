@@ -1,4 +1,3 @@
-// src/components/ChatConversationPage.jsx
 import React, { useEffect, useState, useRef, useContext } from "react";
 import { useParams } from "react-router-dom";
 import {
@@ -10,7 +9,6 @@ import {
   serverTimestamp,
   doc,
   updateDoc,
-  getDoc,
 } from "firebase/firestore";
 import { db, auth } from "../firebaseConfig";
 import { ThemeContext } from "../context/ThemeContext";
@@ -47,8 +45,12 @@ export default function ChatConversationPage() {
   const [isAtBottom, setIsAtBottom] = useState(true);
   const [showPreview, setShowPreview] = useState(false);
 
-  // Long press context menu
-  const [contextMenu, setContextMenu] = useState({ visible: false, x: 0, y: 0, message: null });
+  const [contextMenu, setContextMenu] = useState({
+    visible: false,
+    x: 0,
+    y: 0,
+    message: null,
+  });
 
   // -------------------- Load chat & friend info --------------------
   useEffect(() => {
@@ -72,7 +74,6 @@ export default function ChatConversationPage() {
               });
             }
 
-            // Pinned message
             if (data.pinnedMessageId) {
               const pinnedMsgRef = doc(db, "chats", chatId, "messages", data.pinnedMessageId);
               onSnapshot(pinnedMsgRef, (snap) => {
@@ -158,7 +159,6 @@ export default function ChatConversationPage() {
 
   const groupedMessages = groupMessagesByDay(messages);
 
-  // -------------------- Scroll to original message --------------------
   const scrollToMessage = (messageId) => {
     const el = messageRefs.current[messageId];
     if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -203,7 +203,7 @@ export default function ChatConversationPage() {
   };
 
   // -------------------- Send media messages --------------------
-  const sendMediaMessage = async (files) => {
+  const sendMediaMessage = async (files, rTo = replyTo) => {
     if (!files || files.length === 0) return;
     setShowPreview(false);
 
@@ -216,14 +216,23 @@ export default function ChatConversationPage() {
         ? "audio"
         : "file";
 
-      const formData = new FormData();
-      formData.append("file", f);
-      formData.append("upload_preset", "YOUR_CLOUDINARY_PRESET"); // replace
-      const res = await axios.post(
-        "https://api.cloudinary.com/v1_1/YOUR_CLOUD_NAME/auto/upload",
-        formData
-      );
-      const mediaUrl = res.data.secure_url;
+      let mediaUrl = "";
+      try {
+        if (type !== "file") {
+          const formData = new FormData();
+          formData.append("file", f);
+          formData.append("upload_preset", import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET);
+          const res = await axios.post(
+            `https://api.cloudinary.com/v1_1/${import.meta.env.VITE_CLOUDINARY_CLOUD_NAME}/auto/upload`,
+            formData
+          );
+          mediaUrl = res.data.secure_url;
+        }
+      } catch (err) {
+        console.error("Cloudinary upload failed:", err);
+        toast.error(`Failed to upload ${f.name}`);
+        continue;
+      }
 
       const payload = {
         senderId: myUid,
@@ -236,11 +245,11 @@ export default function ChatConversationPage() {
         seen: false,
       };
 
-      if (replyTo) {
+      if (rTo) {
         payload.replyTo = {
-          id: replyTo.id,
-          text: replyTo.text,
-          senderId: replyTo.senderId,
+          id: rTo.id,
+          text: rTo.text,
+          senderId: rTo.senderId,
         };
         setReplyTo(null);
       }
@@ -252,7 +261,7 @@ export default function ChatConversationPage() {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
   };
 
-  // -------------------- Context menu actions --------------------
+  // -------------------- Context menu --------------------
   const handleLongPress = (e, message) => {
     e.preventDefault();
     const rect = e.currentTarget.getBoundingClientRect();
@@ -265,7 +274,6 @@ export default function ChatConversationPage() {
   };
 
   const closeContextMenu = () => setContextMenu({ visible: false, x: 0, y: 0, message: null });
-
   const handleReaction = async (emoji) => {
     if (!contextMenu.message) return;
     const msgRef = doc(db, "chats", chatId, "messages", contextMenu.message.id);
@@ -273,27 +281,23 @@ export default function ChatConversationPage() {
     toast.success(`Reacted with ${emoji}`);
     closeContextMenu();
   };
-
   const handleCopy = async () => {
     if (!contextMenu.message) return;
     await navigator.clipboard.writeText(contextMenu.message.text || "");
     toast.info("Message copied");
     closeContextMenu();
   };
-
   const handleReply = () => {
     if (!contextMenu.message) return;
     setReplyTo(contextMenu.message);
     closeContextMenu();
   };
-
   const handlePin = async () => {
     if (!contextMenu.message) return;
     await updateDoc(doc(db, "chats", chatId), { pinnedMessageId: contextMenu.message.id });
     toast.success("Message pinned");
     closeContextMenu();
   };
-
   const handleDelete = async () => {
     if (!contextMenu.message) return;
     if (!window.confirm("Are you sure you want to delete this message?")) return;
@@ -303,152 +307,46 @@ export default function ChatConversationPage() {
   };
 
   return (
-    <div
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        height: "100vh",
-        backgroundColor: wallpaper || (isDark ? "#0b0b0b" : "#f5f5f5"),
-        color: isDark ? "#fff" : "#000",
-        position: "relative",
-      }}
-    >
-      {/* Header */}
+    <div style={{ display: "flex", flexDirection: "column", height: "100vh", backgroundColor: wallpaper || (isDark ? "#0b0b0b" : "#f5f5f5"), color: isDark ? "#fff" : "#000", position: "relative" }}>
       <ChatHeader friendId={friendInfo?.id} chatId={chatId} pinnedMessage={pinnedMessage} />
 
-      {/* Pinned message */}
-      {pinnedMessage && (
-        <div
-          style={{
-            background: "#f39c12",
-            color: "#fff",
-            padding: 6,
-            borderRadius: 8,
-            margin: 8,
-            fontSize: 14,
-          }}
-        >
-          📌 {pinnedMessage.text || pinnedMessage.mediaType || "Media"}
-        </div>
-      )}
-
-      {/* Messages */}
       <div ref={messagesRefEl} style={{ flex: 1, overflowY: "auto", padding: 8 }}>
         {loadingMsgs && <div style={{ textAlign: "center", marginTop: 12 }}>Loading...</div>}
 
         {groupedMessages.map((item, idx) =>
           item.type === "date-separator" ? (
-            <div
-              key={idx}
-              style={{
-                textAlign: "center",
-                margin: "10px 0",
-                fontSize: 12,
-                color: isDark ? "#aaa" : "#555",
-              }}
-            >
-              {item.date}
-            </div>
+            <div key={idx} style={{ textAlign: "center", margin: "10px 0", fontSize: 12, color: isDark ? "#aaa" : "#555" }}>{item.date}</div>
           ) : (
-            <div
-              key={item.data.id}
-              ref={(el) => (messageRefs.current[item.data.id] = el)}
-              onContextMenu={(e) => handleLongPress(e, item.data)}
-              onTouchStart={(e) => {
-                const timeout = setTimeout(() => handleLongPress(e, item.data), 600);
-                e.currentTarget._longPressTimeout = timeout;
-              }}
-              onTouchEnd={(e) => clearTimeout(e.currentTarget._longPressTimeout)}
-            >
-              <MessageItem
-                message={item.data}
-                myUid={myUid}
-                isDark={isDark}
-                chatId={chatId}
-                setReplyTo={setReplyTo}
-                onReplyClick={scrollToMessage}
-                enableSwipeReply
-              />
+            <div key={item.data.id} ref={(el) => (messageRefs.current[item.data.id] = el)} onContextMenu={(e) => handleLongPress(e, item.data)} onTouchStart={(e) => { const timeout = setTimeout(() => handleLongPress(e, item.data), 600); e.currentTarget._longPressTimeout = timeout; }} onTouchEnd={(e) => clearTimeout(e.currentTarget._longPressTimeout)}>
+              <MessageItem message={item.data} myUid={myUid} isDark={isDark} chatId={chatId} setReplyTo={setReplyTo} onReplyClick={scrollToMessage} enableSwipeReply />
             </div>
           )
         )}
-        {typingUsers.length > 0 && (
-          <div style={{ fontSize: 12, color: "#888", margin: 4 }}>
-            {typingUsers.join(", ")} typing...
-          </div>
-        )}
+
+        {typingUsers.length > 0 && <div style={{ fontSize: 12, color: "#888", margin: 4 }}>{typingUsers.join(", ")} typing...</div>}
         <div ref={endRef} />
       </div>
 
-      {/* Chat input */}
-      <ChatInput
-        text={text}
-        setText={setText}
-        sendTextMessage={sendTextMessage}
-        sendMediaMessage={sendMediaMessage}
-        selectedFiles={selectedFiles}
-        setSelectedFiles={setSelectedFiles}
-        isDark={isDark}
-        setShowPreview={setShowPreview}
-        replyTo={replyTo}
-        setReplyTo={setReplyTo}
-      />
+      <ChatInput text={text} setText={setText} sendTextMessage={sendTextMessage} sendMediaMessage={sendMediaMessage} selectedFiles={selectedFiles} setSelectedFiles={setSelectedFiles} isDark={isDark} setShowPreview={setShowPreview} replyTo={replyTo} setReplyTo={setReplyTo} />
 
-      {/* Image / Video Preview */}
       {showPreview && selectedFiles.length > 0 && (
-        <ImagePreviewModal
-          files={selectedFiles}
-          onRemove={(i) => setSelectedFiles((prev) => prev.filter((_, idx) => idx !== i))}
-          onSend={() => sendMediaMessage(selectedFiles)}
-          onCancel={() => setShowPreview(false)}
-          onAddFiles={() => document.getElementById("file-input")?.click()}
-          isDark={isDark}
-        />
+        <ImagePreviewModal files={selectedFiles} onRemove={(i) => setSelectedFiles((prev) => prev.filter((_, idx) => idx !== i))} onSend={async () => { await sendMediaMessage(selectedFiles, replyTo); setReplyTo(null); }} onCancel={() => setShowPreview(false)} onAddFiles={() => document.getElementById("file-input")?.click()} isDark={isDark} chatId={chatId} replyTo={replyTo} setReplyTo={setReplyTo} />
       )}
 
-      {/* Context Menu */}
       {contextMenu.visible && (
-        <div
-          style={{
-            position: "absolute",
-            top: contextMenu.y,
-            left: contextMenu.x,
-            transform: "translateX(-50%)",
-            background: isDark ? "#222" : "#fff",
-            border: "1px solid #888",
-            borderRadius: 12,
-            padding: 10,
-            zIndex: 9999,
-            boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
-            minWidth: 180,
-          }}
-        >
+        <div style={{ position: "absolute", top: contextMenu.y, left: contextMenu.x, transform: "translateX(-50%)", background: isDark ? "#222" : "#fff", border: "1px solid #888", borderRadius: 12, padding: 10, zIndex: 9999, boxShadow: "0 4px 12px rgba(0,0,0,0.3)", minWidth: 180 }}>
           <div style={{ display: "flex", justifyContent: "space-around", marginBottom: 8 }}>
             {["😝", "💟", "💝", "😜"].map((emoji) => (
-              <span
-                key={emoji}
-                style={{ fontSize: 20, cursor: "pointer" }}
-                onClick={() => handleReaction(emoji)}
-              >
-                {emoji}
-              </span>
+              <span key={emoji} style={{ fontSize: 20, cursor: "pointer" }} onClick={() => handleReaction(emoji)}>{emoji}</span>
             ))}
             <span style={{ fontSize: 20, cursor: "pointer" }}>+</span>
           </div>
           <div style={{ borderTop: `1px solid ${isDark ? "#555" : "#ccc"}`, marginTop: 4 }} />
           <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 6 }}>
-            <button style={{ cursor: "pointer" }} onClick={handleCopy}>
-              Copy
-            </button>
-            <button style={{ cursor: "pointer" }} onClick={handleReply}>
-              Reply
-            </button>
-            <button style={{ cursor: "pointer" }} onClick={handlePin}>
-              Pin
-            </button>
-            <button style={{ cursor: "pointer", color: "red" }} onClick={handleDelete}>
-              Delete
-            </button>
+            <button style={{ cursor: "pointer" }} onClick={handleCopy}>Copy</button>
+            <button style={{ cursor: "pointer" }} onClick={handleReply}>Reply</button>
+            <button style={{ cursor: "pointer" }} onClick={handlePin}>Pin</button>
+            <button style={{ cursor: "pointer", color: "red" }} onClick={handleDelete}>Delete</button>
           </div>
         </div>
       )}
