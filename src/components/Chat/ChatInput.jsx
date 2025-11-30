@@ -1,33 +1,37 @@
 // src/components/Chat/ChatInput.jsx
-import React, { useRef, useState } from "react";
-import { Paperclip, Send, Mic, X } from "lucide-react";
+import React, { useState, useRef } from "react";
+import { Paperclip, Send } from "lucide-react";
 import ImagePreviewModal from "./ImagePreviewModal";
 
 export default function ChatInput({
   text,
   setText,
   sendTextMessage,
-  sendMediaMessage,
+  sendMediaMessage, // pass this from ChatConversationPage
   selectedFiles,
   setSelectedFiles,
   isDark,
-  setShowPreview,
-  replyTo,
-  setReplyTo,
 }) {
   const fileInputRef = useRef(null);
-  const [recording, setRecording] = useState(false);
-  const [mediaRecorder, setMediaRecorder] = useState(null);
-  const [audioChunks, setAudioChunks] = useState([]);
+  const [showPreview, setShowPreview] = useState(false);
 
-  // ------------------- File Handling -------------------
+  // -----------------------------
+  // File selection (images/videos only for preview)
+  // -----------------------------
   const handleFileChange = (e) => {
     const files = Array.from(e.target.files || []);
     if (!files.length) return;
 
-    setSelectedFiles([...selectedFiles, ...files].slice(0, 30));
+    // Only keep images/videos
+    const mediaFiles = files.filter(
+      (f) => f.type.startsWith("image/") || f.type.startsWith("video/")
+    );
+    if (!mediaFiles.length) return;
+
+    setSelectedFiles([...selectedFiles, ...mediaFiles].slice(0, 30));
     setShowPreview(true);
-    e.target.value = null;
+
+    e.target.value = null; // reset input
   };
 
   const handleRemoveFile = (index) => {
@@ -36,9 +40,15 @@ export default function ChatInput({
 
   const handleSendFromPreview = async () => {
     if (!selectedFiles.length) return;
-    await sendMediaMessage(selectedFiles);
-    setSelectedFiles([]);
-    setShowPreview(false);
+
+    try {
+      await sendMediaMessage(selectedFiles);
+      setSelectedFiles([]);
+      setShowPreview(false);
+    } catch (err) {
+      console.error("Upload failed:", err);
+      alert("Upload failed. Try again.");
+    }
   };
 
   const handleCancelPreview = () => {
@@ -48,85 +58,9 @@ export default function ChatInput({
 
   const handleAddMoreFiles = () => fileInputRef.current.click();
 
-  // ------------------- Voice Note -------------------
-  const startRecording = async () => {
-    if (!navigator.mediaDevices) return alert("Audio recording not supported.");
-
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const recorder = new MediaRecorder(stream);
-      const chunks = [];
-
-      recorder.ondataavailable = (e) => chunks.push(e.data);
-
-      recorder.onstop = async () => {
-        const audioBlob = new Blob(chunks, { type: "audio/webm" });
-        const audioFile = new File([audioBlob], `voice-${Date.now()}.webm`, {
-          type: "audio/webm",
-        });
-
-        await sendMediaMessage([audioFile]);
-      };
-
-      recorder.start();
-      setRecording(true);
-      setMediaRecorder(recorder);
-      setAudioChunks(chunks);
-    } catch (err) {
-      console.error("Recording error:", err);
-    }
-  };
-
-  const stopRecording = () => {
-    if (!mediaRecorder) return;
-    mediaRecorder.stop();
-    setRecording(false);
-    setMediaRecorder(null);
-    setAudioChunks([]);
-  };
-
   return (
     <>
-      {/* Reply Preview */}
-      {replyTo && (
-        <div
-          style={{
-            background: isDark ? "#1b1b1b" : "#eaeaea",
-            padding: 8,
-            margin: 4,
-            borderRadius: 8,
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-          }}
-        >
-          <div>
-            Replying to: <strong>{replyTo.text || replyTo.mediaType || "Media"}</strong>
-          </div>
-          <button
-            onClick={() => setReplyTo(null)}
-            style={{
-              background: "transparent",
-              border: "none",
-              cursor: "pointer",
-              color: isDark ? "#fff" : "#333",
-            }}
-          >
-            <X size={16} />
-          </button>
-        </div>
-      )}
-
-      {/* File Input */}
-      <input
-        type="file"
-        multiple
-        hidden
-        ref={fileInputRef}
-        onChange={handleFileChange}
-      />
-
-      {/* Chat Controls */}
+      {/* Input bar */}
       <div
         style={{
           display: "flex",
@@ -140,15 +74,23 @@ export default function ChatInput({
           zIndex: 20,
         }}
       >
-        {/* Attach */}
+        {/* File input */}
+        <input
+          type="file"
+          multiple
+          hidden
+          ref={fileInputRef}
+          onChange={handleFileChange}
+          accept="image/*,video/*"
+        />
         <button
-          onClick={handleAddMoreFiles}
+          onClick={() => fileInputRef.current.click()}
           style={{ background: "transparent", border: "none", cursor: "pointer" }}
         >
           <Paperclip />
         </button>
 
-        {/* Input */}
+        {/* Text input */}
         <input
           value={text}
           onChange={(e) => setText(e.target.value)}
@@ -165,21 +107,17 @@ export default function ChatInput({
           onKeyDown={(e) => e.key === "Enter" && sendTextMessage()}
         />
 
-        {/* Send / Voice */}
+        {/* Send button */}
         <button
-          onMouseDown={startRecording}
-          onMouseUp={stopRecording}
-          onTouchStart={startRecording}
-          onTouchEnd={stopRecording}
           onClick={sendTextMessage}
           style={{ fontSize: 18, background: "transparent", border: "none" }}
         >
-          {recording ? "🔴" : text ? <Send /> : <Mic />}
+          <Send />
         </button>
       </div>
 
-      {/* Image/Video Preview Modal */}
-      {selectedFiles.length > 0 && (
+      {/* Preview modal */}
+      {showPreview && selectedFiles.length > 0 && (
         <ImagePreviewModal
           files={selectedFiles}
           onRemove={handleRemoveFile}
