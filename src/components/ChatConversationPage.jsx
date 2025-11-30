@@ -8,7 +8,6 @@ import {
   orderBy,
   onSnapshot,
   serverTimestamp,
-  updateDoc,
   doc,
 } from "firebase/firestore";
 import { db, auth } from "../firebaseConfig";
@@ -19,6 +18,7 @@ import ChatHeader from "./Chat/ChatHeader";
 import MessageItem from "./Chat/MessageItem";
 import ChatInput from "./Chat/ChatInput";
 import ImagePreviewModal from "./Chat/ImagePreviewModal";
+import axios from "axios";
 
 export default function ChatConversationPage() {
   const { chatId } = useParams();
@@ -40,7 +40,6 @@ export default function ChatConversationPage() {
   const [pinnedMessage, setPinnedMessage] = useState(null);
   const [typingUsers, setTypingUsers] = useState([]);
   const [isAtBottom, setIsAtBottom] = useState(true);
-
   const [showPreview, setShowPreview] = useState(false);
 
   // -------------------- Load chat & friend info --------------------
@@ -65,7 +64,7 @@ export default function ChatConversationPage() {
               });
             }
 
-            // Handle pinned message
+            // Pinned message
             if (data.pinnedMessageId) {
               const pinnedMsgRef = doc(db, "chats", chatId, "messages", data.pinnedMessageId);
               onSnapshot(pinnedMsgRef, (snap) => {
@@ -118,15 +117,49 @@ export default function ChatConversationPage() {
     return () => el.removeEventListener("scroll", onScroll);
   }, []);
 
+  // -------------------- Date helpers --------------------
+  const formatDateSeparator = (date) => {
+    if (!date) return "";
+    const msgDate = new Date(date.toDate?.() || date);
+    const now = new Date();
+    const yesterday = new Date();
+    yesterday.setDate(now.getDate() - 1);
+
+    if (msgDate.toDateString() === now.toDateString()) return "Today";
+    if (msgDate.toDateString() === yesterday.toDateString()) return "Yesterday";
+
+    const options = { month: "short", day: "numeric" };
+    if (msgDate.getFullYear() !== now.getFullYear()) options.year = "numeric";
+    return msgDate.toLocaleDateString(undefined, options);
+  };
+
+  const groupMessagesByDay = (msgs) => {
+    const grouped = [];
+    let lastDate = null;
+
+    msgs.forEach((msg) => {
+      const timestamp = msg.createdAt || new Date();
+      const dateStr = formatDateSeparator(timestamp);
+      if (dateStr !== lastDate) {
+        grouped.push({ type: "date-separator", date: dateStr });
+        lastDate = dateStr;
+      }
+      grouped.push({ type: "message", data: msg });
+    });
+
+    return grouped;
+  };
+
+  const groupedMessages = groupMessagesByDay(messages);
+
   // -------------------- Send text message --------------------
   const sendTextMessage = async () => {
     if (!text.trim() && selectedFiles.length === 0) return;
 
     try {
-      // Handle text + files
       if (selectedFiles.length > 0) {
         setShowPreview(true);
-        return; // Media sending handled in preview modal
+        return;
       }
 
       const payload = {
@@ -157,9 +190,11 @@ export default function ChatConversationPage() {
     }
   };
 
-  // -------------------- Send media messages --------------------
+  // -------------------- Send media messages (Cloudinary) --------------------
   const sendMediaMessage = async (files) => {
     if (!files || files.length === 0) return;
+
+    setShowPreview(false);
 
     for (let f of files) {
       const type = f.type.startsWith("image/")
@@ -170,9 +205,15 @@ export default function ChatConversationPage() {
         ? "audio"
         : "file";
 
-      // Upload to Cloudinary / storage here
-      // Placeholder: assume mediaUrl = URL.createObjectURL(f)
-      const mediaUrl = URL.createObjectURL(f);
+      // Upload to Cloudinary
+      const formData = new FormData();
+      formData.append("file", f);
+      formData.append("upload_preset", "YOUR_CLOUDINARY_PRESET"); // replace
+      const res = await axios.post(
+        "https://api.cloudinary.com/v1_1/YOUR_CLOUD_NAME/auto/upload",
+        formData
+      );
+      const mediaUrl = res.data.secure_url;
 
       const payload = {
         senderId: myUid,
@@ -198,7 +239,6 @@ export default function ChatConversationPage() {
     }
 
     setSelectedFiles([]);
-    setShowPreview(false);
     endRef.current?.scrollIntoView({ behavior: "smooth" });
   };
 
@@ -238,19 +278,56 @@ export default function ChatConversationPage() {
 
       {/* Messages */}
       <div ref={messagesRefEl} style={{ flex: 1, overflowY: "auto", padding: 8 }}>
-        {loadingMsgs && <div style={{ textAlign: "center", marginTop: 12 }}>Loading...</div>}
-        {messages.map((msg) => (
-          <MessageItem
-            key={msg.id}
-            message={msg}
-            myUid={myUid}
-            isDark={isDark}
-            chatId={chatId}
-            setReplyTo={setReplyTo}
-            pinnedMessage={pinnedMessage}
-            setPinnedMessage={setPinnedMessage}
-          />
-        ))}
+        {loadingMsgs && (
+          <div style={{ textAlign: "center", marginTop: 12 }}>Loading...</div>
+        )}
+
+        {groupedMessages.map((item, idx) =>
+          item.type === "date-separator" ? (
+            <div
+              key={idx}
+              style={{
+                textAlign: "center",
+                margin: "10px 0",
+                position: "relative",
+                fontSize: 12,
+                color: isDark ? "#aaa" : "#555",
+              }}
+            >
+              <span
+                style={{
+                  background: isDark ? "#0b0b0b" : "#f5f5f5",
+                  padding: "0 8px",
+                  position: "relative",
+                  zIndex: 1,
+                }}
+              >
+                {item.date}
+              </span>
+              <hr
+                style={{
+                  position: "absolute",
+                  top: "50%",
+                  left: 0,
+                  width: "100%",
+                  borderColor: isDark ? "#555" : "#ccc",
+                  zIndex: 0,
+                }}
+              />
+            </div>
+          ) : (
+            <MessageItem
+              key={item.data.id}
+              message={item.data}
+              myUid={myUid}
+              isDark={isDark}
+              chatId={chatId}
+              setReplyTo={setReplyTo}
+              pinnedMessage={pinnedMessage}
+              setPinnedMessage={setPinnedMessage}
+            />
+          )
+        )}
 
         {typingUsers.length > 0 && (
           <div style={{ fontSize: 12, color: "#888", margin: 4 }}>
