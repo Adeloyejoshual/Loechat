@@ -1,5 +1,5 @@
 // src/components/Chat/ImagePreviewModal.jsx
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import { X } from "lucide-react";
 import { addDoc, collection, serverTimestamp } from "firebase/firestore";
 import { db, auth } from "../../firebaseConfig";
@@ -11,18 +11,13 @@ export default function ImagePreviewModal({
   onCancel,
   onAddFiles,
   chatId,
+  replyTo = null, // <-- added
 }) {
   const [activeIndex, setActiveIndex] = useState(0);
   const [uploading, setUploading] = useState(false);
 
   const activeFile = files[activeIndex];
-
   if (!activeFile) return null;
-
-  const isImage = activeFile.type.startsWith("image/");
-  const isVideo = activeFile.type.startsWith("video/");
-  const isAudio = activeFile.type.startsWith("audio/");
-  const isFile = !isImage && !isVideo && !isAudio;
 
   const uploadToCloudinary = async (file) => {
     const formData = new FormData();
@@ -39,20 +34,21 @@ export default function ImagePreviewModal({
     setUploading(true);
     try {
       for (const file of files) {
+        const isImage = file.type.startsWith("image/");
+        const isVideo = file.type.startsWith("video/");
+        const isAudio = file.type.startsWith("audio/");
         let mediaUrl = "";
         let mediaType = null;
 
-        // Only upload image/video/audio, skip generic files
         if (isImage || isVideo || isAudio) {
           mediaUrl = await uploadToCloudinary(file);
           mediaType = isImage ? "image" : isVideo ? "video" : "audio";
         } else {
-          // Optional: handle generic files with different storage (or skip)
-          mediaUrl = "";
           mediaType = "file";
+          mediaUrl = ""; // optional: upload files elsewhere if needed
         }
 
-        await addDoc(collection(db, "chats", chatId, "messages"), {
+        const payload = {
           senderId: auth.currentUser.uid,
           text: file.name || "",
           mediaUrl,
@@ -61,8 +57,20 @@ export default function ImagePreviewModal({
           createdAt: serverTimestamp(),
           delivered: false,
           seen: false,
-        });
+        };
+
+        // Include replyTo if exists
+        if (replyTo) {
+          payload.replyTo = {
+            id: replyTo.id,
+            text: replyTo.text,
+            senderId: replyTo.senderId,
+          };
+        }
+
+        await addDoc(collection(db, "chats", chatId, "messages"), payload);
       }
+
       onCancel();
     } catch (err) {
       console.error("Upload failed:", err);
@@ -116,15 +124,28 @@ export default function ImagePreviewModal({
           maxHeight: "70vh",
         }}
       >
-        {isImage && <img src={URL.createObjectURL(activeFile)} alt="preview" style={{ maxWidth: "90%", maxHeight: "90%", borderRadius: 12, objectFit: "contain" }} />}
-        {isVideo && <video src={URL.createObjectURL(activeFile)} controls style={{ maxWidth: "90%", maxHeight: "90%", borderRadius: 12 }} />}
-        {isAudio && <audio src={URL.createObjectURL(activeFile)} controls />}
-        {isFile && <div>{activeFile.name}</div>}
+        {activeFile.type.startsWith("image/") && (
+          <img
+            src={URL.createObjectURL(activeFile)}
+            alt="preview"
+            style={{ maxWidth: "90%", maxHeight: "90%", borderRadius: 12, objectFit: "contain" }}
+          />
+        )}
+        {activeFile.type.startsWith("video/") && (
+          <video
+            src={URL.createObjectURL(activeFile)}
+            controls
+            style={{ maxWidth: "90%", maxHeight: "90%", borderRadius: 12 }}
+          />
+        )}
+        {activeFile.type.startsWith("audio/") && <audio src={URL.createObjectURL(activeFile)} controls />}
+        {!activeFile.type.startsWith("image/") &&
+          !activeFile.type.startsWith("video/") &&
+          !activeFile.type.startsWith("audio/") && <div>{activeFile.name}</div>}
       </div>
 
       {/* Thumbnails */}
       <div style={{ display: "flex", gap: 10, overflowX: "auto", paddingBottom: 10, marginTop: 10 }}>
-        {/* Add Files */}
         <div
           onClick={onAddFiles}
           style={{
@@ -162,7 +183,11 @@ export default function ImagePreviewModal({
             }}
           >
             {(f.type.startsWith("image/") || f.type.startsWith("video/")) && (
-              <img src={URL.createObjectURL(f)} alt="thumb" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+              <img
+                src={URL.createObjectURL(f)}
+                alt="thumb"
+                style={{ width: "100%", height: "100%", objectFit: "cover" }}
+              />
             )}
             <button
               onClick={(e) => {
