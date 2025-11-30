@@ -1,9 +1,9 @@
-// App Name: Loechat
+// App.jsx
 import React, { useEffect, useState } from "react";
 import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
 import { ThemeProvider } from "./context/ThemeContext";
 import { WalletProvider } from "./context/WalletContext";
-import { UserProvider } from "./context/UserContext"; // <-- Added
+import { UserProvider } from "./context/UserContext";
 import { auth, setUserPresence, db } from "./firebaseConfig";
 import { doc, updateDoc, increment } from "firebase/firestore";
 
@@ -14,7 +14,7 @@ import { PopupProvider } from "./context/PopupContext";
 import HomePage from "./components/HomePage";
 import ChatPage from "./components/ChatPage";
 import ChatConversationPage from "./components/ChatConversationPage";
-import ArchivePage from "./components/ChatPage/ArchivePage"; // <-- Added
+import ArchivePage from "./components/ChatPage/ArchivePage";
 import CallPage from "./components/CallPage";
 import SettingsPage from "./components/SettingsPage";
 import CallHistoryPage from "./components/CallHistoryPage";
@@ -25,18 +25,17 @@ import VoiceCallPage from "./components/VoiceCallPage";
 import VideoCallPage from "./components/VideoCallPage";
 import EditProfilePage from "./components/EditProfilePage";
 import WalletPage from "./components/WalletPage";
+import FriendProfilePage from "./components/FriendProfilePage"; // <-- Added
 
 // Components
 import ProtectedRoute from "./components/ProtectedRoute";
-import AdGateway, { useAd } from "./components/AdGateway";
+import AdGateway from "./components/AdGateway";
 
 export default function App() {
   const [checkingAuth, setCheckingAuth] = useState(true);
   const [user, setUser] = useState(null);
 
-  // ----------------------------
   // Firebase Auth + Presence
-  // ----------------------------
   useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged((u) => {
       setUser(u);
@@ -51,9 +50,7 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  // ----------------------------
   // Reward Coins Helper
-  // ----------------------------
   const rewardCoins = async (uid, amount) => {
     if (!uid) return;
     const userRef = doc(db, "users", uid);
@@ -62,9 +59,7 @@ export default function App() {
     });
   };
 
-  // ----------------------------
   // Loading Screen
-  // ----------------------------
   if (checkingAuth) {
     return (
       <div
@@ -111,13 +106,11 @@ export default function App() {
     );
   }
 
-  // ----------------------------
   // App Routes
-  // ----------------------------
   return (
     <ThemeProvider>
       <WalletProvider>
-        <UserProvider> {/* <-- Wrap with UserProvider */}
+        <UserProvider>
           <PopupProvider>
             <AdGateway>
               <Router>
@@ -181,10 +174,7 @@ export default function App() {
                     path="/wallet"
                     element={
                       <ProtectedRoute>
-                        <WalletPage
-                          user={user}
-                          rewardCoins={rewardCoins}
-                        />
+                        <WalletPage user={user} rewardCoins={rewardCoins} />
                       </ProtectedRoute>
                     }
                   />
@@ -192,10 +182,7 @@ export default function App() {
                     path="/daily-bonus"
                     element={
                       <ProtectedRoute>
-                        <HomePage
-                          user={user}
-                          rewardCoins={rewardCoins}
-                        />
+                        <HomePage user={user} rewardCoins={rewardCoins} />
                       </ProtectedRoute>
                     }
                   />
@@ -203,10 +190,7 @@ export default function App() {
                     path="/withdraw"
                     element={
                       <ProtectedRoute>
-                        <WithdrawPage
-                          user={user}
-                          rewardCoins={rewardCoins}
-                        />
+                        <WithdrawPage user={user} rewardCoins={rewardCoins} />
                       </ProtectedRoute>
                     }
                   />
@@ -241,6 +225,15 @@ export default function App() {
                     element={
                       <ProtectedRoute>
                         <UserProfile currentUser={user} />
+                      </ProtectedRoute>
+                    }
+                  />
+                  {/* Friend Profile Page */}
+                  <Route
+                    path="/friend/:uid"
+                    element={
+                      <ProtectedRoute>
+                        <FriendProfilePage currentUser={user} />
                       </ProtectedRoute>
                     }
                   />
