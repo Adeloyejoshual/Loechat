@@ -2,9 +2,8 @@
 import React, { useEffect, useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { doc, onSnapshot, updateDoc } from "firebase/firestore";
-import { db, auth } from "../../firebaseConfig";
-import { FiMoreVertical } from "react-icons/fi";
-import { Phone, Video } from "react-icons/fi"; // use correct icon imports
+import { db } from "../../firebaseConfig";
+import { FiMoreVertical, FiPhone, FiVideo } from "react-icons/fi";
 
 export default function ChatHeader({ friendId, chatId, onClearChat, onSearch }) {
   const navigate = useNavigate();
@@ -13,7 +12,7 @@ export default function ChatHeader({ friendId, chatId, onClearChat, onSearch }) 
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef(null);
 
-  // Detect clicks outside menu to close
+  // Close menu when clicking outside
   useEffect(() => {
     const handleClickOutside = (e) => {
       if (menuRef.current && !menuRef.current.contains(e.target)) setMenuOpen(false);
@@ -40,15 +39,14 @@ export default function ChatHeader({ friendId, chatId, onClearChat, onSearch }) 
     return () => unsub();
   }, [chatId]);
 
-  // -------------------------
-  // ACTIONS
-  // -------------------------
+  // Toggle block/unblock chat
   const toggleBlock = async () => {
     if (!chatInfo) return;
     await updateDoc(doc(db, "chats", chatId), { blocked: !chatInfo.blocked });
     setMenuOpen(false);
   };
 
+  // Toggle mute/unmute chat
   const toggleMute = async () => {
     if (!chatInfo) return;
     const isMuted = chatInfo.mutedUntil && chatInfo.mutedUntil > Date.now();
@@ -58,7 +56,6 @@ export default function ChatHeader({ friendId, chatId, onClearChat, onSearch }) 
     setMenuOpen(false);
   };
 
-  // Helper: get initials
   const getInitials = (name) => {
     if (!name) return "U";
     const parts = name.trim().split(" ");
@@ -67,7 +64,6 @@ export default function ChatHeader({ friendId, chatId, onClearChat, onSearch }) 
       : parts[0][0].toUpperCase();
   };
 
-  // Helper: format last seen
   const formatLastSeen = (timestamp) => {
     if (!timestamp) return "";
     const date = timestamp.toDate();
@@ -75,7 +71,6 @@ export default function ChatHeader({ friendId, chatId, onClearChat, onSearch }) 
     const yesterday = new Date();
     yesterday.setDate(now.getDate() - 1);
     const timeString = date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-
     if (date.toDateString() === now.toDateString()) return `Today, ${timeString}`;
     if (date.toDateString() === yesterday.toDateString()) return "Yesterday";
     return date.toLocaleDateString([], {
@@ -85,16 +80,12 @@ export default function ChatHeader({ friendId, chatId, onClearChat, onSearch }) 
     });
   };
 
-  // Calls
-  const startVoiceCall = () => navigate(`/call/voice/${chatId}`);
-  const startVideoCall = () => navigate(`/call/video/${chatId}`);
+  const startVoiceCall = () => {
+    navigate(`/call/voice/${chatId}`);
+  };
 
-  // Cloudinary helper
-  const cloudinaryUrl = (path) => (path ? path : "");
-
-  // Redirect to FriendProfilePage
-  const handleProfileClick = () => {
-    navigate(`/friend/${friendId}`);
+  const startVideoCall = () => {
+    navigate(`/call/video/${chatId}`);
   };
 
   return (
@@ -111,7 +102,7 @@ export default function ChatHeader({ friendId, chatId, onClearChat, onSearch }) 
         boxShadow: "0 2px 6px rgba(0,0,0,0.25)",
       }}
     >
-      {/* Back */}
+      {/* Back button */}
       <div
         onClick={() => navigate("/chat")}
         style={{
@@ -133,9 +124,9 @@ export default function ChatHeader({ friendId, chatId, onClearChat, onSearch }) 
         ←
       </div>
 
-      {/* Profile */}
+      {/* Friend profile */}
       <div
-        onClick={handleProfileClick}
+        onClick={() => navigate(`/friend/${friendId}`)}
         style={{
           width: 46,
           height: 46,
@@ -156,8 +147,8 @@ export default function ChatHeader({ friendId, chatId, onClearChat, onSearch }) 
       >
         {friendInfo?.profilePic ? (
           <img
-            src={cloudinaryUrl(friendInfo.profilePic)}
-            alt=""
+            src={friendInfo.profilePic}
+            alt={friendInfo.name || ""}
             style={{ width: "100%", height: "100%", objectFit: "cover" }}
           />
         ) : (
@@ -175,7 +166,7 @@ export default function ChatHeader({ friendId, chatId, onClearChat, onSearch }) 
           overflow: "hidden",
           cursor: "pointer",
         }}
-        onClick={handleProfileClick}
+        onClick={() => navigate(`/friend/${friendId}`)}
       >
         <span style={{ fontSize: 16, fontWeight: "600", whiteSpace: "nowrap" }}>
           {friendInfo?.name || "Loading..."}
@@ -185,10 +176,20 @@ export default function ChatHeader({ friendId, chatId, onClearChat, onSearch }) 
         </span>
       </div>
 
-      {/* Call Buttons */}
+      {/* Call buttons */}
       <div style={{ display: "flex", gap: 10, marginRight: 10 }}>
-        <Phone size={22} color="white" style={{ cursor: "pointer" }} onClick={startVoiceCall} />
-        <Video size={22} color="white" style={{ cursor: "pointer" }} onClick={startVideoCall} />
+        <FiPhone
+          size={22}
+          color="white"
+          style={{ cursor: "pointer" }}
+          onClick={startVoiceCall}
+        />
+        <FiVideo
+          size={22}
+          color="white"
+          style={{ cursor: "pointer" }}
+          onClick={startVideoCall}
+        />
       </div>
 
       {/* Menu */}
@@ -199,7 +200,6 @@ export default function ChatHeader({ friendId, chatId, onClearChat, onSearch }) 
           color="white"
           style={{ cursor: "pointer", padding: 4 }}
         />
-
         {menuOpen && (
           <div
             style={{
@@ -211,13 +211,12 @@ export default function ChatHeader({ friendId, chatId, onClearChat, onSearch }) 
               padding: "8px 0",
               width: 165,
               boxShadow: "0 4px 14px rgba(0,0,0,0.3)",
+              animation: "fadeIn 0.15s ease",
             }}
           >
             <div style={menuItem} onClick={() => { setMenuOpen(false); onSearch(); }}>Search</div>
             <div style={menuItem} onClick={() => { setMenuOpen(false); onClearChat(); }}>Clear Chat</div>
-            <div style={menuItem} onClick={toggleMute}>
-              {chatInfo?.mutedUntil > Date.now() ? "Unmute" : "Mute"}
-            </div>
+            <div style={menuItem} onClick={toggleMute}>{chatInfo?.mutedUntil > Date.now() ? "Unmute" : "Mute"}</div>
             <div style={{ ...menuItem, color: "red", fontWeight: 600 }} onClick={toggleBlock}>
               {chatInfo?.blocked ? "Unblock" : "Block"}
             </div>
@@ -228,9 +227,4 @@ export default function ChatHeader({ friendId, chatId, onClearChat, onSearch }) 
   );
 }
 
-const menuItem = {
-  padding: "12px 16px",
-  cursor: "pointer",
-  fontSize: 15,
-  whiteSpace: "nowrap",
-};
+const menuItem = { padding: "12px 16px", cursor: "pointer", fontSize: 15, whiteSpace: "nowrap" };
