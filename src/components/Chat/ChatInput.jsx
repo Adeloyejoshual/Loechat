@@ -7,24 +7,27 @@ export default function ChatInput({
   text,
   setText,
   sendTextMessage,
-  sendMediaMessage, // pass this from ChatConversationPage
   selectedFiles,
   setSelectedFiles,
   isDark,
+  chatId,
 }) {
   const fileInputRef = useRef(null);
   const [showPreview, setShowPreview] = useState(false);
 
   // -----------------------------
-  // File selection (images/videos only for preview)
+  // File selection (images/videos/audio)
   // -----------------------------
   const handleFileChange = (e) => {
     const files = Array.from(e.target.files || []);
     if (!files.length) return;
 
-    // Only keep images/videos
+    // Only keep images/videos/audio
     const mediaFiles = files.filter(
-      (f) => f.type.startsWith("image/") || f.type.startsWith("video/")
+      (f) =>
+        f.type.startsWith("image/") ||
+        f.type.startsWith("video/") ||
+        f.type.startsWith("audio/")
     );
     if (!mediaFiles.length) return;
 
@@ -36,19 +39,6 @@ export default function ChatInput({
 
   const handleRemoveFile = (index) => {
     setSelectedFiles((prev) => prev.filter((_, i) => i !== index));
-  };
-
-  const handleSendFromPreview = async () => {
-    if (!selectedFiles.length) return;
-
-    try {
-      await sendMediaMessage(selectedFiles);
-      setSelectedFiles([]);
-      setShowPreview(false);
-    } catch (err) {
-      console.error("Upload failed:", err);
-      alert("Upload failed. Try again.");
-    }
   };
 
   const handleCancelPreview = () => {
@@ -81,7 +71,7 @@ export default function ChatInput({
           hidden
           ref={fileInputRef}
           onChange={handleFileChange}
-          accept="image/*,video/*"
+          accept="image/*,video/*,audio/*"
         />
         <button
           onClick={() => fileInputRef.current.click()}
@@ -121,10 +111,9 @@ export default function ChatInput({
         <ImagePreviewModal
           files={selectedFiles}
           onRemove={handleRemoveFile}
-          onSend={handleSendFromPreview}
           onCancel={handleCancelPreview}
           onAddFiles={handleAddMoreFiles}
-          isDark={isDark}
+          chatId={chatId} // pass chatId to modal for Firestore send
         />
       )}
     </>
