@@ -5,49 +5,56 @@ import { addDoc, collection, serverTimestamp } from "firebase/firestore";
 import { db, auth } from "../../firebaseConfig";
 import axios from "axios";
 
-export default function ImagePreviewModal({ files, onRemove, onCancel, onAddFiles, chatId }) {
+export default function ImagePreviewModal({
+  files,
+  onRemove,
+  onCancel,
+  onAddFiles,
+  chatId,
+}) {
   const [activeIndex, setActiveIndex] = useState(0);
   const [uploading, setUploading] = useState(false);
 
   const activeFile = files[activeIndex];
 
-  const isImage = activeFile?.type.startsWith("image/");
-  const isVideo = activeFile?.type.startsWith("video/");
-  const isAudio = activeFile?.type.startsWith("audio/");
+  if (!activeFile) return null;
+
+  const isImage = activeFile.type.startsWith("image/");
+  const isVideo = activeFile.type.startsWith("video/");
+  const isAudio = activeFile.type.startsWith("audio/");
   const isFile = !isImage && !isVideo && !isAudio;
 
-  // ---------------- Upload to Cloudinary ----------------
   const uploadToCloudinary = async (file) => {
     const formData = new FormData();
     formData.append("file", file);
-    formData.append("upload_preset", "YOUR_CLOUDINARY_PRESET"); // <-- replace
+    formData.append("upload_preset", "YOUR_CLOUDINARY_PRESET"); // replace with your preset
     const res = await axios.post(
-      "https://api.cloudinary.com/v1_1/YOUR_CLOUD_NAME/auto/upload", // <-- replace
+      "https://api.cloudinary.com/v1_1/YOUR_CLOUD_NAME/auto/upload", // replace with your Cloud name
       formData
     );
     return res.data.secure_url;
   };
 
-  // ---------------- Send all files ----------------
   const handleSend = async () => {
     setUploading(true);
     try {
-      for (const f of files) {
+      for (const file of files) {
         let mediaUrl = "";
         let mediaType = null;
 
-        if (f.type.startsWith("image/")) mediaType = "image";
-        else if (f.type.startsWith("video/")) mediaType = "video";
-        else if (f.type.startsWith("audio/")) mediaType = "audio";
-        else mediaType = "file";
-
-        if (mediaType) {
-          mediaUrl = await uploadToCloudinary(f);
+        // Only upload image/video/audio, skip generic files
+        if (isImage || isVideo || isAudio) {
+          mediaUrl = await uploadToCloudinary(file);
+          mediaType = isImage ? "image" : isVideo ? "video" : "audio";
+        } else {
+          // Optional: handle generic files with different storage (or skip)
+          mediaUrl = "";
+          mediaType = "file";
         }
 
         await addDoc(collection(db, "chats", chatId, "messages"), {
           senderId: auth.currentUser.uid,
-          text: f.name || "",
+          text: file.name || "",
           mediaUrl,
           mediaType,
           reactions: {},
@@ -59,13 +66,11 @@ export default function ImagePreviewModal({ files, onRemove, onCancel, onAddFile
       onCancel();
     } catch (err) {
       console.error("Upload failed:", err);
-      alert("Upload failed. Check your Cloudinary preset and connection.");
+      alert("Upload failed. Try again.");
     } finally {
       setUploading(false);
     }
   };
-
-  if (!activeFile) return null;
 
   return (
     <div
@@ -111,27 +116,15 @@ export default function ImagePreviewModal({ files, onRemove, onCancel, onAddFile
           maxHeight: "70vh",
         }}
       >
-        {isImage && (
-          <img
-            src={URL.createObjectURL(activeFile)}
-            alt="preview"
-            style={{ maxWidth: "90%", maxHeight: "90%", borderRadius: 12, objectFit: "contain" }}
-          />
-        )}
-        {isVideo && (
-          <video
-            src={URL.createObjectURL(activeFile)}
-            controls
-            style={{ maxWidth: "90%", maxHeight: "90%", borderRadius: 12 }}
-          />
-        )}
+        {isImage && <img src={URL.createObjectURL(activeFile)} alt="preview" style={{ maxWidth: "90%", maxHeight: "90%", borderRadius: 12, objectFit: "contain" }} />}
+        {isVideo && <video src={URL.createObjectURL(activeFile)} controls style={{ maxWidth: "90%", maxHeight: "90%", borderRadius: 12 }} />}
         {isAudio && <audio src={URL.createObjectURL(activeFile)} controls />}
         {isFile && <div>{activeFile.name}</div>}
       </div>
 
       {/* Thumbnails */}
       <div style={{ display: "flex", gap: 10, overflowX: "auto", paddingBottom: 10, marginTop: 10 }}>
-        {/* Add More Files */}
+        {/* Add Files */}
         <div
           onClick={onAddFiles}
           style={{
@@ -169,11 +162,7 @@ export default function ImagePreviewModal({ files, onRemove, onCancel, onAddFile
             }}
           >
             {(f.type.startsWith("image/") || f.type.startsWith("video/")) && (
-              <img
-                src={URL.createObjectURL(f)}
-                alt="thumb"
-                style={{ width: "100%", height: "100%", objectFit: "cover" }}
-              />
+              <img src={URL.createObjectURL(f)} alt="thumb" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
             )}
             <button
               onClick={(e) => {
