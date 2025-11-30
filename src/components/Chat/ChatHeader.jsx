@@ -5,6 +5,22 @@ import { doc, onSnapshot, updateDoc } from "firebase/firestore";
 import { db } from "../../firebaseConfig";
 import { UserContext } from "../../context/UserContext";
 import { FiMoreVertical, FiPhone, FiVideo } from "react-icons/fi";
+import { auth } from "../../firebaseConfig";
+
+// Helper to get initials
+const getInitials = (name) => {
+  if (!name) return "U";
+  const parts = name.trim().split(" ");
+  return parts.length > 1
+    ? (parts[0][0] + parts[1][0]).toUpperCase()
+    : parts[0][0].toUpperCase();
+};
+
+// Helper for Cloudinary URL
+const cloudinaryUrl = (publicId) => {
+  if (!publicId) return null;
+  return `https://res.cloudinary.com/YOUR_CLOUD_NAME/image/upload/${publicId}`;
+};
 
 export default function ChatHeader({ friendId, chatId, onClearChat, onSearch }) {
   const navigate = useNavigate();
@@ -14,7 +30,7 @@ export default function ChatHeader({ friendId, chatId, onClearChat, onSearch }) 
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef(null);
 
-  // Close menu on click outside
+  // Close menu on outside click
   useEffect(() => {
     const handleClickOutside = (e) => {
       if (menuRef.current && !menuRef.current.contains(e.target)) setMenuOpen(false);
@@ -56,14 +72,6 @@ export default function ChatHeader({ friendId, chatId, onClearChat, onSearch }) 
     setMenuOpen(false);
   };
 
-  const getInitials = (name) => {
-    if (!name) return "U";
-    const parts = name.trim().split(" ");
-    return parts.length > 1
-      ? (parts[0][0] + parts[1][0]).toUpperCase()
-      : parts[0][0].toUpperCase();
-  };
-
   const formatLastSeen = (timestamp) => {
     if (!timestamp) return "";
     const date = timestamp.toDate();
@@ -83,6 +91,15 @@ export default function ChatHeader({ friendId, chatId, onClearChat, onSearch }) 
 
   const startVoiceCall = () => navigate(`/call/voice/${chatId}`);
   const startVideoCall = () => navigate(`/call/video/${chatId}`);
+
+  // Profile pic click
+  const handleProfileClick = () => {
+    if (friendId === auth.currentUser?.uid) {
+      navigate("/edit-profile");
+    } else {
+      navigate(`/friend/${friendId}`);
+    }
+  };
 
   return (
     <div
@@ -114,7 +131,7 @@ export default function ChatHeader({ friendId, chatId, onClearChat, onSearch }) 
 
       {/* Profile */}
       <div
-        onClick={() => navigate(`/friend/${friendId}`)}
+        onClick={handleProfileClick}
         style={{
           width: 46, height: 46, minWidth: 46, minHeight: 46,
           borderRadius: "50%", backgroundColor: "#e0e0e0",
@@ -125,9 +142,10 @@ export default function ChatHeader({ friendId, chatId, onClearChat, onSearch }) 
       >
         {friendInfo?.profilePic ? (
           <img
-            src={`https://res.cloudinary.com/YOUR_CLOUD_NAME/image/upload/${friendInfo.profilePic}`}
+            src={cloudinaryUrl(friendInfo.profilePic)}
             alt="Profile"
             style={{ width: "100%", height: "100%", objectFit: "cover" }}
+            onError={(e) => (e.currentTarget.src = "/default-profile.png")} // fallback
           />
         ) : (
           getInitials(friendInfo?.name)
@@ -144,7 +162,7 @@ export default function ChatHeader({ friendId, chatId, onClearChat, onSearch }) 
           overflow: "hidden",
           cursor: "pointer",
         }}
-        onClick={() => navigate(`/friend/${friendId}`)}
+        onClick={handleProfileClick}
       >
         <span style={{ fontSize: 16, fontWeight: "600", whiteSpace: "nowrap" }}>
           {friendInfo?.name || "Loading..."}
@@ -185,9 +203,7 @@ export default function ChatHeader({ friendId, chatId, onClearChat, onSearch }) 
           >
             <div style={menuItem} onClick={() => { setMenuOpen(false); onSearch(); }}>Search</div>
             <div style={menuItem} onClick={() => { setMenuOpen(false); onClearChat(); }}>Clear Chat</div>
-            <div style={menuItem} onClick={toggleMute}>
-              {chatInfo?.mutedUntil > Date.now() ? "Unmute" : "Mute"}
-            </div>
+            <div style={menuItem} onClick={toggleMute}>{chatInfo?.mutedUntil > Date.now() ? "Unmute" : "Mute"}</div>
             <div style={{ ...menuItem, color: "red", fontWeight: 600 }} onClick={toggleBlock}>
               {chatInfo?.blocked ? "Unblock" : "Block"}
             </div>
