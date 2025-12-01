@@ -11,30 +11,13 @@ export default function ChatHeader({
   onClearChat,
   onSearch,
   onGoToPinned,
-  setBlockedStatus, // callback to disable sending/receiving messages
+  setBlockedStatus,
 }) {
   const navigate = useNavigate();
   const [friendInfo, setFriendInfo] = useState(null);
   const [chatInfo, setChatInfo] = useState(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef(null);
-  const [windowWidth, setWindowWidth] = useState(window.innerWidth);
-
-  // Responsive detection
-  useEffect(() => {
-    const handleResize = () => setWindowWidth(window.innerWidth);
-    window.addEventListener("resize", handleResize);
-    return () => window.removeEventListener("resize", handleResize);
-  }, []);
-
-  // Close menu when clicking outside
-  useEffect(() => {
-    const handleClickOutside = (e) => {
-      if (menuRef.current && !menuRef.current.contains(e.target)) setMenuOpen(false);
-    };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
 
   // Load friend info
   useEffect(() => {
@@ -57,6 +40,15 @@ export default function ChatHeader({
     });
     return () => unsub();
   }, [chatId, setBlockedStatus]);
+
+  // Close menu on click outside
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (menuRef.current && !menuRef.current.contains(e.target)) setMenuOpen(false);
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   const toggleBlock = async () => {
     if (!chatInfo) return;
@@ -88,7 +80,6 @@ export default function ChatHeader({
     if (!timestamp) return "";
     const date = timestamp.toDate();
     const now = new Date();
-
     const hours = date.getHours();
     const minutes = date.getMinutes();
     const ampm = hours >= 12 ? "pm" : "am";
@@ -112,62 +103,59 @@ export default function ChatHeader({
   const startVoiceCall = () => navigate(`/call/voice/${chatId}`);
   const startVideoCall = () => navigate(`/call/video/${chatId}`);
   const pinned = chatInfo?.pinnedMessage || null;
-  const isMobile = windowWidth < 600;
 
   return (
     <>
-      {/* HEADER */}
       <div
         style={{
           width: "100%",
           backgroundColor: "#075e54",
-          padding: isMobile ? "6px 8px" : "8px 12px",
+          padding: "8px 12px",
           display: "flex",
           alignItems: "center",
           position: "sticky",
           top: 0,
           zIndex: 999,
+          gap: 10,
         }}
       >
         {/* Back button */}
         <div
           onClick={() => navigate("/chat")}
           style={{
-            width: isMobile ? 32 : 40,
-            height: isMobile ? 32 : 40,
+            width: 40,
+            height: 40,
             borderRadius: "50%",
             background: "rgba(255,255,255,0.15)",
             display: "flex",
             justifyContent: "center",
             alignItems: "center",
             cursor: "pointer",
-            marginRight: 10,
             color: "white",
-            fontSize: isMobile ? 18 : 22,
+            fontSize: 22,
             fontWeight: "600",
           }}
         >
           ←
         </div>
 
-        {/* Friend avatar */}
+        {/* Avatar */}
         <div
           onClick={() => navigate(`/friend/${friendId}`)}
           style={{
-            width: isMobile ? 40 : 50,
-            height: isMobile ? 40 : 50,
-            minWidth: isMobile ? 40 : 50,
-            minHeight: isMobile ? 40 : 50,
+            width: 50,
+            height: 50,
+            minWidth: 50,
+            minHeight: 50,
             borderRadius: "50%",
             backgroundColor: "#e0e0e0",
             overflow: "hidden",
-            marginRight: 10,
             cursor: "pointer",
             display: "flex",
             justifyContent: "center",
             alignItems: "center",
             fontWeight: "600",
-            fontSize: isMobile ? 16 : 18,
+            fontSize: 18,
             color: "#333",
           }}
         >
@@ -183,38 +171,36 @@ export default function ChatHeader({
         </div>
 
         {/* Name + last seen */}
-        {!isMobile && (
-          <div
-            style={{
-              flex: 1,
-              color: "#fff",
-              display: "flex",
-              flexDirection: "column",
-              overflow: "hidden",
-              cursor: "pointer",
-            }}
-            onClick={() => navigate(`/friend/${friendId}`)}
-          >
-            <span style={{ fontSize: 16, fontWeight: "600", whiteSpace: "nowrap" }}>
-              {friendInfo?.name || "Loading..."}
-            </span>
-            <span style={{ fontSize: 13, opacity: 0.9 }}>
-              {friendInfo?.isOnline ? "Online" : formatLastSeen(friendInfo?.lastSeen)}
-            </span>
-          </div>
-        )}
+        <div
+          style={{
+            flex: 1,
+            color: "#fff",
+            display: "flex",
+            flexDirection: "column",
+            overflow: "hidden",
+            cursor: "pointer",
+          }}
+          onClick={() => navigate(`/friend/${friendId}`)}
+        >
+          <span style={{ fontSize: 16, fontWeight: "600", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+            {friendInfo?.name || "Loading..."}
+          </span>
+          <span style={{ fontSize: 13, opacity: 0.9 }}>
+            {friendInfo?.isOnline ? "Online" : formatLastSeen(friendInfo?.lastSeen)}
+          </span>
+        </div>
 
         {/* Call buttons */}
-        <div style={{ display: "flex", gap: isMobile ? 6 : 10 }}>
-          <FiPhone size={isMobile ? 18 : 22} color="white" onClick={startVoiceCall} style={{ cursor: "pointer" }} />
-          <FiVideo size={isMobile ? 18 : 22} color="white" onClick={startVideoCall} style={{ cursor: "pointer" }} />
+        <div style={{ display: "flex", gap: 10 }}>
+          <FiPhone size={22} color="white" onClick={startVoiceCall} style={{ cursor: "pointer" }} />
+          <FiVideo size={22} color="white" onClick={startVideoCall} style={{ cursor: "pointer" }} />
         </div>
 
         {/* Menu */}
         <div ref={menuRef} style={{ position: "relative", marginLeft: 8 }}>
           <FiMoreVertical
             onClick={() => setMenuOpen(!menuOpen)}
-            size={isMobile ? 20 : 24}
+            size={24}
             color="white"
             style={{ cursor: "pointer", padding: 4 }}
           />
@@ -222,7 +208,7 @@ export default function ChatHeader({
             <div
               style={{
                 position: "absolute",
-                top: isMobile ? 32 : 36,
+                top: 36,
                 right: 0,
                 background: "#fff",
                 color: "#000",
@@ -247,12 +233,12 @@ export default function ChatHeader({
       </div>
 
       {/* Pinned message */}
-      {chatInfo?.pinnedMessage && (
+      {pinned && (
         <div
-          onClick={() => onGoToPinned(chatInfo.pinnedMessage.messageId)}
+          onClick={() => onGoToPinned(pinned.messageId)}
           style={{
             position: "sticky",
-            top: isMobile ? 50 : 56,
+            top: 56,
             width: "100%",
             background: "#f7f7f7",
             padding: "6px 12px",
@@ -268,7 +254,7 @@ export default function ChatHeader({
         >
           📌
           <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: "90%" }}>
-            {chatInfo.pinnedMessage.text || "Pinned message"}
+            {pinned.text || "Pinned message"}
           </span>
         </div>
       )}
