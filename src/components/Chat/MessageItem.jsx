@@ -1,10 +1,10 @@
-// src/components/Chat/MessageItem.jsx
-import React, { useState, useRef, useContext, useEffect } from "react";
+import React, { useState, useRef, useContext } from "react";
 import { doc, updateDoc } from "firebase/firestore";
 import { db } from "../../firebaseConfig";
 import { ThemeContext } from "../../context/ThemeContext";
 import LongPressMessageModal from "./LongPressMessageModal";
 import { toast } from "react-toastify";
+import MediaViewer from "../MediaViewer";
 
 const COLORS = {
   primary: "#34B7F1",
@@ -24,6 +24,7 @@ export default function MessageItem({
   pinnedMessage,
   setPinnedMessage,
   onReplyClick,
+  isBlockedUser,
 }) {
   const isMine = message.senderId === myUid;
   const { theme } = useContext(ThemeContext);
@@ -31,14 +32,16 @@ export default function MessageItem({
   const containerRef = useRef(null);
   const lastTap = useRef(0);
 
-  const [translateX, setTranslateX] = useState(0);
-  const [isSwiping, setIsSwiping] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [reactedEmoji, setReactedEmoji] = useState(message.reactions?.[myUid] || "");
   const [deleted, setDeleted] = useState(false);
+  const [showMediaViewer, setShowMediaViewer] = useState(false);
+  const [translateX, setTranslateX] = useState(0);
+  const startX = useRef(0);
 
-  /* ----------------- Firestore actions ----------------- */
+  // ---------------- Firestore actions ----------------
   const togglePin = async () => {
+    if (isBlockedUser) return toast.error("Cannot pin messages while blocked");
     const chatRef = doc(db, "chats", chatId);
     const newPin = pinnedMessage?.id !== message.id;
     await updateDoc(chatRef, { pinnedMessageId: newPin ? message.id : null });
@@ -47,8 +50,9 @@ export default function MessageItem({
   };
 
   const deleteMessage = async () => {
-    // Fade-out effect
-    setDeleted(true);
+    if (isBlockedUser) return toast.error("Cannot delete while blocked");
+    if (!window.confirm(`Are you sure you want to delete this message for ${isMine ? "everyone" : "them"}?`)) return;
+    setDeleted(true); // fade-out
     await updateDoc(doc(db, "chats", chatId, "messages", message.id), { deleted: true });
     toast.success("Message deleted for everyone");
   };
@@ -59,6 +63,7 @@ export default function MessageItem({
   };
 
   const applyReaction = async (emoji) => {
+    if (isBlockedUser) return toast.error("Cannot react while blocked");
     const msgRef = doc(db, "chats", chatId, "messages", message.id);
     const newEmoji = reactedEmoji === emoji ? "" : emoji;
     await updateDoc(msgRef, { [`reactions.${myUid}`]: newEmoji });
@@ -66,7 +71,7 @@ export default function MessageItem({
     toast.success(newEmoji ? `Reacted ${newEmoji}` : "Reaction removed");
   };
 
-  /* ----------------- Double tap ----------------- */
+  // ---------------- Double tap for ❤️ ----------------
   const handleTap = () => {
     const now = Date.now();
     if (now - lastTap.current < 300) {
@@ -77,16 +82,30 @@ export default function MessageItem({
     }
   };
 
-  /* ----------------- Long press ----------------- */
+  // ---------------- Long press modal ----------------
   const handleLongPress = () => {
+    if (isBlockedUser) return toast.error("Blocked users cannot edit messages");
     setShowModal(true);
   };
 
-  useEffect(() => {
-    return () => setShowModal(false);
-  }, []);
+  // ---------------- Swipe-to-reply ----------------
+  const handleTouchStart = (e) => {
+    startX.current = e.touches[0].clientX;
+  };
 
-  /* ----------------- Render ----------------- */
+  const handleTouchMove = (e) => {
+    const deltaX = e.touches[0].clientX - startX.current;
+    if (!isMine && deltaX > 0) setTranslateX(Math.min(deltaX, 100));
+  };
+
+  const handleTouchEnd = () => {
+    if (translateX > 50) {
+      setReplyTo(message);
+      toast.info("Replying…");
+    }
+    setTranslateX(0);
+  };
+
   if (deleted) return null;
 
   return (
@@ -100,27 +119,47 @@ export default function MessageItem({
           alignItems: isMine ? "flex-end" : "flex-start",
           marginBottom: 8,
           position: "relative",
+          transform: `translateX(${translateX}px)`,
+          transition: translateX === 0 ? "transform 0.2s ease" : "none",
         }}
         onClick={handleTap}
-        onContextMenu={(e) => {
-          e.preventDefault();
-          handleLongPress();
-        }}
+        onContextMenu={(e) => { e.preventDefault(); handleLongPress(); }}
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
       >
+        {/* Bubble */}
         <div
           className="message-bubble"
           style={{
             maxWidth: "75%",
-            padding: 12,
+            padding: 10,
             borderRadius: 18,
             background: isMine ? COLORS.primary : isDark ? COLORS.darkCard : COLORS.lightCard,
             color: isMine ? "#fff" : isDark ? COLORS.darkText : "#000",
             wordBreak: "break-word",
-            boxShadow: "0 2px 6px rgba(0,0,0,0.1)",
             display: "inline-block",
+            position: "relative",
+            alignSelf: isMine ? "flex-end" : "flex-start",
+            boxShadow: "0 1px 3px rgba(0,0,0,0.15)",
           }}
         >
-          {/* Reply preview */}
+          {/* Tail */}
+          <div
+            style={{
+              position: "absolute",
+              bottom: 0,
+              width: 0,
+              height: 0,
+              borderStyle: "solid",
+              borderWidth: "6px 6px 0 0",
+              borderColor: isMine ? `${COLORS.primary} transparent transparent transparent` : `${isDark ? COLORS.darkCard : COLORS.lightCard} transparent transparent transparent`,
+              right: isMine ? -6 : "auto",
+              left: isMine ? "auto" : -6,
+            }}
+          />
+
+          {/* Reply Preview */}
           {message.replyTo && (
             <div
               onClick={() => onReplyClick?.(message.replyTo?.id)}
@@ -137,9 +176,17 @@ export default function MessageItem({
             </div>
           )}
 
+          {/* Text */}
           {message.text && <div>{message.text}</div>}
+
+          {/* Media */}
           {message.mediaUrl && (
-            <img src={message.mediaUrl} alt="media" style={{ maxWidth: "100%", borderRadius: 12, marginTop: 6 }} />
+            <img
+              src={message.mediaUrl}
+              alt="media"
+              style={{ maxWidth: "100%", borderRadius: 12, marginTop: 6, cursor: "pointer" }}
+              onClick={() => setShowMediaViewer(true)}
+            />
           )}
 
           {/* Reactions */}
@@ -163,10 +210,17 @@ export default function MessageItem({
                 ))}
             </div>
           )}
+
+          {/* Timestamp */}
+          {message.createdAt && (
+            <div style={{ fontSize: 10, opacity: 0.6, marginTop: 4, textAlign: isMine ? "right" : "left" }}>
+              {new Date(message.createdAt.toDate ? message.createdAt.toDate() : message.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+            </div>
+          )}
         </div>
       </div>
 
-      {/* Telegram-style Long Press Modal */}
+      {/* Long Press Modal */}
       {showModal && (
         <LongPressMessageModal
           onClose={() => setShowModal(false)}
@@ -177,6 +231,15 @@ export default function MessageItem({
           onDelete={deleteMessage}
           messageSenderName={isMine ? "you" : "them"}
           isDark={isDark}
+        />
+      )}
+
+      {/* Media Viewer */}
+      {showMediaViewer && (
+        <MediaViewer
+          url={message.mediaUrl}
+          type={message.mediaType || "image"}
+          onClose={() => setShowMediaViewer(false)}
         />
       )}
     </>
