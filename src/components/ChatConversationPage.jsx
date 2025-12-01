@@ -10,7 +10,6 @@ import {
   serverTimestamp,
   doc,
   updateDoc,
-  getDocs,
 } from "firebase/firestore";
 import { db, auth } from "../firebaseConfig";
 import { ThemeContext } from "../context/ThemeContext";
@@ -20,6 +19,7 @@ import ChatHeader from "./Chat/ChatHeader";
 import MessageItem from "./Chat/MessageItem";
 import ChatInput from "./Chat/ChatInput";
 import ImagePreviewModal from "./Chat/ImagePreviewModal";
+import EmojiPicker from "./Chat/EmojiPicker";
 import axios from "axios";
 import { toast, ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
@@ -46,12 +46,14 @@ export default function ChatConversationPage() {
   const [typingUsers, setTypingUsers] = useState([]);
   const [isAtBottom, setIsAtBottom] = useState(true);
   const [showPreview, setShowPreview] = useState(false);
+
   const [contextMenu, setContextMenu] = useState({
     visible: false,
     x: 0,
     y: 0,
     message: null,
   });
+  const [emojiPickerVisible, setEmojiPickerVisible] = useState(false);
   const [isBlocked, setIsBlocked] = useState(false);
 
   // -------------------- Load chat & friend info --------------------
@@ -67,7 +69,6 @@ export default function ChatConversationPage() {
           if (s.exists()) {
             const data = s.data();
             setChatInfo({ id: s.id, ...data });
-            setIsBlocked(data.blocked || false);
 
             const friendId = data.participants?.find((p) => p !== myUid);
             if (friendId) {
@@ -77,12 +78,17 @@ export default function ChatConversationPage() {
               });
             }
 
+            // Handle pinned message
             if (data.pinnedMessageId) {
               const pinnedMsgRef = doc(db, "chats", chatId, "messages", data.pinnedMessageId);
               onSnapshot(pinnedMsgRef, (snap) => {
                 if (snap.exists()) setPinnedMessage({ id: snap.id, ...snap.data() });
               });
             }
+
+            // Check if this user blocked the friend
+            const blockedByMe = data.blockedBy === myUid;
+            setIsBlocked(!!blockedByMe);
           }
         });
       } catch (e) {
@@ -106,23 +112,16 @@ export default function ChatConversationPage() {
     const q = query(messagesRef, orderBy("createdAt", "asc"));
 
     const unsub = onSnapshot(q, (snap) => {
-      if (isBlocked) {
-        setMessages([]); // hide messages if blocked
-        setLoadingMsgs(false);
-        return;
-      }
-
       const docs = snap.docs
         .filter((d) => !d.data()?.deleted)
         .map((d) => ({ id: d.id, ...d.data() }));
-
       setMessages(docs);
       if (isAtBottom) endRef.current?.scrollIntoView({ behavior: "smooth" });
       setLoadingMsgs(false);
     });
 
     return () => unsub();
-  }, [chatId, isAtBottom, isBlocked]);
+  }, [chatId, isAtBottom]);
 
   // -------------------- Scroll detection --------------------
   useEffect(() => {
@@ -177,7 +176,7 @@ export default function ChatConversationPage() {
   // -------------------- Send text message --------------------
   const sendTextMessage = async () => {
     if (isBlocked) {
-      toast.error("You cannot send messages to a blocked user");
+      toast.error("Cannot send messages — you blocked this user");
       return;
     }
     if (!text.trim() && selectedFiles.length === 0) return;
@@ -219,7 +218,7 @@ export default function ChatConversationPage() {
   // -------------------- Send media messages --------------------
   const sendMediaMessage = async (files, rTo = replyTo) => {
     if (isBlocked) {
-      toast.error("You cannot send messages to a blocked user");
+      toast.error("Cannot send messages — you blocked this user");
       return;
     }
     if (!files || files.length === 0) return;
@@ -279,34 +278,6 @@ export default function ChatConversationPage() {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
   };
 
-  // -------------------- Search --------------------
-  const handleSearch = () => {
-    const queryText = prompt("Enter text to search in this chat:");
-    if (!queryText) return;
-    const results = messages.filter((msg) =>
-      msg.text?.toLowerCase().includes(queryText.toLowerCase())
-    );
-    if (results.length === 0) toast.info("No messages found");
-    else scrollToMessage(results[0].id);
-  };
-
-  // -------------------- Clear chat --------------------
-  const clearChat = async () => {
-    if (!window.confirm("Are you sure you want to clear this chat?")) return;
-    try {
-      const msgsRef = collection(db, "chats", chatId, "messages");
-      const snap = await getDocs(msgsRef);
-      const batch = snap.docs.map((docSnap) =>
-        updateDoc(doc(db, "chats", chatId, "messages", docSnap.id), { deleted: true })
-      );
-      await Promise.all(batch);
-      toast.success("Chat cleared");
-    } catch (err) {
-      console.error(err);
-      toast.error("Failed to clear chat");
-    }
-  };
-
   // -------------------- Context menu --------------------
   const handleLongPress = (e, message) => {
     e.preventDefault();
@@ -352,78 +323,74 @@ export default function ChatConversationPage() {
     closeContextMenu();
   };
 
+  // Close context menu / emoji picker on outside click
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (contextMenu.visible) closeContextMenu();
+      if (emojiPickerVisible) setEmojiPickerVisible(false);
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [contextMenu.visible, emojiPickerVisible]);
+
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100vh", backgroundColor: wallpaper || (isDark ? "#0b0b0b" : "#f5f5f5"), color: isDark ? "#fff" : "#000", position: "relative" }}>
-      <ChatHeader 
-        friendId={friendInfo?.id} 
-        chatId={chatId} 
-        pinnedMessage={pinnedMessage} 
-        setBlockedStatus={setIsBlocked} 
-        onClearChat={clearChat}
-        onSearch={handleSearch}
-      />
+      <ChatHeader friendId={friendInfo?.id} chatId={chatId} pinnedMessage={pinnedMessage} />
 
-      <div ref={messagesRefEl} style={{ flex: 1, overflowY: "auto", padding: 8 }}>
+      <div ref={messagesRefEl} style={{ flex: 1, overflowY: "auto", padding: 8, display: "flex", flexDirection: "column", justifyContent: isBlocked && messages.length === 0 ? "center" : "flex-start", alignItems: "center" }}>
         {loadingMsgs && <div style={{ textAlign: "center", marginTop: 12 }}>Loading...</div>}
 
-        {groupedMessages.map((item, idx) =>
-          item.type === "date-separator" ? (
-            <div key={idx} style={{ textAlign: "center", margin: "10px 0", fontSize: 12, color: isDark ? "#aaa" : "#555" }}>{item.date}</div>
-          ) : (
-            <div key={item.data.id} ref={(el) => (messageRefs.current[item.data.id] = el)} onContextMenu={(e) => handleLongPress(e, item.data)} onTouchStart={(e) => { const timeout = setTimeout(() => handleLongPress(e, item.data), 600); e.currentTarget._longPressTimeout = timeout; }} onTouchEnd={(e) => clearTimeout(e.currentTarget._longPressTimeout)}>
-              <MessageItem message={item.data} myUid={myUid} isDark={isDark} chatId={chatId} setReplyTo={setReplyTo} onReplyClick={scrollToMessage} enableSwipeReply />
-            </div>
+        {isBlocked && messages.length === 0 ? (
+          <div style={{ textAlign: "center", color: isDark ? "#aaa" : "#555" }}>
+            No messages — you blocked this user
+          </div>
+        ) : (
+          groupedMessages.map((item, idx) =>
+            item.type === "date-separator" ? (
+              <div key={idx} style={{ textAlign: "center", margin: "10px 0", fontSize: 12, color: isDark ? "#aaa" : "#555" }}>{item.date}</div>
+            ) : (
+              <div key={item.data.id} ref={(el) => (messageRefs.current[item.data.id] = el)} onContextMenu={(e) => handleLongPress(e, item.data)} onTouchStart={(e) => { const timeout = setTimeout(() => handleLongPress(e, item.data), 600); e.currentTarget._longPressTimeout = timeout; }} onTouchEnd={(e) => clearTimeout(e.currentTarget._longPressTimeout)}>
+                <MessageItem message={item.data} myUid={myUid} isDark={isDark} chatId={chatId} setReplyTo={setReplyTo} onReplyClick={scrollToMessage} enableSwipeReply />
+              </div>
+            )
           )
         )}
 
-        {typingUsers.length > 0 && !isBlocked && <div style={{ fontSize: 12, color: "#888", margin: 4 }}>{typingUsers.join(", ")} typing...</div>}
+        {typingUsers.length > 0 && <div style={{ fontSize: 12, color: "#888", margin: 4 }}>{typingUsers.join(", ")} typing...</div>}
         <div ref={endRef} />
       </div>
 
-      <ChatInput 
-        text={text} 
-        setText={setText} 
-        sendTextMessage={sendTextMessage} 
-        sendMediaMessage={sendMediaMessage} 
-        selectedFiles={selectedFiles} 
-        setSelectedFiles={setSelectedFiles} 
-        isDark={isDark} 
-        setShowPreview={setShowPreview} 
-        replyTo={replyTo} 
-        setReplyTo={setReplyTo} 
-        disabled={isBlocked}
+      <ChatInput
+        text={text}
+        setText={setText}
+        sendTextMessage={sendTextMessage}
+        sendMediaMessage={sendMediaMessage}
+        selectedFiles={selectedFiles}
+        setSelectedFiles={setSelectedFiles}
+        isDark={isDark}
+        setShowPreview={setShowPreview}
+        replyTo={replyTo}
+        setReplyTo={setReplyTo}
+        disabled={isBlocked} // disable input if blocked
+        showEmojiPicker={() => setEmojiPickerVisible(true)}
       />
 
       {showPreview && selectedFiles.length > 0 && (
-        <ImagePreviewModal 
-          files={selectedFiles} 
-          onRemove={(i) => setSelectedFiles((prev) => prev.filter((_, idx) => idx !== i))} 
-          onSend={async () => { await sendMediaMessage(selectedFiles, replyTo); setReplyTo(null); }} 
-          onCancel={() => setShowPreview(false)} 
-          onAddFiles={() => document.getElementById("file-input")?.click()} 
-          isDark={isDark} 
-          chatId={chatId} 
-          replyTo={replyTo} 
-          setReplyTo={setReplyTo} 
+        <ImagePreviewModal
+          files={selectedFiles}
+          onRemove={(i) => setSelectedFiles((prev) => prev.filter((_, idx) => idx !== i))}
+          onSend={async () => { await sendMediaMessage(selectedFiles, replyTo); setReplyTo(null); }}
+          onCancel={() => setShowPreview(false)}
+          onAddFiles={() => document.getElementById("file-input")?.click()}
+          isDark={isDark}
+          chatId={chatId}
+          replyTo={replyTo}
+          setReplyTo={setReplyTo}
         />
       )}
 
-      {contextMenu.visible && (
-        <div style={{ position: "absolute", top: contextMenu.y, left: contextMenu.x, transform: "translateX(-50%)", background: isDark ? "#222" : "#fff", border: "1px solid #888", borderRadius: 12, padding: 10, zIndex: 9999, boxShadow: "0 4px 12px rgba(0,0,0,0.3)", minWidth: 180 }}>
-          <div style={{ display: "flex", justifyContent: "space-around", marginBottom: 8 }}>
-            {["😝", "💟", "💝", "😜"].map((emoji) => (
-              <span key={emoji} style={{ fontSize: 20, cursor: "pointer" }} onClick={() => handleReaction(emoji)}>{emoji}</span>
-            ))}
-            <span style={{ fontSize: 20, cursor: "pointer" }}>+</span>
-          </div>
-          <div style={{ borderTop: `1px solid ${isDark ? "#555" : "#ccc"}`, marginTop: 4 }} />
-          <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 6 }}>
-            <button style={{ cursor: "pointer" }} onClick={handleCopy}>Copy</button>
-            <button style={{ cursor: "pointer" }} onClick={handleReply}>Reply</button>
-            <button style={{ cursor: "pointer" }} onClick={handlePin}>Pin</button>
-            <button style={{ cursor: "pointer", color: "red" }} onClick={handleDelete}>Delete</button>
-          </div>
-        </div>
+      {emojiPickerVisible && (
+        <EmojiPicker onSelect={(emoji) => { setText((prev) => prev + emoji); setEmojiPickerVisible(false); }} isDark={isDark} />
       )}
 
       <ToastContainer position="top-center" autoClose={1500} hideProgressBar />
