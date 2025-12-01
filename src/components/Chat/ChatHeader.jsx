@@ -11,6 +11,7 @@ export default function ChatHeader({
   onClearChat,
   onSearch,
   onGoToPinned,
+  setBlockedStatus, // callback to disable sending/receiving messages
 }) {
   const navigate = useNavigate();
   const [friendInfo, setFriendInfo] = useState(null);
@@ -48,15 +49,21 @@ export default function ChatHeader({
   useEffect(() => {
     if (!chatId) return;
     const unsub = onSnapshot(doc(db, "chats", chatId), (snap) => {
-      if (snap.exists()) setChatInfo(snap.data());
+      if (snap.exists()) {
+        const data = snap.data();
+        setChatInfo(data);
+        if (setBlockedStatus) setBlockedStatus(data.blocked);
+      }
     });
     return () => unsub();
-  }, [chatId]);
+  }, [chatId, setBlockedStatus]);
 
   const toggleBlock = async () => {
     if (!chatInfo) return;
-    await updateDoc(doc(db, "chats", chatId), { blocked: !chatInfo.blocked });
-    setChatInfo((prev) => ({ ...prev, blocked: !prev.blocked }));
+    const newBlocked = !chatInfo.blocked;
+    await updateDoc(doc(db, "chats", chatId), { blocked: newBlocked });
+    setChatInfo((prev) => ({ ...prev, blocked: newBlocked }));
+    if (setBlockedStatus) setBlockedStatus(newBlocked);
     setMenuOpen(false);
   };
 
@@ -113,7 +120,7 @@ export default function ChatHeader({
       <div
         style={{
           width: "100%",
-          backgroundColor: "#075e54", // Green header
+          backgroundColor: "#075e54",
           padding: isMobile ? "6px 8px" : "8px 12px",
           display: "flex",
           alignItems: "center",
@@ -240,9 +247,9 @@ export default function ChatHeader({
       </div>
 
       {/* Pinned message */}
-      {pinned && (
+      {chatInfo?.pinnedMessage && (
         <div
-          onClick={() => onGoToPinned(pinned.messageId)}
+          onClick={() => onGoToPinned(chatInfo.pinnedMessage.messageId)}
           style={{
             position: "sticky",
             top: isMobile ? 50 : 56,
@@ -261,7 +268,7 @@ export default function ChatHeader({
         >
           📌
           <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: "90%" }}>
-            {pinned.text || "Pinned message"}
+            {chatInfo.pinnedMessage.text || "Pinned message"}
           </span>
         </div>
       )}
