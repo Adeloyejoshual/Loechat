@@ -16,30 +16,23 @@ export default function ChatHeader({
   const [friendInfo, setFriendInfo] = useState(null);
   const [chatInfo, setChatInfo] = useState(null);
   const [menuOpen, setMenuOpen] = useState(false);
-  const [windowWidth, setWindowWidth] = useState(window.innerWidth);
   const menuRef = useRef(null);
+  const [windowWidth, setWindowWidth] = useState(window.innerWidth);
 
-  const isMobile = windowWidth < 600;
-
-  // Handle window resize for responsiveness
   useEffect(() => {
     const handleResize = () => setWindowWidth(window.innerWidth);
     window.addEventListener("resize", handleResize);
     return () => window.removeEventListener("resize", handleResize);
   }, []);
 
-  // Close menu on outside click
   useEffect(() => {
     const handleClickOutside = (e) => {
-      if (menuRef.current && !menuRef.current.contains(e.target)) {
-        setMenuOpen(false);
-      }
+      if (menuRef.current && !menuRef.current.contains(e.target)) setMenuOpen(false);
     };
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // Fetch friend info
   useEffect(() => {
     if (!friendId) return;
     const unsub = onSnapshot(doc(db, "users", friendId), (snap) => {
@@ -48,7 +41,6 @@ export default function ChatHeader({
     return () => unsub();
   }, [friendId]);
 
-  // Fetch chat info
   useEffect(() => {
     if (!chatId) return;
     const unsub = onSnapshot(doc(db, "chats", chatId), (snap) => {
@@ -62,15 +54,16 @@ export default function ChatHeader({
     await updateDoc(doc(db, "chats", chatId), {
       blocked: !chatInfo.blocked,
     });
+    setChatInfo((prev) => ({ ...prev, blocked: !prev.blocked }));
     setMenuOpen(false);
   };
 
   const toggleMute = async () => {
     if (!chatInfo) return;
     const isMuted = chatInfo.mutedUntil && chatInfo.mutedUntil > Date.now();
-    await updateDoc(doc(db, "chats", chatId), {
-      mutedUntil: isMuted ? 0 : Date.now() + 24 * 60 * 60 * 1000,
-    });
+    const newMutedUntil = isMuted ? 0 : Date.now() + 24 * 60 * 60 * 1000;
+    await updateDoc(doc(db, "chats", chatId), { mutedUntil: newMutedUntil });
+    setChatInfo((prev) => ({ ...prev, mutedUntil: newMutedUntil }));
     setMenuOpen(false);
   };
 
@@ -101,16 +94,17 @@ export default function ChatHeader({
     yesterday.setDate(today.getDate() - 1);
     if (date.toDateString() === yesterday.toDateString()) return `Yesterday at ${timeString}`;
 
-    if (date.getFullYear() === now.getFullYear()) {
+    if (date.getFullYear() === now.getFullYear())
       return `${date.toLocaleDateString([], { month: "short", day: "numeric" })} at ${timeString}`;
-    } else {
-      return `${date.toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" })}`;
-    }
+    
+    return `${date.toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" })}`;
   };
 
   const startVoiceCall = () => navigate(`/call/voice/${chatId}`);
   const startVideoCall = () => navigate(`/call/video/${chatId}`);
   const pinned = chatInfo?.pinnedMessage || null;
+
+  const isMobile = windowWidth < 600;
 
   return (
     <>
@@ -118,7 +112,7 @@ export default function ChatHeader({
       <div
         style={{
           width: "100%",
-          backgroundColor: "#0d6efd",
+          backgroundColor: "#075e54", // Changed to match Header.jsx green
           padding: isMobile ? "6px 8px" : "8px 10px",
           display: "flex",
           alignItems: "center",
@@ -181,7 +175,7 @@ export default function ChatHeader({
           )}
         </div>
 
-        {/* Name + last seen (hidden on mobile) */}
+        {/* Name + last seen */}
         {!isMobile && (
           <div
             style={{
@@ -198,25 +192,17 @@ export default function ChatHeader({
               {friendInfo?.name || "Loading..."}
             </span>
             <span style={{ fontSize: 13, opacity: 0.9 }}>
-              {friendInfo?.isOnline ? "Online" : formatLastSeen(friendInfo?.lastSeen)}
+              {friendInfo?.isOnline
+                ? "Online"
+                : formatLastSeen(friendInfo?.lastSeen)}
             </span>
           </div>
         )}
 
         {/* Call buttons */}
         <div style={{ display: "flex", gap: isMobile ? 6 : 10, marginRight: isMobile ? 6 : 10 }}>
-          <FiPhone
-            size={isMobile ? 18 : 22}
-            color="white"
-            onClick={startVoiceCall}
-            style={{ cursor: "pointer" }}
-          />
-          <FiVideo
-            size={isMobile ? 18 : 22}
-            color="white"
-            onClick={startVideoCall}
-            style={{ cursor: "pointer" }}
-          />
+          <FiPhone size={isMobile ? 18 : 22} color="white" onClick={startVoiceCall} style={{ cursor: "pointer" }} />
+          <FiVideo size={isMobile ? 18 : 22} color="white" onClick={startVideoCall} style={{ cursor: "pointer" }} />
         </div>
 
         {/* Menu */}
@@ -233,7 +219,8 @@ export default function ChatHeader({
                 position: "absolute",
                 top: 34,
                 right: 0,
-                background: "white",
+                background: "#fff",
+                color: "#000",
                 borderRadius: 10,
                 padding: "8px 0",
                 width: 165,
@@ -254,11 +241,13 @@ export default function ChatHeader({
         </div>
       </div>
 
-      {/* PINNED MESSAGE BAR */}
+      {/* PINNED MESSAGE */}
       {pinned && (
         <div
-          onClick={() => onGoToPinned(pinned.messageId)}
+          onClick={() => { setMenuOpen(false); onGoToPinned(pinned.messageId); }}
           style={{
+            position: "sticky",
+            top: isMobile ? 48 : 56,
             width: "100%",
             background: "#f7f7f7",
             padding: "6px 12px",
@@ -269,6 +258,7 @@ export default function ChatHeader({
             gap: 6,
             cursor: "pointer",
             color: "#444",
+            zIndex: 998,
           }}
         >
           📌
