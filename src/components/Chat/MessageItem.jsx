@@ -3,7 +3,7 @@ import { doc, updateDoc } from "firebase/firestore";
 import { db } from "../../firebaseConfig";
 import { ThemeContext } from "../../context/ThemeContext";
 import LongPressMessageModal from "./LongPressMessageModal";
-import MediaViewer from "../MediaViewer";
+import MediaViewer from "./MediaViewer";
 import { toast } from "react-toastify";
 
 const COLORS = {
