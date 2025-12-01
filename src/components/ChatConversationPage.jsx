@@ -1,3 +1,4 @@
+// src/components/ChatConversationPage.jsx
 import React, { useEffect, useState, useRef, useContext } from "react";
 import { useParams } from "react-router-dom";
 import {
@@ -9,6 +10,7 @@ import {
   serverTimestamp,
   doc,
   updateDoc,
+  getDocs,
 } from "firebase/firestore";
 import { db, auth } from "../firebaseConfig";
 import { ThemeContext } from "../context/ThemeContext";
@@ -44,13 +46,13 @@ export default function ChatConversationPage() {
   const [typingUsers, setTypingUsers] = useState([]);
   const [isAtBottom, setIsAtBottom] = useState(true);
   const [showPreview, setShowPreview] = useState(false);
-
   const [contextMenu, setContextMenu] = useState({
     visible: false,
     x: 0,
     y: 0,
     message: null,
   });
+  const [isBlocked, setIsBlocked] = useState(false);
 
   // -------------------- Load chat & friend info --------------------
   useEffect(() => {
@@ -65,6 +67,7 @@ export default function ChatConversationPage() {
           if (s.exists()) {
             const data = s.data();
             setChatInfo({ id: s.id, ...data });
+            setIsBlocked(data.blocked || false);
 
             const friendId = data.participants?.find((p) => p !== myUid);
             if (friendId) {
@@ -103,16 +106,23 @@ export default function ChatConversationPage() {
     const q = query(messagesRef, orderBy("createdAt", "asc"));
 
     const unsub = onSnapshot(q, (snap) => {
+      if (isBlocked) {
+        setMessages([]); // hide messages if blocked
+        setLoadingMsgs(false);
+        return;
+      }
+
       const docs = snap.docs
         .filter((d) => !d.data()?.deleted)
         .map((d) => ({ id: d.id, ...d.data() }));
+
       setMessages(docs);
       if (isAtBottom) endRef.current?.scrollIntoView({ behavior: "smooth" });
       setLoadingMsgs(false);
     });
 
     return () => unsub();
-  }, [chatId, isAtBottom]);
+  }, [chatId, isAtBottom, isBlocked]);
 
   // -------------------- Scroll detection --------------------
   useEffect(() => {
@@ -166,6 +176,10 @@ export default function ChatConversationPage() {
 
   // -------------------- Send text message --------------------
   const sendTextMessage = async () => {
+    if (isBlocked) {
+      toast.error("You cannot send messages to a blocked user");
+      return;
+    }
     if (!text.trim() && selectedFiles.length === 0) return;
 
     try {
@@ -204,6 +218,10 @@ export default function ChatConversationPage() {
 
   // -------------------- Send media messages --------------------
   const sendMediaMessage = async (files, rTo = replyTo) => {
+    if (isBlocked) {
+      toast.error("You cannot send messages to a blocked user");
+      return;
+    }
     if (!files || files.length === 0) return;
     setShowPreview(false);
 
@@ -261,6 +279,34 @@ export default function ChatConversationPage() {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
   };
 
+  // -------------------- Search --------------------
+  const handleSearch = () => {
+    const queryText = prompt("Enter text to search in this chat:");
+    if (!queryText) return;
+    const results = messages.filter((msg) =>
+      msg.text?.toLowerCase().includes(queryText.toLowerCase())
+    );
+    if (results.length === 0) toast.info("No messages found");
+    else scrollToMessage(results[0].id);
+  };
+
+  // -------------------- Clear chat --------------------
+  const clearChat = async () => {
+    if (!window.confirm("Are you sure you want to clear this chat?")) return;
+    try {
+      const msgsRef = collection(db, "chats", chatId, "messages");
+      const snap = await getDocs(msgsRef);
+      const batch = snap.docs.map((docSnap) =>
+        updateDoc(doc(db, "chats", chatId, "messages", docSnap.id), { deleted: true })
+      );
+      await Promise.all(batch);
+      toast.success("Chat cleared");
+    } catch (err) {
+      console.error(err);
+      toast.error("Failed to clear chat");
+    }
+  };
+
   // -------------------- Context menu --------------------
   const handleLongPress = (e, message) => {
     e.preventDefault();
@@ -308,7 +354,14 @@ export default function ChatConversationPage() {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100vh", backgroundColor: wallpaper || (isDark ? "#0b0b0b" : "#f5f5f5"), color: isDark ? "#fff" : "#000", position: "relative" }}>
-      <ChatHeader friendId={friendInfo?.id} chatId={chatId} pinnedMessage={pinnedMessage} />
+      <ChatHeader 
+        friendId={friendInfo?.id} 
+        chatId={chatId} 
+        pinnedMessage={pinnedMessage} 
+        setBlockedStatus={setIsBlocked} 
+        onClearChat={clearChat}
+        onSearch={handleSearch}
+      />
 
       <div ref={messagesRefEl} style={{ flex: 1, overflowY: "auto", padding: 8 }}>
         {loadingMsgs && <div style={{ textAlign: "center", marginTop: 12 }}>Loading...</div>}
@@ -323,14 +376,36 @@ export default function ChatConversationPage() {
           )
         )}
 
-        {typingUsers.length > 0 && <div style={{ fontSize: 12, color: "#888", margin: 4 }}>{typingUsers.join(", ")} typing...</div>}
+        {typingUsers.length > 0 && !isBlocked && <div style={{ fontSize: 12, color: "#888", margin: 4 }}>{typingUsers.join(", ")} typing...</div>}
         <div ref={endRef} />
       </div>
 
-      <ChatInput text={text} setText={setText} sendTextMessage={sendTextMessage} sendMediaMessage={sendMediaMessage} selectedFiles={selectedFiles} setSelectedFiles={setSelectedFiles} isDark={isDark} setShowPreview={setShowPreview} replyTo={replyTo} setReplyTo={setReplyTo} />
+      <ChatInput 
+        text={text} 
+        setText={setText} 
+        sendTextMessage={sendTextMessage} 
+        sendMediaMessage={sendMediaMessage} 
+        selectedFiles={selectedFiles} 
+        setSelectedFiles={setSelectedFiles} 
+        isDark={isDark} 
+        setShowPreview={setShowPreview} 
+        replyTo={replyTo} 
+        setReplyTo={setReplyTo} 
+        disabled={isBlocked}
+      />
 
       {showPreview && selectedFiles.length > 0 && (
-        <ImagePreviewModal files={selectedFiles} onRemove={(i) => setSelectedFiles((prev) => prev.filter((_, idx) => idx !== i))} onSend={async () => { await sendMediaMessage(selectedFiles, replyTo); setReplyTo(null); }} onCancel={() => setShowPreview(false)} onAddFiles={() => document.getElementById("file-input")?.click()} isDark={isDark} chatId={chatId} replyTo={replyTo} setReplyTo={setReplyTo} />
+        <ImagePreviewModal 
+          files={selectedFiles} 
+          onRemove={(i) => setSelectedFiles((prev) => prev.filter((_, idx) => idx !== i))} 
+          onSend={async () => { await sendMediaMessage(selectedFiles, replyTo); setReplyTo(null); }} 
+          onCancel={() => setShowPreview(false)} 
+          onAddFiles={() => document.getElementById("file-input")?.click()} 
+          isDark={isDark} 
+          chatId={chatId} 
+          replyTo={replyTo} 
+          setReplyTo={setReplyTo} 
+        />
       )}
 
       {contextMenu.visible && (
