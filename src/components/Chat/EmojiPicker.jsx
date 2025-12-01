@@ -1,7 +1,6 @@
-// src/components/Chat/EmojiPicker.jsx
 import React, { useEffect, useRef } from "react";
 
-const ALL = [
+const EMOJIS = [
   "🤔","❤️‍🔥","❤️","👍","👎","🔥","🥰","👏",
   "😁","🍿","😱","🤬","😔","🎉","🤩","🤢",
   "💩","🙏","👌","🕊️","🤡","😐","😏","😍",
@@ -14,7 +13,7 @@ const ALL = [
   "💫","✨","⚡","🔥","❄️","☃️","💥","🌪️"
 ];
 
-export default function EmojiPicker({ onSelect, onClose, position }) {
+export default function EmojiPicker({ onSelect, onClose, position, isDark = false }) {
   const pickerRef = useRef(null);
 
   // Close when clicking outside
@@ -28,6 +27,8 @@ export default function EmojiPicker({ onSelect, onClose, position }) {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [onClose]);
 
+  const backgroundColor = isDark ? "#1b1b1b" : "#fff";
+
   return (
     <div
       ref={pickerRef}
@@ -35,10 +36,10 @@ export default function EmojiPicker({ onSelect, onClose, position }) {
         position: "absolute",
         top: position?.top ?? -60,
         left: position?.left ?? 0,
-        background: "#fff",
-        borderRadius: 22,
-        padding: 8,
-        boxShadow: "0 8px 20px rgba(0,0,0,0.20)",
+        background: backgroundColor,
+        borderRadius: 20,
+        padding: 10,
+        boxShadow: "0 8px 20px rgba(0,0,0,0.25)",
         zIndex: 2000,
         width: "90vw",
         maxWidth: 340,
@@ -47,22 +48,32 @@ export default function EmojiPicker({ onSelect, onClose, position }) {
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "repeat(auto-fill, minmax(32px, 1fr))",
+          gridTemplateColumns: "repeat(auto-fill, minmax(36px, 1fr))",
           gap: 8,
           maxHeight: "45vh",
           overflowY: "auto",
-          padding: 6,
+          padding: 4,
           touchAction: "pan-y",
         }}
       >
-        {ALL.map((emoji) => (
-          <span
+        {EMOJIS.map((emoji) => (
+          <button
             key={emoji}
             onClick={() => onSelect(emoji)}
-            style={{ fontSize: 26, cursor: "pointer" }}
+            style={{
+              fontSize: 26,
+              cursor: "pointer",
+              background: "transparent",
+              border: "none",
+              padding: 4,
+              borderRadius: 8,
+              transition: "transform 0.1s",
+            }}
+            onMouseEnter={(e) => e.currentTarget.style.transform = "scale(1.2)"}
+            onMouseLeave={(e) => e.currentTarget.style.transform = "scale(1)"}
           >
             {emoji}
-          </span>
+          </button>
         ))}
       </div>
     </div>
