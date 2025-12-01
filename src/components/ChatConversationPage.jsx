@@ -1,4 +1,4 @@
-// src/components/Chat/ChatConversationPage.jsx
+// src/components/ChatConversationPage.jsx
 import React, { useEffect, useState, useRef, useContext } from "react";
 import { useParams } from "react-router-dom";
 import {
@@ -21,9 +21,9 @@ import MessageItem from "./Chat/MessageItem";
 import ChatInput from "./Chat/ChatInput";
 import ImagePreviewModal from "./Chat/ImagePreviewModal";
 import EmojiPicker from "./Chat/EmojiPicker";
-import axios from "axios";
 import { toast, ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
+import axios from "axios";
 
 export default function ChatConversationPage() {
   const { chatId } = useParams();
@@ -44,11 +44,8 @@ export default function ChatConversationPage() {
   const [selectedFiles, setSelectedFiles] = useState([]);
   const [replyTo, setReplyTo] = useState(null);
   const [pinnedMessage, setPinnedMessage] = useState(null);
-  const [typingUsers, setTypingUsers] = useState([]);
   const [isAtBottom, setIsAtBottom] = useState(true);
   const [showPreview, setShowPreview] = useState(false);
-  const [contextMenu, setContextMenu] = useState({ visible: false, x: 0, y: 0, message: null });
-  const [emojiPickerVisible, setEmojiPickerVisible] = useState(false);
   const [isBlocked, setIsBlocked] = useState(false);
 
   // -------------------- Load chat & friend info --------------------
@@ -268,32 +265,6 @@ export default function ChatConversationPage() {
     }
   };
 
-  // -------------------- Context menu --------------------
-  const handleLongPress = (e, message) => {
-    e.preventDefault();
-    const rect = e.currentTarget.getBoundingClientRect();
-    setContextMenu({ visible: true, x: rect.left + rect.width / 2, y: rect.bottom + 10, message });
-  };
-
-  const closeContextMenu = () => setContextMenu({ visible: false, x: 0, y: 0, message: null });
-  const handleReaction = async (emoji) => {
-    if (!contextMenu.message) return;
-    const msgRef = doc(db, "chats", chatId, "messages", contextMenu.message.id);
-    await updateDoc(msgRef, { [`reactions.${myUid}`]: emoji });
-    closeContextMenu();
-  };
-  const handleCopy = async () => { if (contextMenu.message) { await navigator.clipboard.writeText(contextMenu.message.text || ""); closeContextMenu(); toast.info("Copied"); } };
-  const handleReply = () => { if (contextMenu.message) { setReplyTo(contextMenu.message); closeContextMenu(); } };
-  const handlePin = async () => { if (contextMenu.message) { await updateDoc(doc(db, "chats", chatId), { pinnedMessageId: contextMenu.message.id }); closeContextMenu(); toast.success("Pinned"); } };
-  const handleDelete = async () => { if (contextMenu.message && window.confirm("Delete message?")) { await updateDoc(doc(db, "chats", chatId, "messages", contextMenu.message.id), { deleted: true }); closeContextMenu(); toast.info("Deleted"); } };
-
-  // -------------------- Close menus on outside click --------------------
-  useEffect(() => {
-    const handleOutside = () => { if (contextMenu.visible) closeContextMenu(); if (emojiPickerVisible) setEmojiPickerVisible(false); };
-    document.addEventListener("mousedown", handleOutside);
-    return () => document.removeEventListener("mousedown", handleOutside);
-  }, [contextMenu.visible, emojiPickerVisible]);
-
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100vh", backgroundColor: wallpaper || (isDark ? "#0b0b0b" : "#f5f5f5"), color: isDark ? "#fff" : "#000", position: "relative" }}>
       <ChatHeader
@@ -314,23 +285,20 @@ export default function ChatConversationPage() {
           groupedMessages.map((item, idx) => item.type === "date-separator" ? (
             <div key={idx} style={{ textAlign: "center", margin: "10px 0", fontSize: 12, color: isDark ? "#aaa" : "#555" }}>{item.date}</div>
           ) : (
-            <div key={item.data.id} ref={(el) => (messageRefs.current[item.data.id] = el)}>
-              <MessageItem
-                message={item.data}
-                myUid={myUid}
-                isDark={isDark}
-                chatId={chatId}
-                setReplyTo={setReplyTo}
-                pinnedMessage={pinnedMessage}
-                setPinnedMessage={setPinnedMessage}
-                onReplyClick={scrollToMessage}
-                enableSwipeReply
-              />
-            </div>
+            <MessageItem
+              key={item.data.id}
+              message={item.data}
+              myUid={myUid}
+              isDark={isDark}
+              chatId={chatId}
+              setReplyTo={setReplyTo}
+              pinnedMessage={pinnedMessage}
+              setPinnedMessage={setPinnedMessage}
+              onReplyClick={scrollToMessage}
+            />
           ))
         )}
 
-        {typingUsers.length > 0 && !isBlocked && <div style={{ fontSize: 12, color: "#888", margin: 4 }}>{typingUsers.join(", ")} typing...</div>}
         <div ref={endRef} />
       </div>
 
@@ -346,7 +314,6 @@ export default function ChatConversationPage() {
         replyTo={replyTo}
         setReplyTo={setReplyTo}
         disabled={isBlocked}
-        showEmojiPicker={() => setEmojiPickerVisible(true)}
       />
 
       {showPreview && selectedFiles.length > 0 && (
@@ -362,8 +329,6 @@ export default function ChatConversationPage() {
           setReplyTo={setReplyTo}
         />
       )}
-
-      {emojiPickerVisible && <EmojiPicker onSelect={(emoji) => { setText((prev) => prev + emoji); setEmojiPickerVisible(false); }} isDark={isDark} />}
 
       <ToastContainer position="top-center" autoClose={1500} hideProgressBar />
     </div>
