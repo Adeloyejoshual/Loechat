@@ -54,33 +54,29 @@ export default function ChatConversationPage() {
     let unsubUser = null;
 
     const loadMeta = async () => {
-      try {
-        const cRef = doc(db, "chats", chatId);
-        unsubChat = onSnapshot(cRef, (snap) => {
-          if (!snap.exists()) return;
-          const data = snap.data();
-          setChatInfo({ id: snap.id, ...data });
-          setIsBlocked(data.blocked || false);
+      const cRef = doc(db, "chats", chatId);
+      unsubChat = onSnapshot(cRef, (snap) => {
+        if (!snap.exists()) return;
+        const data = snap.data();
+        setChatInfo({ id: snap.id, ...data });
+        setIsBlocked(data.blocked || false);
 
-          const friendId = data.participants?.find((p) => p !== myUid);
-          if (friendId) {
-            const userRef = doc(db, "users", friendId);
-            unsubUser = onSnapshot(userRef, (s) => {
-              if (s.exists()) setFriendInfo({ id: s.id, ...s.data() });
-            });
-          }
+        const friendId = data.participants?.find((p) => p !== myUid);
+        if (friendId) {
+          const userRef = doc(db, "users", friendId);
+          unsubUser = onSnapshot(userRef, (s) => {
+            if (s.exists()) setFriendInfo({ id: s.id, ...s.data() });
+          });
+        }
 
-          // Handle pinned message
-          if (data.pinnedMessageId) {
-            const pinnedMsgRef = doc(db, "chats", chatId, "messages", data.pinnedMessageId);
-            onSnapshot(pinnedMsgRef, (s) => {
-              if (s.exists()) setPinnedMessage({ id: s.id, ...s.data() });
-            });
-          }
-        });
-      } catch (err) {
-        console.error(err);
-      }
+        // Handle pinned message
+        if (data.pinnedMessageId) {
+          const pinnedMsgRef = doc(db, "chats", chatId, "messages", data.pinnedMessageId);
+          onSnapshot(pinnedMsgRef, (s) => {
+            if (s.exists()) setPinnedMessage({ id: s.id, ...s.data() });
+          });
+        }
+      });
     };
 
     loadMeta();
@@ -100,9 +96,7 @@ export default function ChatConversationPage() {
     const q = query(messagesRef, orderBy("createdAt", "asc"));
 
     const unsub = onSnapshot(q, (snap) => {
-      // Show all messages even if blocked
-      const docs = snap.docs
-        .map((d) => ({ id: d.id, ...d.data() }));
+      const docs = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
       setMessages(docs);
 
       if (isAtBottom) endRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -116,7 +110,8 @@ export default function ChatConversationPage() {
   useEffect(() => {
     const el = messagesRefEl.current;
     if (!el) return;
-    const onScroll = () => setIsAtBottom(el.scrollHeight - el.scrollTop - el.clientHeight < 80);
+    const onScroll = () =>
+      setIsAtBottom(el.scrollHeight - el.scrollTop - el.clientHeight < 80);
     el.addEventListener("scroll", onScroll);
     return () => el.removeEventListener("scroll", onScroll);
   }, []);
@@ -159,7 +154,17 @@ export default function ChatConversationPage() {
     if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
   };
 
-  // -------------------- Send text --------------------
+  // -------------------- Send message helpers --------------------
+  const updateParentChat = async (lastMsgText) => {
+    const chatRef = doc(db, "chats", chatId);
+    await updateDoc(chatRef, {
+      lastMessage: lastMsgText,
+      lastMessageSender: myUid,
+      lastMessageAt: serverTimestamp(),
+      lastMessageStatus: "delivered",
+    });
+  };
+
   const sendTextMessage = async () => {
     if (isBlocked) return toast.error("You cannot send messages to this user");
     if (!text.trim() && selectedFiles.length === 0) return;
@@ -183,11 +188,12 @@ export default function ChatConversationPage() {
 
     setReplyTo(null);
     await addDoc(collection(db, "chats", chatId, "messages"), payload);
+    await updateParentChat(payload.text);
+
     setText("");
     endRef.current?.scrollIntoView({ behavior: "smooth" });
   };
 
-  // -------------------- Send media --------------------
   const sendMediaMessage = async (files, rTo = replyTo) => {
     if (isBlocked) return toast.error("You cannot send messages to this user");
     if (!files || files.length === 0) return;
@@ -233,6 +239,7 @@ export default function ChatConversationPage() {
 
       setReplyTo(null);
       await addDoc(collection(db, "chats", chatId, "messages"), payload);
+      await updateParentChat(payload.text);
     }
 
     setSelectedFiles([]);
@@ -287,24 +294,26 @@ export default function ChatConversationPage() {
       }}>
         {loadingMsgs && <div style={{ textAlign: "center", marginTop: 12 }}>Loading...</div>}
 
-        {groupedMessages.map((item, idx) => item.type === "date-separator" ? (
-          <div key={idx} style={{ textAlign: "center", margin: "10px 0", fontSize: 12, color: isDark ? "#aaa" : "#555" }}>{item.date}</div>
-        ) : (
-          <MessageItem
-            key={item.data.id}
-            message={item.data}
-            myUid={myUid}
-            isDark={isDark}
-            chatId={chatId}
-            setReplyTo={setReplyTo}
-            pinnedMessage={pinnedMessage}
-            setPinnedMessage={setPinnedMessage}
-            onReplyClick={(id) => {
-              const el = messageRefs.current[id];
-              if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
-            }}
-          />
-        ))}
+        {groupedMessages.map((item, idx) =>
+          item.type === "date-separator" ? (
+            <div key={idx} style={{ textAlign: "center", margin: "10px 0", fontSize: 12, color: isDark ? "#aaa" : "#555" }}>{item.date}</div>
+          ) : (
+            <MessageItem
+              key={item.data.id}
+              message={item.data}
+              myUid={myUid}
+              isDark={isDark}
+              chatId={chatId}
+              setReplyTo={setReplyTo}
+              pinnedMessage={pinnedMessage}
+              setPinnedMessage={setPinnedMessage}
+              onReplyClick={(id) => {
+                const el = messageRefs.current[id];
+                if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+              }}
+            />
+          )
+        )}
 
         <div ref={endRef} />
       </div>
@@ -320,7 +329,7 @@ export default function ChatConversationPage() {
         setShowPreview={setShowPreview}
         replyTo={replyTo}
         setReplyTo={setReplyTo}
-        disabled={isBlocked} // block sending messages
+        disabled={isBlocked}
       />
 
       {showPreview && selectedFiles.length > 0 && (
