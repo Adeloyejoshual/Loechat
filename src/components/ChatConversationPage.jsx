@@ -1,4 +1,4 @@
-// src/components/ChatConversationPage.jsx
+// src/components/Chat/ChatConversationPage.jsx
 import React, { useEffect, useState, useRef, useContext } from "react";
 import { useParams } from "react-router-dom";
 import {
@@ -314,8 +314,18 @@ export default function ChatConversationPage() {
           groupedMessages.map((item, idx) => item.type === "date-separator" ? (
             <div key={idx} style={{ textAlign: "center", margin: "10px 0", fontSize: 12, color: isDark ? "#aaa" : "#555" }}>{item.date}</div>
           ) : (
-            <div key={item.data.id} ref={(el) => (messageRefs.current[item.data.id] = el)} onContextMenu={(e) => handleLongPress(e, item.data)} onTouchStart={(e) => { const t = setTimeout(() => handleLongPress(e, item.data), 600); e.currentTarget._longPressTimeout = t; }} onTouchEnd={(e) => clearTimeout(e.currentTarget._longPressTimeout)}>
-              <MessageItem message={item.data} myUid={myUid} isDark={isDark} chatId={chatId} setReplyTo={setReplyTo} onReplyClick={scrollToMessage} enableSwipeReply />
+            <div key={item.data.id} ref={(el) => (messageRefs.current[item.data.id] = el)}>
+              <MessageItem
+                message={item.data}
+                myUid={myUid}
+                isDark={isDark}
+                chatId={chatId}
+                setReplyTo={setReplyTo}
+                pinnedMessage={pinnedMessage}
+                setPinnedMessage={setPinnedMessage}
+                onReplyClick={scrollToMessage}
+                enableSwipeReply
+              />
             </div>
           ))
         )}
@@ -354,22 +364,6 @@ export default function ChatConversationPage() {
       )}
 
       {emojiPickerVisible && <EmojiPicker onSelect={(emoji) => { setText((prev) => prev + emoji); setEmojiPickerVisible(false); }} isDark={isDark} />}
-
-      {contextMenu.visible && (
-        <div style={{ position: "absolute", top: contextMenu.y, left: contextMenu.x, transform: "translateX(-50%)", background: isDark ? "#222" : "#fff", border: "1px solid #888", borderRadius: 12, padding: 10, zIndex: 9999, boxShadow: "0 4px 12px rgba(0,0,0,0.3)", minWidth: 180 }}>
-          <div style={{ display: "flex", justifyContent: "space-around", marginBottom: 8 }}>
-            {["😝", "💟", "💝", "😜"].map((emoji) => <span key={emoji} style={{ fontSize: 20, cursor: "pointer" }} onClick={() => handleReaction(emoji)}>{emoji}</span>)}
-            <span style={{ fontSize: 20, cursor: "pointer" }} onClick={() => setEmojiPickerVisible(true)}>+</span>
-          </div>
-          <div style={{ borderTop: `1px solid ${isDark ? "#555" : "#ccc"}`, marginTop: 4 }} />
-          <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 6 }}>
-            <button style={{ cursor: "pointer" }} onClick={handleCopy}>Copy</button>
-            <button style={{ cursor: "pointer" }} onClick={handleReply}>Reply</button>
-            <button style={{ cursor: "pointer" }} onClick={handlePin}>Pin</button>
-            <button style={{ cursor: "pointer", color: "red" }} onClick={handleDelete}>Delete</button>
-          </div>
-        </div>
-      )}
 
       <ToastContainer position="top-center" autoClose={1500} hideProgressBar />
     </div>
