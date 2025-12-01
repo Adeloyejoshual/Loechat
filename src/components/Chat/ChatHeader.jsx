@@ -1,11 +1,16 @@
-// src/components/Chat/ChatHeader.jsx
 import React, { useEffect, useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { doc, onSnapshot, updateDoc } from "firebase/firestore";
 import { db } from "../../firebaseConfig";
 import { FiMoreVertical, FiPhone, FiVideo } from "react-icons/fi";
 
-export default function ChatHeader({ friendId, chatId, onClearChat, onSearch }) {
+export default function ChatHeader({
+  friendId,
+  chatId,
+  onClearChat,
+  onSearch,
+  onGoToPinned, // NEW: jump to pinned message
+}) {
   const navigate = useNavigate();
   const [friendInfo, setFriendInfo] = useState(null);
   const [chatInfo, setChatInfo] = useState(null);
@@ -15,7 +20,9 @@ export default function ChatHeader({ friendId, chatId, onClearChat, onSearch }) 
   // Close menu when clicking outside
   useEffect(() => {
     const handleClickOutside = (e) => {
-      if (menuRef.current && !menuRef.current.contains(e.target)) setMenuOpen(false);
+      if (menuRef.current && !menuRef.current.contains(e.target)) {
+        setMenuOpen(false);
+      }
     };
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
@@ -30,7 +37,7 @@ export default function ChatHeader({ friendId, chatId, onClearChat, onSearch }) 
     return () => unsub();
   }, [friendId]);
 
-  // Load chat info
+  // Load chat info (muted, pinned, blocked)
   useEffect(() => {
     if (!chatId) return;
     const unsub = onSnapshot(doc(db, "chats", chatId), (snap) => {
@@ -39,14 +46,16 @@ export default function ChatHeader({ friendId, chatId, onClearChat, onSearch }) 
     return () => unsub();
   }, [chatId]);
 
-  // Toggle block/unblock chat
+  // Toggle block
   const toggleBlock = async () => {
     if (!chatInfo) return;
-    await updateDoc(doc(db, "chats", chatId), { blocked: !chatInfo.blocked });
+    await updateDoc(doc(db, "chats", chatId), {
+      blocked: !chatInfo.blocked,
+    });
     setMenuOpen(false);
   };
 
-  // Toggle mute/unmute chat
+  // Toggle mute (24 hours mute)
   const toggleMute = async () => {
     if (!chatInfo) return;
     const isMuted = chatInfo.mutedUntil && chatInfo.mutedUntil > Date.now();
@@ -68,11 +77,19 @@ export default function ChatHeader({ friendId, chatId, onClearChat, onSearch }) 
     if (!timestamp) return "";
     const date = timestamp.toDate();
     const now = new Date();
+
+    const timeString = date.toLocaleTimeString([], {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+
+    if (date.toDateString() === now.toDateString()) return `Today, ${timeString}`;
+
     const yesterday = new Date();
     yesterday.setDate(now.getDate() - 1);
-    const timeString = date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-    if (date.toDateString() === now.toDateString()) return `Today, ${timeString}`;
+
     if (date.toDateString() === yesterday.toDateString()) return "Yesterday";
+
     return date.toLocaleDateString([], {
       month: "short",
       day: "numeric",
@@ -80,151 +97,184 @@ export default function ChatHeader({ friendId, chatId, onClearChat, onSearch }) 
     });
   };
 
-  const startVoiceCall = () => {
-    navigate(`/call/voice/${chatId}`);
-  };
+  const startVoiceCall = () => navigate(`/call/voice/${chatId}`);
+  const startVideoCall = () => navigate(`/call/video/${chatId}`);
 
-  const startVideoCall = () => {
-    navigate(`/call/video/${chatId}`);
-  };
+  const pinned = chatInfo?.pinnedMessage || null;
 
   return (
-    <div
-      style={{
-        width: "100%",
-        backgroundColor: "#0d6efd",
-        padding: "8px 10px",
-        display: "flex",
-        alignItems: "center",
-        position: "sticky",
-        top: 0,
-        zIndex: 999,
-        boxShadow: "0 2px 6px rgba(0,0,0,0.25)",
-      }}
-    >
-      {/* Back button */}
+    <>
+      {/* HEADER */}
       <div
-        onClick={() => navigate("/chat")}
         style={{
-          width: 38,
-          height: 38,
-          borderRadius: "50%",
-          background: "rgba(255,255,255,0.15)",
+          width: "100%",
+          backgroundColor: "#0d6efd",
+          padding: "8px 10px",
           display: "flex",
-          justifyContent: "center",
           alignItems: "center",
-          cursor: "pointer",
-          marginRight: 10,
-          color: "white",
-          fontSize: 20,
-          fontWeight: "600",
-          userSelect: "none",
+          position: "sticky",
+          top: 0,
+          zIndex: 999,
         }}
       >
-        ←
-      </div>
+        {/* Back button */}
+        <div
+          onClick={() => navigate("/chat")}
+          style={{
+            width: 38,
+            height: 38,
+            borderRadius: "50%",
+            background: "rgba(255,255,255,0.15)",
+            display: "flex",
+            justifyContent: "center",
+            alignItems: "center",
+            cursor: "pointer",
+            marginRight: 10,
+            color: "white",
+            fontSize: 20,
+            fontWeight: "600",
+            userSelect: "none",
+          }}
+        >
+          ←
+        </div>
 
-      {/* Friend profile */}
-      <div
-        onClick={() => navigate(`/friend/${friendId}`)}
-        style={{
-          width: 46,
-          height: 46,
-          minWidth: 46,
-          minHeight: 46,
-          borderRadius: "50%",
-          backgroundColor: "#e0e0e0",
-          overflow: "hidden",
-          marginRight: 12,
-          cursor: "pointer",
-          display: "flex",
-          justifyContent: "center",
-          alignItems: "center",
-          fontWeight: "600",
-          fontSize: 17,
-          color: "#333",
-        }}
-      >
-        {friendInfo?.profilePic ? (
-          <img
-            src={friendInfo.profilePic}
-            alt={friendInfo.name || ""}
-            style={{ width: "100%", height: "100%", objectFit: "cover" }}
+        {/* Friend profile */}
+        <div
+          onClick={() => navigate(`/friend/${friendId}`)}
+          style={{
+            width: 46,
+            height: 46,
+            minWidth: 46,
+            minHeight: 46,
+            borderRadius: "50%",
+            backgroundColor: "#e0e0e0",
+            overflow: "hidden",
+            marginRight: 12,
+            cursor: "pointer",
+            display: "flex",
+            justifyContent: "center",
+            alignItems: "center",
+            fontWeight: "600",
+            fontSize: 17,
+            color: "#333",
+          }}
+        >
+          {friendInfo?.profilePic ? (
+            <img
+              src={friendInfo.profilePic}
+              alt=""
+              style={{ width: "100%", height: "100%", objectFit: "cover" }}
+            />
+          ) : (
+            getInitials(friendInfo?.name)
+          )}
+        </div>
+
+        {/* Name + last seen */}
+        <div
+          style={{
+            flex: 1,
+            color: "#fff",
+            display: "flex",
+            flexDirection: "column",
+            overflow: "hidden",
+            cursor: "pointer",
+          }}
+          onClick={() => navigate(`/friend/${friendId}`)}
+        >
+          <span style={{ fontSize: 16, fontWeight: "600", whiteSpace: "nowrap" }}>
+            {friendInfo?.name || "Loading..."}
+          </span>
+
+          <span style={{ fontSize: 13, opacity: 0.9 }}>
+            {friendInfo?.isOnline
+              ? "Online"
+              : formatLastSeen(friendInfo?.lastSeen)}
+          </span>
+        </div>
+
+        {/* Call buttons */}
+        <div style={{ display: "flex", gap: 10, marginRight: 10 }}>
+          <FiPhone size={22} color="white" onClick={startVoiceCall} style={{ cursor: "pointer" }} />
+          <FiVideo size={22} color="white" onClick={startVideoCall} style={{ cursor: "pointer" }} />
+        </div>
+
+        {/* Menu */}
+        <div ref={menuRef} style={{ position: "relative" }}>
+          <FiMoreVertical
+            onClick={() => setMenuOpen(!menuOpen)}
+            size={24}
+            color="white"
+            style={{ cursor: "pointer", padding: 4 }}
           />
-        ) : (
-          getInitials(friendInfo?.name)
-        )}
+          {menuOpen && (
+            <div
+              style={{
+                position: "absolute",
+                top: 34,
+                right: 0,
+                background: "white",
+                borderRadius: 10,
+                padding: "8px 0",
+                width: 165,
+                boxShadow: "0 4px 14px rgba(0,0,0,0.3)",
+                animation: "fadeIn 0.15s ease",
+              }}
+            >
+              <div style={menuItem} onClick={() => { setMenuOpen(false); onSearch(); }}>Search</div>
+              <div style={menuItem} onClick={() => { setMenuOpen(false); onClearChat(); }}>Clear Chat</div>
+              <div style={menuItem} onClick={toggleMute}>
+                {chatInfo?.mutedUntil > Date.now() ? "Unmute" : "Mute"}
+              </div>
+              <div
+                style={{ ...menuItem, color: "red", fontWeight: 600 }}
+                onClick={toggleBlock}
+              >
+                {chatInfo?.blocked ? "Unblock" : "Block"}
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
-      {/* Name + last seen */}
-      <div
-        style={{
-          flex: 1,
-          color: "#fff",
-          display: "flex",
-          flexDirection: "column",
-          overflow: "hidden",
-          cursor: "pointer",
-        }}
-        onClick={() => navigate(`/friend/${friendId}`)}
-      >
-        <span style={{ fontSize: 16, fontWeight: "600", whiteSpace: "nowrap" }}>
-          {friendInfo?.name || "Loading..."}
-        </span>
-        <span style={{ fontSize: 13, opacity: 0.9 }}>
-          {friendInfo?.isOnline ? "Online" : formatLastSeen(friendInfo?.lastSeen)}
-        </span>
-      </div>
-
-      {/* Call buttons */}
-      <div style={{ display: "flex", gap: 10, marginRight: 10 }}>
-        <FiPhone
-          size={22}
-          color="white"
-          style={{ cursor: "pointer" }}
-          onClick={startVoiceCall}
-        />
-        <FiVideo
-          size={22}
-          color="white"
-          style={{ cursor: "pointer" }}
-          onClick={startVideoCall}
-        />
-      </div>
-
-      {/* Menu */}
-      <div ref={menuRef} style={{ position: "relative" }}>
-        <FiMoreVertical
-          onClick={() => setMenuOpen(!menuOpen)}
-          size={24}
-          color="white"
-          style={{ cursor: "pointer", padding: 4 }}
-        />
-        {menuOpen && (
-          <div
+      {/* PINNED MESSAGE BAR */}
+      {pinned && (
+        <div
+          onClick={() => onGoToPinned(pinned.messageId)}
+          style={{
+            width: "100%",
+            background: "#f7f7f7",
+            padding: "6px 12px",
+            borderBottom: "1px solid #ddd",
+            fontSize: 14,
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            cursor: "pointer",
+            color: "#444",
+          }}
+        >
+          📌
+          <span
             style={{
-              position: "absolute",
-              top: 34,
-              right: 0,
-              background: "white",
-              borderRadius: 10,
-              padding: "8px 0",
-              width: 165,
-              boxShadow: "0 4px 14px rgba(0,0,0,0.3)",
-              animation: "fadeIn 0.15s ease",
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              maxWidth: "90%",
             }}
           >
-            <div style={menuItem} onClick={() => { setMenuOpen(false); onSearch(); }}>Search</div>
-            <div style={menuItem} onClick={() => { setMenuOpen(false); onClearChat(); }}>Clear Chat</div>
-            <div style={menuItem} onClick={toggleMute}>{chatInfo?.mutedUntil > Date.now() ? "Unmute" : "Mute"}</div>
-            <div style={{ ...menuItem, color: "red", fontWeight: 600 }} onClick={toggleBlock}>
-              {chatInfo?.blocked ? "Unblock" : "Block"}
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
+            {pinned.text || "Pinned message"}
+          </span>
+        </div>
+      )}
+    </>
   );
 }
 
-const menuItem = { padding: "12px 16px", cursor: "pointer", fontSize: 15, whiteSpace: "nowrap" };
+const menuItem = {
+  padding: "12px 16px",
+  cursor: "pointer",
+  fontSize: 15,
+  whiteSpace: "nowrap",
+};
