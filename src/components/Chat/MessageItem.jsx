@@ -62,6 +62,7 @@ export default function MessageItem({
   const copyMessage = async () => {
     await navigator.clipboard.writeText(message.text || message.mediaUrl || "");
     setMenuOpen(false);
+    alert("Copied!");
   };
 
   // ---------------- Reactions ----------------
@@ -99,6 +100,7 @@ export default function MessageItem({
     if (touchDelta.current > 80) setReplyTo(message);
   };
 
+  // ---------------- Render ----------------
   return (
     <div
       ref={containerRef}
@@ -116,7 +118,7 @@ export default function MessageItem({
       onTouchStart={handleTouchStart}
       onTouchMove={handleTouchMove}
       onTouchEnd={handleTouchEnd}
-      onLongPress={openReactions} // optional: for long press library
+      onLongPress={openReactions} // optional for long press library
     >
       {/* Message bubble */}
       <div
@@ -149,7 +151,6 @@ export default function MessageItem({
         )}
 
         {message.text && <div>{message.text}</div>}
-
         {message.mediaUrl && message.mediaType === "image" && (
           <img src={message.mediaUrl} style={{ maxWidth: "100%", borderRadius: SPACING.borderRadius }} />
         )}
@@ -168,65 +169,30 @@ export default function MessageItem({
           {fmtTime(message.createdAt)}
         </div>
 
-        {/* Reactions */}
-        {message.reactions && Object.values(message.reactions).filter(Boolean).length > 0 && (
-          <div style={{ display: "flex", gap: 2, marginTop: 4 }}>
-            {Object.values(message.reactions)
-              .filter(Boolean)
-              .map((r, i) => (
+        {/* Reactions display (all users) */}
+        {message.reactions && Object.entries(message.reactions).filter(([_, v]) => v).length > 0 && (
+          <div style={{ display: "flex", gap: 4, marginTop: 4 }}>
+            {Object.entries(message.reactions)
+              .filter(([_, v]) => v)
+              .map(([uid, emoji], i) => (
                 <span
                   key={i}
                   style={{
                     backgroundColor: COLORS.reactionBg,
                     color: "#fff",
-                    borderRadius: 8,
-                    padding: "0 4px",
-                    fontSize: 10,
+                    borderRadius: 12,
+                    padding: "0 6px",
+                    fontSize: 12,
                   }}
                 >
-                  {r}
+                  {emoji}
                 </span>
               ))}
           </div>
         )}
       </div>
 
-      {/* Context Menu */}
-      {menuOpen && (
-        <div
-          style={{
-            position: "absolute",
-            top: -SPACING.lg,
-            right: 0,
-            background: isDark ? COLORS.darkCard : COLORS.lightCard,
-            border: `1px solid ${COLORS.mutedText}`,
-            borderRadius: SPACING.borderRadius,
-            zIndex: 10,
-            display: "flex",
-            flexDirection: "column",
-          }}
-        >
-          <button style={{ padding: 6, cursor: "pointer" }} onClick={() => setReplyTo(message)}>
-            Reply
-          </button>
-          <button style={{ padding: 6, cursor: "pointer" }} onClick={copyMessage}>
-            Copy
-          </button>
-          <button style={{ padding: 6, cursor: "pointer" }} onClick={togglePin}>
-            {pinnedMessage?.id === message.id ? "Unpin" : "Pin"}
-          </button>
-          {isMine && (
-            <button style={{ padding: 6, cursor: "pointer", color: "red" }} onClick={deleteMessage}>
-              Delete
-            </button>
-          )}
-          <button style={{ padding: 6, cursor: "pointer" }} onClick={() => setMenuOpen(false)}>
-            Close
-          </button>
-        </div>
-      )}
-
-      {/* Reactions Bar (Quick reactions) */}
+      {/* Quick reactions bar */}
       {showReactions && (
         <div
           style={{
@@ -256,6 +222,33 @@ export default function MessageItem({
 
       {/* Emoji Picker for more reactions */}
       {showEmojiPicker && <EmojiPicker onSelect={handleEmojiPickerSelect} isDark={isDark} />}
+
+      {/* Context Menu (optional) */}
+      {menuOpen && (
+        <div
+          style={{
+            position: "absolute",
+            top: -SPACING.lg,
+            right: 0,
+            background: isDark ? COLORS.darkCard : COLORS.lightCard,
+            border: `1px solid ${COLORS.mutedText}`,
+            borderRadius: SPACING.borderRadius,
+            zIndex: 10,
+            display: "flex",
+            flexDirection: "column",
+          }}
+        >
+          <button style={{ padding: 6, cursor: "pointer" }} onClick={() => setReplyTo(message)}>Reply</button>
+          <button style={{ padding: 6, cursor: "pointer" }} onClick={copyMessage}>Copy</button>
+          <button style={{ padding: 6, cursor: "pointer" }} onClick={togglePin}>
+            {pinnedMessage?.id === message.id ? "Unpin" : "Pin"}
+          </button>
+          {isMine && (
+            <button style={{ padding: 6, cursor: "pointer", color: "red" }} onClick={deleteMessage}>Delete</button>
+          )}
+          <button style={{ padding: 6, cursor: "pointer" }} onClick={() => setMenuOpen(false)}>Close</button>
+        </div>
+      )}
     </div>
   );
 }
