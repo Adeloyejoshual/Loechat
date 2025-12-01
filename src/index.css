@@ -13,80 +13,75 @@ html, body, #root {
   font-family: "Inter", "Segoe UI", Arial, sans-serif;
   background: var(--bg-color);
   color: var(--text-color);
-  transition: background 0.25s ease, color 0.25s ease;
-  line-height: 1.55;
+  transition: background 0.3s ease, color 0.3s ease;
+  line-height: 1.5;
+  scroll-behavior: smooth;
 }
 
 /* =========================================
    THEME VARIABLES
 ========================================= */
 :root {
-  --radius-xs: 4px;
-  --radius-sm: 8px;
-  --radius-md: 12px;
-  --radius-lg: 18px;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
 
-  --shadow-soft: 0 2px 10px rgba(0,0,0,0.08);
-  --shadow-medium: 0 6px 20px rgba(0,0,0,0.12);
-  --shadow-strong: 0 10px 26px rgba(0,0,0,0.18);
+  --spacing-xs: 4px;
+  --spacing-sm: 8px;
+  --spacing-md: 12px;
+  --spacing-lg: 18px;
+  --spacing-xl: 24px;
 
-  --space-xs: 4px;
-  --space-sm: 8px;
-  --space-md: 14px;
-  --space-lg: 20px;
-  --space-xl: 28px;
+  --shadow-soft: 0 4px 12px rgba(0,0,0,0.06);
+  --shadow-strong: 0 6px 20px rgba(0,0,0,0.12);
+
+  --bubble-sent: #3b82f6;
+  --bubble-received: #e5e7eb;
 }
 
-/* =========================================
-   LIGHT THEME (Balanced, not too bright)
-========================================= */
 .light-theme {
-  --bg-color: #f1f5f9;          /* Slightly dimmed white */
-  --text-color: #1e293b;       /* Slate-800 */
-  --text-muted: #64748b;
-
+  --bg-color: #f0f4f8;
+  --text-color: #0f172a;
   --primary-color: #3b82f6;
-
+  --secondary-color: #2563eb;
   --header-bg: #ffffff;
-  --header-border: #e2e8f0;
-
+  --header-border: #e5e7eb;
   --card-bg: #ffffff;
   --input-bg: #ffffff;
-  --input-border: #cbd5e1;
-
-  --bubble-sent: #dbeafe;      /* soft blue */
-  --bubble-received: #ffffff;
+  --input-border: #d1d5db;
+  --bubble-received: #f1f5f9;
 }
 
-/* =========================================
-   DARK THEME (professional modern dark)
-========================================= */
 .dark-theme {
-  --bg-color: #0d0d0d;
-  --text-color: #e5e7eb;
-  --text-muted: #9ca3af;
-
-  --primary-color: #3b82f6;
-
+  --bg-color: #0b0b0b;
+  --text-color: #e5e5e5;
+  --primary-color: #2563eb;
+  --secondary-color: #7c3aed;
   --header-bg: #141414;
   --header-border: #222;
-
   --card-bg: #1a1a1a;
   --input-bg: #111;
   --input-border: #333;
-
-  --bubble-sent: #1e40af;        /* deep blue */
-  --bubble-received: #2b2b2b;
+  --bubble-received: #1b1b1b;
 }
 
 /* =========================================
-   HEADER (WhatsApp + Telegram style)
+   APP LAYOUT
+========================================= */
+.app-container {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* =========================================
+   PROFESSIONAL HEADER
 ========================================= */
 .app-header {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: var(--space-md);
+  padding: var(--spacing-md) var(--spacing-lg);
   background: var(--header-bg);
   border-bottom: 1px solid var(--header-border);
   box-shadow: var(--shadow-soft);
@@ -98,14 +93,14 @@ html, body, #root {
 .app-header-title {
   font-size: 1.2rem;
   font-weight: 700;
-  color: var(--text-color);
 }
 
-.header-sub {
-  color: var(--text-muted);
+.app-header small {
   font-size: 0.75rem;
+  opacity: 0.7;
 }
 
+/* Avatar */
 .header-avatar {
   width: 42px;
   height: 42px;
@@ -114,116 +109,187 @@ html, body, #root {
   background: #ddd;
 }
 
+/* Back button */
 .back-btn {
-  font-size: 1.5rem;
-  appearance: none;
-  border: none;
-  background: transparent;
-  color: var(--text-color);
-  padding: 6px 10px;
+  font-size: 1.4rem;
+  padding: 4px 10px;
   border-radius: var(--radius-md);
+  background: transparent;
+  border: none;
+  color: var(--text-color);
 }
-.back-btn:active { transform: scale(0.9); }
+
+.back-btn:active {
+  transform: scale(0.92);
+}
 
 /* =========================================
-   CHAT WRAPPER
+   INPUT FIELDS + BUTTONS
+========================================= */
+input, textarea, select {
+  width: 100%;
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--input-border);
+  background: var(--input-bg);
+  color: var(--text-color);
+  transition: 0.25s ease;
+}
+
+input:focus, textarea:focus {
+  border-color: var(--primary-color);
+  box-shadow: 0 0 0 3px rgba(59,130,246,0.25);
+  outline: none;
+}
+
+/* Buttons */
+button {
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: var(--primary-color);
+  color: #fff;
+  border-radius: var(--radius-md);
+  border: none;
+  font-weight: 600;
+  transition: 0.2s;
+}
+
+button:hover {
+  filter: brightness(1.05);
+}
+
+button:active {
+  transform: scale(0.96);
+}
+
+/* =========================================
+   CHAT PAGE
 ========================================= */
 .chat-wrapper {
   flex: 1;
   overflow-y: auto;
-  padding: var(--space-lg) var(--space-md);
+  padding: var(--spacing-lg);
+  padding-top: var(--spacing-md);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
 /* Scrollbar */
-::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar {
+  width: 6px;
+}
 ::-webkit-scrollbar-thumb {
-  background: rgba(0,0,0,0.3);
+  background: rgba(0,0,0,0.25);
   border-radius: 8px;
 }
 
 /* =========================================
    MESSAGE BUBBLES
 ========================================= */
-.message-item {
+.message-row {
+  display: flex;
+  width: 100%;
+}
+
+/* Sent → right */
+.message-row.sent {
+  justify-content: flex-end;
+}
+
+/* Received → left */
+.message-row.received {
+  justify-content: flex-start;
+}
+
+.message-bubble {
   max-width: 78%;
-  padding: var(--space-sm) var(--space-md);
-  margin-bottom: 6px;
-  border-radius: var(--radius-lg);
+  padding: 10px 14px;
+  border-radius: 16px;
   font-size: 0.95rem;
+  line-height: 1.4;
+  word-break: break-word;
+  position: relative;
   animation: fadeIn 0.25s ease-out;
 }
 
-.message-sent {
-  margin-left: auto;
+/* Sent bubble */
+.message-bubble.sent {
   background: var(--bubble-sent);
-  color: var(--text-color);
+  color: #fff;
+  border-bottom-right-radius: 6px;
 }
 
-.message-received {
-  margin-right: auto;
+/* Received bubble */
+.message-bubble.received {
   background: var(--bubble-received);
   color: var(--text-color);
+  border-bottom-left-radius: 6px;
 }
 
-/* Time */
+/* Reply preview */
+.message-bubble .reply-preview {
+  font-size: 0.75rem;
+  opacity: 0.7;
+  border-left: 2px solid #888;
+  padding-left: 6px;
+  margin-bottom: 4px;
+  cursor: pointer;
+}
+
+/* Media inside bubble */
+.message-bubble img, 
+.message-bubble video {
+  max-width: 100%;
+  border-radius: 12px;
+  margin-top: 6px;
+  cursor: pointer;
+}
+
+/* Reactions */
+.message-bubble .reactions {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+  font-size: 0.75rem;
+  padding: 2px 6px;
+  border-radius: 12px;
+  background: rgba(0,0,0,0.15);
+}
+
+/* Timestamp */
 .message-time {
-  margin-top: 2px;
   font-size: 0.7rem;
-  color: var(--text-muted);
+  margin-top: 3px;
+  opacity: 0.7;
   text-align: right;
 }
 
 /* =========================================
-   INPUT BAR
-========================================= */
-.chat-input-bar {
-  display: flex;
-  align-items: center;
-  gap: var(--space-sm);
-  padding: var(--space-md);
-  background: var(--header-bg);
-  border-top: 1px solid var(--header-border);
-}
-
-.chat-input {
-  flex: 1;
-  padding: var(--space-sm) var(--space-md);
-  border-radius: var(--radius-lg);
-  border: 1px solid var(--input-border);
-  background: var(--input-bg);
-  color: var(--text-color);
-}
-
-.send-btn {
-  padding: var(--space-sm) var(--space-lg);
-  background: var(--primary-color);
-  border-radius: var(--radius-md);
-  color: #fff;
-  font-weight: 600;
-}
-
-/* =========================================
-   CARD
+   CARDS / CONTAINERS
 ========================================= */
 .card {
   background: var(--card-bg);
   border-radius: var(--radius-lg);
-  padding: var(--space-lg);
+  padding: var(--spacing-lg);
   box-shadow: var(--shadow-soft);
+  transition: 0.25s ease;
 }
 
 .card:hover {
-  box-shadow: var(--shadow-medium);
+  box-shadow: var(--shadow-strong);
 }
 
 /* =========================================
-   ANIMATIONS
+   UTILITY
 ========================================= */
+.flex-center { display: flex; justify-content: center; align-items: center; }
+.text-center { text-align: center; }
+
 .fade-in {
-  animation: fadeIn 0.25s ease-out forwards;
+  animation: fadeIn 0.3s ease-out forwards;
 }
 
 @keyframes fadeIn {
-  from { opacity: 0; transform: translateY(8px); }
+  from { opacity: 0; transform: translateY(6px); }
   to { opacity: 1; transform: translateY(0); }
 }
