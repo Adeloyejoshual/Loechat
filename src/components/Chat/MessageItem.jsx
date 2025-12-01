@@ -1,7 +1,9 @@
 // src/components/Chat/MessageItem.jsx
-import React, { useState, useRef } from "react";
-import { doc, updateDoc, deleteDoc } from "firebase/firestore";
+import React, { useState, useRef, useContext } from "react";
+import { doc, updateDoc } from "firebase/firestore";
 import { db } from "../../firebaseConfig";
+import { ThemeContext } from "../../context/ThemeContext";
+import EmojiPicker from "./EmojiPicker";
 
 const COLORS = {
   primary: "#34B7F1",
@@ -28,23 +30,23 @@ export default function MessageItem({
 }) {
   const isMine = message.senderId === myUid;
   const containerRef = useRef(null);
+  const touchStartX = useRef(0);
+  const touchDelta = useRef(0);
+  const { theme } = useContext(ThemeContext);
 
   const [menuOpen, setMenuOpen] = useState(false);
   const [showReactions, setShowReactions] = useState(false);
   const [emojiPos, setEmojiPos] = useState({ top: 0, left: 0 });
-
-  // Swipe to reply
-  const touchStartX = useRef(0);
-  const touchDelta = useRef(0);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
 
   const fmtTime = (ts) =>
     ts?.toDate
       ? ts.toDate().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
       : "";
 
+  // ---------------- Pin / Delete / Copy ----------------
   const togglePin = async () => {
     const chatRef = doc(db, "chats", chatId);
-    const msgRef = doc(db, "chats", chatId, "messages", message.id);
     const newPin = pinnedMessage?.id !== message.id;
     await updateDoc(chatRef, { pinnedMessageId: newPin ? message.id : null });
     setPinnedMessage(newPin ? message : null);
@@ -59,10 +61,10 @@ export default function MessageItem({
 
   const copyMessage = async () => {
     await navigator.clipboard.writeText(message.text || message.mediaUrl || "");
-    alert("Copied!");
     setMenuOpen(false);
   };
 
+  // ---------------- Reactions ----------------
   const openReactions = () => {
     const rect = containerRef.current.getBoundingClientRect();
     setEmojiPos({ top: rect.top + window.scrollY - 50, left: rect.left + rect.width / 2 });
@@ -75,6 +77,12 @@ export default function MessageItem({
     setShowReactions(false);
   };
 
+  const handleEmojiPickerSelect = async (emoji) => {
+    await applyReaction(emoji);
+    setShowEmojiPicker(false);
+  };
+
+  // ---------------- Swipe to reply ----------------
   const handleTouchStart = (e) => {
     if (!enableSwipeReply) return;
     touchStartX.current = e.touches[0].clientX;
@@ -108,7 +116,7 @@ export default function MessageItem({
       onTouchStart={handleTouchStart}
       onTouchMove={handleTouchMove}
       onTouchEnd={handleTouchEnd}
-      onLongPress={openReactions} // Custom or library for long press
+      onLongPress={openReactions} // optional: for long press library
     >
       {/* Message bubble */}
       <div
@@ -218,7 +226,7 @@ export default function MessageItem({
         </div>
       )}
 
-      {/* Reactions bar (long press) */}
+      {/* Reactions Bar (Quick reactions) */}
       {showReactions && (
         <div
           style={{
@@ -240,14 +248,14 @@ export default function MessageItem({
               {e}
             </span>
           ))}
-          <span
-            style={{ fontSize: 20, cursor: "pointer" }}
-            onClick={() => setShowReactions(false)}
-          >
+          <span style={{ fontSize: 20, cursor: "pointer" }} onClick={() => { setShowReactions(false); setShowEmojiPicker(true); }}>
             ➕
           </span>
         </div>
       )}
+
+      {/* Emoji Picker for more reactions */}
+      {showEmojiPicker && <EmojiPicker onSelect={handleEmojiPickerSelect} isDark={isDark} />}
     </div>
   );
 }
