@@ -4,6 +4,7 @@ import { doc, updateDoc } from "firebase/firestore";
 import { db } from "../../firebaseConfig";
 import { ThemeContext } from "../../context/ThemeContext";
 import EmojiPicker from "./EmojiPicker";
+import { toast } from "react-toastify";
 
 const COLORS = {
   primary: "#34B7F1",
@@ -15,7 +16,7 @@ const COLORS = {
 };
 
 const SPACING = { sm: 8, lg: 14, borderRadius: 12 };
-const QUICK_REACTIONS = ["❤️", "😂", "👍", "😮", "😢", "💖"];
+const QUICK_REACTIONS = ["😜", "💗", "😎", "😍", "☻️", "💖"];
 
 export default function MessageItem({
   message,
@@ -51,18 +52,20 @@ export default function MessageItem({
     await updateDoc(chatRef, { pinnedMessageId: newPin ? message.id : null });
     setPinnedMessage(newPin ? message : null);
     setMenuOpen(false);
+    toast.success(newPin ? "Message pinned" : "Message unpinned");
   };
 
   const deleteMessage = async () => {
-    if (!confirm("Delete this message?")) return;
+    if (!window.confirm("Delete this message?")) return;
     await updateDoc(doc(db, "chats", chatId, "messages", message.id), { deleted: true });
     setMenuOpen(false);
+    toast.success("Message deleted");
   };
 
   const copyMessage = async () => {
     await navigator.clipboard.writeText(message.text || message.mediaUrl || "");
     setMenuOpen(false);
-    alert("Copied!");
+    toast.success("Copied!");
   };
 
   // ---------------- Reactions ----------------
@@ -76,6 +79,7 @@ export default function MessageItem({
     const msgRef = doc(db, "chats", chatId, "messages", message.id);
     await updateDoc(msgRef, { [`reactions.${myUid}`]: emoji });
     setShowReactions(false);
+    toast.success(`Reacted with ${emoji}`);
   };
 
   const handleEmojiPickerSelect = async (emoji) => {
@@ -97,7 +101,10 @@ export default function MessageItem({
 
   const handleTouchEnd = () => {
     if (!enableSwipeReply) return;
-    if (touchDelta.current > 80) setReplyTo(message);
+    if (touchDelta.current > 80) {
+      setReplyTo(message);
+      toast.info("Replying to message");
+    }
   };
 
   // ---------------- Render ----------------
@@ -118,7 +125,8 @@ export default function MessageItem({
       onTouchStart={handleTouchStart}
       onTouchMove={handleTouchMove}
       onTouchEnd={handleTouchEnd}
-      onLongPress={openReactions} // optional for long press library
+      onMouseDown={(e) => e.preventDefault()}
+      onPointerDown={openReactions} // For long press libraries or touch hold
     >
       {/* Message bubble */}
       <div
@@ -169,7 +177,7 @@ export default function MessageItem({
           {fmtTime(message.createdAt)}
         </div>
 
-        {/* Reactions display (all users) */}
+        {/* Reactions display */}
         {message.reactions && Object.entries(message.reactions).filter(([_, v]) => v).length > 0 && (
           <div style={{ display: "flex", gap: 4, marginTop: 4 }}>
             {Object.entries(message.reactions)
@@ -223,7 +231,7 @@ export default function MessageItem({
       {/* Emoji Picker for more reactions */}
       {showEmojiPicker && <EmojiPicker onSelect={handleEmojiPickerSelect} isDark={isDark} />}
 
-      {/* Context Menu (optional) */}
+      {/* Context Menu */}
       {menuOpen && (
         <div
           style={{
@@ -238,7 +246,7 @@ export default function MessageItem({
             flexDirection: "column",
           }}
         >
-          <button style={{ padding: 6, cursor: "pointer" }} onClick={() => setReplyTo(message)}>Reply</button>
+          <button style={{ padding: 6, cursor: "pointer" }} onClick={() => { setReplyTo(message); toast.info("Replying to message"); }}>Reply</button>
           <button style={{ padding: 6, cursor: "pointer" }} onClick={copyMessage}>Copy</button>
           <button style={{ padding: 6, cursor: "pointer" }} onClick={togglePin}>
             {pinnedMessage?.id === message.id ? "Unpin" : "Pin"}
