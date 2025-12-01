@@ -9,27 +9,33 @@ export const ThemeProvider = ({ children }) => {
   const [theme, setTheme] = useState("light");
   const [wallpaper, setWallpaper] = useState("");
 
-  // Load user settings when logged in
+  // Load settings when user logs in
   useEffect(() => {
     const loadSettings = async () => {
-      if (!auth.currentUser) return;
-      const userRef = doc(db, "users", auth.currentUser.uid);
+      const user = auth.currentUser;
+      if (!user) return;
+
+      const userRef = doc(db, "users", user.uid);
       const snap = await getDoc(userRef);
+
       if (snap.exists()) {
         const data = snap.data();
         if (data.theme) setTheme(data.theme);
         if (data.wallpaper) setWallpaper(data.wallpaper);
       }
     };
-    loadSettings();
-  }, [auth.currentUser]);
 
-  // Save new settings to Firebase
+    loadSettings();
+  }, []);
+
+  // Save settings to Firebase
   const updateSettings = async (newTheme, newWallpaper) => {
     setTheme(newTheme);
     setWallpaper(newWallpaper);
-    if (auth.currentUser) {
-      const userRef = doc(db, "users", auth.currentUser.uid);
+
+    const user = auth.currentUser;
+    if (user) {
+      const userRef = doc(db, "users", user.uid);
       await setDoc(
         userRef,
         { theme: newTheme, wallpaper: newWallpaper },
@@ -38,15 +44,25 @@ export const ThemeProvider = ({ children }) => {
     }
   };
 
-  // Apply theme + wallpaper to body
+  // Apply theme class + wallpaper to document
   useEffect(() => {
-    document.body.style.backgroundColor = theme === "dark" ? "#000" : "#fff";
-    document.body.style.color = theme === "dark" ? "#fff" : "#000";
-    document.body.style.backgroundImage = wallpaper
-      ? `url(${wallpaper})`
-      : "none";
-    document.body.style.backgroundSize = "cover";
-    document.body.style.backgroundRepeat = "no-repeat";
+    const root = document.documentElement;
+
+    // Remove old theme classes
+    root.classList.remove("light-theme", "dark-theme");
+
+    // Apply new one
+    root.classList.add(theme === "dark" ? "dark-theme" : "light-theme");
+
+    // Apply wallpaper if set
+    if (wallpaper) {
+      root.style.backgroundImage = `url(${wallpaper})`;
+      root.style.backgroundSize = "cover";
+      root.style.backgroundRepeat = "no-repeat";
+      root.style.backgroundAttachment = "fixed";
+    } else {
+      root.style.backgroundImage = "none";
+    }
   }, [theme, wallpaper]);
 
   return (
