@@ -20,7 +20,6 @@ import ChatHeader from "./Chat/ChatHeader";
 import MessageItem from "./Chat/MessageItem";
 import ChatInput from "./Chat/ChatInput";
 import ImagePreviewModal from "./Chat/ImagePreviewModal";
-import EmojiPicker from "./Chat/EmojiPicker";
 import { toast, ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import axios from "axios";
@@ -101,22 +100,17 @@ export default function ChatConversationPage() {
     const q = query(messagesRef, orderBy("createdAt", "asc"));
 
     const unsub = onSnapshot(q, (snap) => {
-      if (isBlocked) {
-        setMessages([]); // hide messages if blocked
-        setLoadingMsgs(false);
-        return;
-      }
-
+      // Show all messages even if blocked
       const docs = snap.docs
-        .filter((d) => !d.data()?.deleted)
         .map((d) => ({ id: d.id, ...d.data() }));
       setMessages(docs);
+
       if (isAtBottom) endRef.current?.scrollIntoView({ behavior: "smooth" });
       setLoadingMsgs(false);
     });
 
     return () => unsub();
-  }, [chatId, isAtBottom, isBlocked]);
+  }, [chatId, isAtBottom]);
 
   // -------------------- Scroll detection --------------------
   useEffect(() => {
@@ -167,7 +161,7 @@ export default function ChatConversationPage() {
 
   // -------------------- Send text --------------------
   const sendTextMessage = async () => {
-    if (isBlocked) return toast.error("You cannot send messages to a blocked user");
+    if (isBlocked) return toast.error("You cannot send messages to this user");
     if (!text.trim() && selectedFiles.length === 0) return;
 
     if (selectedFiles.length > 0) {
@@ -195,7 +189,7 @@ export default function ChatConversationPage() {
 
   // -------------------- Send media --------------------
   const sendMediaMessage = async (files, rTo = replyTo) => {
-    if (isBlocked) return toast.error("You cannot send messages to a blocked user");
+    if (isBlocked) return toast.error("You cannot send messages to this user");
     if (!files || files.length === 0) return;
     setShowPreview(false);
 
@@ -203,10 +197,10 @@ export default function ChatConversationPage() {
       const type = f.type.startsWith("image/")
         ? "image"
         : f.type.startsWith("video/")
-        ? "video"
-        : f.type.startsWith("audio/")
-        ? "audio"
-        : "file";
+          ? "video"
+          : f.type.startsWith("audio/")
+            ? "audio"
+            : "file";
 
       let mediaUrl = "";
       if (type !== "file") {
@@ -266,7 +260,14 @@ export default function ChatConversationPage() {
   };
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100vh", backgroundColor: wallpaper || (isDark ? "#0b0b0b" : "#f5f5f5"), color: isDark ? "#fff" : "#000", position: "relative" }}>
+    <div style={{
+      display: "flex",
+      flexDirection: "column",
+      height: "100vh",
+      backgroundColor: wallpaper || (isDark ? "#0b0b0b" : "#f5f5f5"),
+      color: isDark ? "#fff" : "#000",
+      position: "relative"
+    }}>
       <ChatHeader
         friendId={friendInfo?.id}
         chatId={chatId}
@@ -276,28 +277,34 @@ export default function ChatConversationPage() {
         onSearch={handleSearch}
       />
 
-      <div ref={messagesRefEl} style={{ flex: 1, overflowY: "auto", padding: 8, display: "flex", flexDirection: "column", justifyContent: isBlocked && messages.length === 0 ? "center" : "flex-start", alignItems: "center" }}>
+      <div ref={messagesRefEl} style={{
+        flex: 1,
+        overflowY: "auto",
+        padding: 8,
+        display: "flex",
+        flexDirection: "column",
+        justifyContent: "flex-start",
+      }}>
         {loadingMsgs && <div style={{ textAlign: "center", marginTop: 12 }}>Loading...</div>}
 
-        {isBlocked && messages.length === 0 ? (
-          <div style={{ textAlign: "center", color: isDark ? "#aaa" : "#555" }}>No messages — user blocked</div>
+        {groupedMessages.map((item, idx) => item.type === "date-separator" ? (
+          <div key={idx} style={{ textAlign: "center", margin: "10px 0", fontSize: 12, color: isDark ? "#aaa" : "#555" }}>{item.date}</div>
         ) : (
-          groupedMessages.map((item, idx) => item.type === "date-separator" ? (
-            <div key={idx} style={{ textAlign: "center", margin: "10px 0", fontSize: 12, color: isDark ? "#aaa" : "#555" }}>{item.date}</div>
-          ) : (
-            <MessageItem
-              key={item.data.id}
-              message={item.data}
-              myUid={myUid}
-              isDark={isDark}
-              chatId={chatId}
-              setReplyTo={setReplyTo}
-              pinnedMessage={pinnedMessage}
-              setPinnedMessage={setPinnedMessage}
-              onReplyClick={scrollToMessage}
-            />
-          ))
-        )}
+          <MessageItem
+            key={item.data.id}
+            message={item.data}
+            myUid={myUid}
+            isDark={isDark}
+            chatId={chatId}
+            setReplyTo={setReplyTo}
+            pinnedMessage={pinnedMessage}
+            setPinnedMessage={setPinnedMessage}
+            onReplyClick={(id) => {
+              const el = messageRefs.current[id];
+              if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+            }}
+          />
+        ))}
 
         <div ref={endRef} />
       </div>
@@ -313,7 +320,7 @@ export default function ChatConversationPage() {
         setShowPreview={setShowPreview}
         replyTo={replyTo}
         setReplyTo={setReplyTo}
-        disabled={isBlocked}
+        disabled={isBlocked} // block sending messages
       />
 
       {showPreview && selectedFiles.length > 0 && (
