@@ -3,8 +3,8 @@ import { doc, updateDoc } from "firebase/firestore";
 import { db } from "../../firebaseConfig";
 import { ThemeContext } from "../../context/ThemeContext";
 import LongPressMessageModal from "./LongPressMessageModal";
-import { toast } from "react-toastify";
 import MediaViewer from "../MediaViewer";
+import { toast } from "react-toastify";
 
 const COLORS = {
   primary: "#34B7F1",
@@ -31,13 +31,13 @@ export default function MessageItem({
 
   const containerRef = useRef(null);
   const lastTap = useRef(0);
+  const startX = useRef(0);
 
   const [showModal, setShowModal] = useState(false);
   const [reactedEmoji, setReactedEmoji] = useState(message.reactions?.[myUid] || "");
   const [deleted, setDeleted] = useState(false);
   const [showMediaViewer, setShowMediaViewer] = useState(false);
   const [translateX, setTranslateX] = useState(0);
-  const startX = useRef(0);
 
   // ---------------- Firestore actions ----------------
   const togglePin = async () => {
@@ -51,8 +51,8 @@ export default function MessageItem({
 
   const deleteMessage = async () => {
     if (isBlockedUser) return toast.error("Cannot delete while blocked");
-    if (!window.confirm(`Are you sure you want to delete this message for ${isMine ? "everyone" : "them"}?`)) return;
-    setDeleted(true); // fade-out
+    if (!window.confirm(`Delete this message for ${isMine ? "everyone" : "them"}?`)) return;
+    setDeleted(true); // fade-out animation
     await updateDoc(doc(db, "chats", chatId, "messages", message.id), { deleted: true });
     toast.success("Message deleted for everyone");
   };
@@ -128,7 +128,7 @@ export default function MessageItem({
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
       >
-        {/* Bubble */}
+        {/* Message Bubble */}
         <div
           className="message-bubble"
           style={{
@@ -140,7 +140,6 @@ export default function MessageItem({
             wordBreak: "break-word",
             display: "inline-block",
             position: "relative",
-            alignSelf: isMine ? "flex-end" : "flex-start",
             boxShadow: "0 1px 3px rgba(0,0,0,0.15)",
           }}
         >
@@ -153,7 +152,9 @@ export default function MessageItem({
               height: 0,
               borderStyle: "solid",
               borderWidth: "6px 6px 0 0",
-              borderColor: isMine ? `${COLORS.primary} transparent transparent transparent` : `${isDark ? COLORS.darkCard : COLORS.lightCard} transparent transparent transparent`,
+              borderColor: isMine
+                ? `${COLORS.primary} transparent transparent transparent`
+                : `${isDark ? COLORS.darkCard : COLORS.lightCard} transparent transparent transparent`,
               right: isMine ? -6 : "auto",
               left: isMine ? "auto" : -6,
             }}
@@ -213,8 +214,18 @@ export default function MessageItem({
 
           {/* Timestamp */}
           {message.createdAt && (
-            <div style={{ fontSize: 10, opacity: 0.6, marginTop: 4, textAlign: isMine ? "right" : "left" }}>
-              {new Date(message.createdAt.toDate ? message.createdAt.toDate() : message.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+            <div
+              style={{
+                fontSize: 10,
+                opacity: 0.6,
+                marginTop: 4,
+                textAlign: isMine ? "right" : "left",
+              }}
+            >
+              {new Date(message.createdAt.toDate ? message.createdAt.toDate() : message.createdAt).toLocaleTimeString([], {
+                hour: "2-digit",
+                minute: "2-digit",
+              })}
             </div>
           )}
         </div>
