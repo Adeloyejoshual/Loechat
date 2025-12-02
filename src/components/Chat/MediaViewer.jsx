@@ -1,227 +1,367 @@
-import React, { useState, useRef } from "react";
+// src/components/ChatConversationPage.jsx
+import React, { useEffect, useState, useRef, useContext, useCallback } from "react";
+import { useParams } from "react-router-dom";
+import {
+  collection,
+  addDoc,
+  query,
+  orderBy,
+  onSnapshot,
+  serverTimestamp,
+  doc,
+  updateDoc,
+} from "firebase/firestore";
+import { db, auth } from "../firebaseConfig";
+import { ThemeContext } from "../context/ThemeContext";
+import { UserContext } from "../context/UserContext";
 
-export default function MediaViewer({ mediaFiles, startIndex = 0, onClose }) {
-  const [currentIndex, setCurrentIndex] = useState(startIndex);
-  const [translate, setTranslate] = useState({ x: 0, y: 0 });
-  const [scale, setScale] = useState(1);
-  const [lastTouchDistance, setLastTouchDistance] = useState(null);
-  const lastTouch = useRef(null);
-  const startX = useRef(0);
-  const startY = useRef(0);
-  const isSwiping = useRef(false);
-  const doubleTapRef = useRef(0);
+import ChatHeader from "./Chat/ChatHeader";
+import MessageItem from "./Chat/MessageItem";
+import ChatInput from "./Chat/ChatInput";
+import MediaViewer from "./Chat/MediaViewer";
+import { toast, ToastContainer } from "react-toastify";
+import "react-toastify/dist/ReactToastify.css";
+import axios from "axios";
 
-  const thresholdClose = 120;
-  const thresholdSwipe = 80;
+export default function ChatConversationPage() {
+  const { chatId } = useParams();
+  const { theme, wallpaper } = useContext(ThemeContext);
+  const { profilePic, profileName } = useContext(UserContext);
+  const isDark = theme === "dark";
+  const myUid = auth.currentUser?.uid;
 
-  const currentMedia = mediaFiles[currentIndex];
+  const messagesRefEl = useRef(null);
+  const endRef = useRef(null);
+  const fileInputRef = useRef(null);
 
-  const getDistance = (touches) => {
-    if (touches.length < 2) return 0;
-    const [a, b] = touches;
-    return Math.hypot(b.clientX - a.clientX, b.clientY - a.clientY);
-  };
+  const [chatInfo, setChatInfo] = useState(null);
+  const [friendInfo, setFriendInfo] = useState(null);
+  const [messages, setMessages] = useState([]);
+  const [text, setText] = useState("");
+  const [selectedFiles, setSelectedFiles] = useState([]);
+  const [replyTo, setReplyTo] = useState(null);
+  const [pinnedMessage, setPinnedMessage] = useState(null);
+  const [isAtBottom, setIsAtBottom] = useState(true);
+  const [isBlocked, setIsBlocked] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState({});
+  const [mediaViewerData, setMediaViewerData] = useState({ isOpen: false, items: [], startIndex: 0 });
 
-  const handleTouchStart = (e) => {
-    if (e.touches.length === 1) {
-      startX.current = e.touches[0].clientX;
-      startY.current = e.touches[0].clientY;
-      lastTouch.current = { x: startX.current, y: startY.current };
-      isSwiping.current = true;
-    } else if (e.touches.length === 2) {
-      setLastTouchDistance(getDistance(e.touches));
-    }
-  };
+  // -------------------- Load chat & friend info --------------------
+  useEffect(() => {
+    if (!chatId) return;
+    const chatRef = doc(db, "chats", chatId);
 
-  const handleTouchMove = (e) => {
-    if (e.touches.length === 1 && lastTouch.current && scale === 1) {
-      const dx = e.touches[0].clientX - lastTouch.current.x;
-      const dy = e.touches[0].clientY - lastTouch.current.y;
+    const unsubChat = onSnapshot(chatRef, (snap) => {
+      if (!snap.exists()) return;
+      const data = snap.data();
+      setChatInfo({ id: snap.id, ...data });
+      setIsBlocked(data.blocked || false);
 
-      if (Math.abs(dy) > Math.abs(dx)) {
-        // vertical swipe = dismiss
-        setTranslate({ x: 0, y: dy * 0.5 });
-      } else {
-        // horizontal swipe = slide
-        setTranslate({ x: dx, y: 0 });
+      const friendId = data.participants?.find((p) => p !== myUid);
+      if (friendId) {
+        const userRef = doc(db, "users", friendId);
+        onSnapshot(userRef, (s) => s.exists() && setFriendInfo({ id: s.id, ...s.data() }));
       }
-    } else if (e.touches.length === 2) {
-      const dist = getDistance(e.touches);
-      if (lastTouchDistance) {
-        const newScale = Math.max(1, Math.min(3, scale * (dist / lastTouchDistance)));
-        setScale(newScale);
+
+      if (data.pinnedMessageId) {
+        const pinnedRef = doc(db, "chats", chatId, "messages", data.pinnedMessageId);
+        onSnapshot(pinnedRef, (s) => s.exists() && setPinnedMessage({ id: s.id, ...s.data() }));
+      }
+    });
+
+    return () => unsubChat();
+  }, [chatId, myUid]);
+
+  // -------------------- Real-time messages --------------------
+  useEffect(() => {
+    if (!chatId) return;
+    const messagesRef = collection(db, "chats", chatId, "messages");
+    const q = query(messagesRef, orderBy("createdAt", "asc"));
+
+    const unsub = onSnapshot(q, (snap) => {
+      const docs = snap.docs.map((d) => ({ id: d.id, ...d.data(), status: "sent" }));
+      setMessages(docs);
+      if (isAtBottom) endRef.current?.scrollIntoView({ behavior: "smooth" });
+    });
+
+    return () => unsub();
+  }, [chatId, isAtBottom]);
+
+  // -------------------- Scroll detection --------------------
+  useEffect(() => {
+    const el = messagesRefEl.current;
+    if (!el) return;
+    const onScroll = () => setIsAtBottom(el.scrollHeight - el.scrollTop - el.clientHeight < 80);
+    el.addEventListener("scroll", onScroll);
+    return () => el.removeEventListener("scroll", onScroll);
+  }, []);
+
+  // -------------------- Date helpers --------------------
+  const formatDateSeparator = (date) => {
+    if (!date) return "";
+    const msgDate = new Date(date.toDate?.() || date);
+    const now = new Date();
+    const yesterday = new Date();
+    yesterday.setDate(now.getDate() - 1);
+
+    if (msgDate.toDateString() === now.toDateString()) return "Today";
+    if (msgDate.toDateString() === yesterday.toDateString()) return "Yesterday";
+
+    const options = { month: "short", day: "numeric" };
+    if (msgDate.getFullYear() !== now.getFullYear()) options.year = "numeric";
+    return msgDate.toLocaleDateString(undefined, options);
+  };
+
+  const groupedMessages = messages.reduce((acc, msg) => {
+    const dateStr = formatDateSeparator(msg.createdAt);
+    const lastDate = acc.length ? acc[acc.length - 1].date : null;
+    if (dateStr !== lastDate) acc.push({ type: "date-separator", date: dateStr });
+    acc.push({ type: "message", data: msg });
+    return acc;
+  }, []);
+
+  const scrollToMessage = useCallback((id) => {
+    const el = document.getElementById(id);
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, []);
+
+  // -------------------- File Input Handlers --------------------
+  const handleAddFiles = () => fileInputRef.current?.click();
+  const handleFilesSelected = (e) => {
+    const files = Array.from(e.target.files);
+    if (!files.length) return;
+    setSelectedFiles((prev) => [...prev, ...files]);
+    e.target.value = null;
+  };
+
+  // -------------------- Send messages --------------------
+  const sendMessage = async (textMsg = "", files = []) => {
+    if (isBlocked) return toast.error("You cannot send messages to this user");
+    if (!textMsg && files.length === 0) return;
+
+    const messagesCol = collection(db, "chats", chatId, "messages");
+
+    for (let i = 0; i < files.length; i++) {
+      const f = files[i];
+      const type = f.type.startsWith("image/") ? "image" : f.type.startsWith("video/") ? "video" : "file";
+      const tempId = `temp-${Date.now()}-${Math.random()}`;
+
+      const tempMessage = {
+        id: tempId,
+        senderId: myUid,
+        text: textMsg || "",
+        mediaUrl: URL.createObjectURL(f),
+        mediaType: type,
+        createdAt: new Date(),
+        reactions: {},
+        seenBy: [],
+        status: "sending",
+        replyTo: replyTo ? { id: replyTo.id, text: replyTo.text, senderId: replyTo.senderId } : null,
+      };
+      setMessages((prev) => [...prev, tempMessage]);
+      endRef.current?.scrollIntoView({ behavior: "smooth" });
+
+      try {
+        let mediaUrl = "";
+        if (type !== "file") {
+          const formData = new FormData();
+          formData.append("file", f);
+          formData.append("upload_preset", import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET);
+
+          const res = await axios.post(
+            `https://api.cloudinary.com/v1_1/${import.meta.env.VITE_CLOUDINARY_CLOUD_NAME}/auto/upload`,
+            formData,
+            {
+              onUploadProgress: (e) => {
+                const percent = Math.round((e.loaded * 100) / e.total);
+                setUploadProgress((prev) => ({ ...prev, [tempId]: percent }));
+              },
+            }
+          );
+          mediaUrl = res.data.secure_url;
+        }
+
+        const payload = {
+          senderId: myUid,
+          text: textMsg || "",
+          mediaUrl,
+          mediaType: type,
+          createdAt: serverTimestamp(),
+          reactions: {},
+          seenBy: [],
+          replyTo: replyTo ? { id: replyTo.id, text: replyTo.text, senderId: replyTo.senderId } : null,
+        };
+
+        const docRef = await addDoc(messagesCol, payload);
+
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === tempId ? { ...payload, id: docRef.id, status: "sent", createdAt: new Date() } : m
+          )
+        );
+      } catch (err) {
+        console.error(err);
+        toast.error("Failed to send media");
+        setMessages((prev) =>
+          prev.map((m) => (m.id === tempId ? { ...m, status: "failed" } : m))
+        );
+      } finally {
+        setUploadProgress((prev) => {
+          const copy = { ...prev };
+          delete copy[tempId];
+          return copy;
+        });
       }
     }
+
+    if (textMsg.trim() && files.length === 0) {
+      const tempId = `temp-${Date.now()}-${Math.random()}`;
+      const tempMessage = {
+        id: tempId,
+        senderId: myUid,
+        text: textMsg.trim(),
+        mediaUrl: "",
+        mediaType: null,
+        createdAt: new Date(),
+        reactions: {},
+        seenBy: [],
+        status: "sending",
+        replyTo: replyTo ? { id: replyTo.id, text: replyTo.text, senderId: replyTo.senderId } : null,
+      };
+      setMessages((prev) => [...prev, tempMessage]);
+      endRef.current?.scrollIntoView({ behavior: "smooth" });
+
+      try {
+        const payload = { ...tempMessage, createdAt: serverTimestamp(), status: "sent" };
+        const docRef = await addDoc(messagesCol, payload);
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === tempId ? { ...payload, id: docRef.id, createdAt: new Date() } : m
+          )
+        );
+      } catch (err) {
+        console.error(err);
+        toast.error("Failed to send message");
+        setMessages((prev) =>
+          prev.map((m) => (m.id === tempId ? { ...m, status: "failed" } : m))
+        );
+      }
+    }
+
+    const chatRef = doc(db, "chats", chatId);
+    await updateDoc(chatRef, {
+      lastMessage: textMsg || "",
+      lastMessageSender: myUid,
+      lastMessageAt: serverTimestamp(),
+      lastMessageStatus: "delivered",
+    });
+
+    setText("");
+    setSelectedFiles([]);
+    setReplyTo(null);
   };
 
-  const handleTouchEnd = () => {
-    // Dismiss if swiped vertically enough
-    if (Math.abs(translate.y) > thresholdClose && scale === 1) {
-      onClose();
-      return;
-    }
-
-    // Horizontal swipe
-    if (translate.x > thresholdSwipe && currentIndex > 0) {
-      setCurrentIndex(currentIndex - 1);
-    } else if (translate.x < -thresholdSwipe && currentIndex < mediaFiles.length - 1) {
-      setCurrentIndex(currentIndex + 1);
-    }
-
-    // Reset
-    setTranslate({ x: 0, y: 0 });
-    lastTouch.current = null;
-    setLastTouchDistance(null);
-    isSwiping.current = false;
-  };
-
-  const handleDoubleTap = () => {
-    const now = Date.now();
-    if (now - doubleTapRef.current < 300) {
-      setScale(scale === 1 ? 2 : 1);
-    }
-    doubleTapRef.current = now;
-  };
-
-  const backgroundOpacity = Math.max(0.2, 0.92 - Math.abs(translate.y) / 400);
-
-  const getSlideStyle = (idx) => {
-    if (idx === currentIndex) {
-      return {
-        transform: `translateX(${translate.x}px) translateY(${translate.y}px) scale(${scale})`,
-        transition: isSwiping.current ? "none" : "transform 0.25s cubic-bezier(0.22, 1, 0.36, 1)",
-        position: "absolute",
-        top: 0,
-        left: 0,
-        width: "100%",
-        height: "100%",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        boxShadow: "0 10px 35px rgba(0,0,0,0.5)",
-      };
-    } else if (idx === currentIndex - 1) {
-      return {
-        transform: `translateX(${-100 + translate.x / window.innerWidth * 100}%)`,
-        transition: "transform 0.25s cubic-bezier(0.22, 1, 0.36, 1)",
-        position: "absolute",
-        top: 0,
-        left: 0,
-        width: "100%",
-        height: "100%",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        boxShadow: "0 10px 35px rgba(0,0,0,0.5)",
-      };
-    } else if (idx === currentIndex + 1) {
-      return {
-        transform: `translateX(${100 + translate.x / window.innerWidth * 100}%)`,
-        transition: "transform 0.25s cubic-bezier(0.22, 1, 0.36, 1)",
-        position: "absolute",
-        top: 0,
-        left: 0,
-        width: "100%",
-        height: "100%",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        boxShadow: "0 10px 35px rgba(0,0,0,0.5)",
-      };
-    }
-    return { display: "none" };
+  // -------------------- Open MediaViewer --------------------
+  const handleOpenMediaViewer = (clickedIndex) => {
+    const mediaItems = messages
+      .filter((m) => m.mediaUrl)
+      .map((m) => ({ url: m.mediaUrl, type: m.mediaType || "image" }));
+    const startIndex = clickedIndex; // clickedIndex can be 0 for first image/video
+    setMediaViewerData({ isOpen: true, items: mediaItems, startIndex });
   };
 
   return (
     <div
-      onClick={onClose}
       style={{
-        position: "fixed",
-        top: 0,
-        left: 0,
-        width: "100vw",
+        display: "flex",
+        flexDirection: "column",
         height: "100vh",
-        background: `rgba(0,0,0,${backgroundOpacity})`,
-        zIndex: 99999,
-        overflow: "hidden",
-        backdropFilter: "blur(6px)",
+        backgroundColor: wallpaper || (isDark ? "#0b0b0b" : "#f5f5f5"),
+        color: isDark ? "#fff" : "#000",
+        position: "relative",
       }}
-      onTouchStart={handleTouchStart}
-      onTouchMove={handleTouchMove}
-      onTouchEnd={handleTouchEnd}
     >
-      {mediaFiles.map((media, idx) => (
-        <div
-          key={idx}
-          onClick={(e) => e.stopPropagation()}
-          onDoubleClick={handleDoubleTap}
-          style={getSlideStyle(idx)}
-        >
-          {media.type === "image" && (
-            <img
-              src={media.url}
-              alt=""
-              style={{
-                maxWidth: "100%",
-                maxHeight: "100%",
-                borderRadius: 12,
-                userSelect: "none",
-              }}
-            />
-          )}
-          {media.type === "video" && (
-            <video
-              src={media.url}
-              controls
-              autoPlay
-              style={{ maxWidth: "100%", maxHeight: "100%", borderRadius: 12 }}
-            />
-          )}
-        </div>
-      ))}
+      <input
+        type="file"
+        ref={fileInputRef}
+        style={{ display: "none" }}
+        multiple
+        accept="image/*,video/*"
+        onChange={handleFilesSelected}
+      />
 
-      {/* Close Button */}
-      <div
-        onClick={onClose}
-        style={{
-          position: "absolute",
-          top: 20,
-          right: 20,
-          fontSize: 32,
-          color: "#fff",
-          cursor: "pointer",
-          zIndex: 100000,
+      <ChatHeader
+        friendId={friendInfo?.id}
+        chatId={chatId}
+        pinnedMessage={pinnedMessage}
+        setBlockedStatus={setIsBlocked}
+        onClearChat={async () => {
+          if (!window.confirm("Clear this chat?")) return;
+          messages.forEach(async (msg) => {
+            const msgRef = doc(db, "chats", chatId, "messages", msg.id);
+            await updateDoc(msgRef, { deleted: true });
+          });
+          toast.success("Chat cleared");
         }}
+      />
+
+      {/* Messages */}
+      <div
+        ref={messagesRefEl}
+        style={{ flex: 1, overflowY: "auto", padding: 8, display: "flex", flexDirection: "column" }}
       >
-        ✕
+        {groupedMessages.map((item, idx) =>
+          item.type === "date-separator" ? (
+            <div
+              key={idx}
+              style={{ textAlign: "center", margin: "10px 0", fontSize: 12, color: isDark ? "#aaa" : "#555" }}
+            >
+              {item.date}
+            </div>
+          ) : (
+            <MessageItem
+              key={item.data.id}
+              message={{ ...item.data, uploadProgress: uploadProgress[item.data.id] }}
+              myUid={myUid}
+              isDark={isDark}
+              chatId={chatId}
+              setReplyTo={setReplyTo}
+              pinnedMessage={pinnedMessage}
+              setPinnedMessage={setPinnedMessage}
+              friendId={friendInfo?.id}
+              onReplyClick={(id) => scrollToMessage(id)}
+              onOpenMediaViewer={(index) => handleOpenMediaViewer(index)}
+            />
+          )
+        )}
+        <div ref={endRef} />
       </div>
 
-      {/* Navigation Dots */}
-      {mediaFiles.length > 1 && (
-        <div
-          style={{
-            position: "absolute",
-            bottom: 20,
-            display: "flex",
-            gap: 6,
-            alignItems: "center",
-            justifyContent: "center",
-            width: "100%",
-          }}
-        >
-          {mediaFiles.map((_, i) => (
-            <div
-              key={i}
-              style={{
-                width: 8,
-                height: 8,
-                borderRadius: "50%",
-                background: i === currentIndex ? "#fff" : "rgba(255,255,255,0.4)",
-              }}
-            />
-          ))}
-        </div>
+      <ChatInput
+        text={text}
+        setText={setText}
+        sendTextMessage={() => sendMessage(text, selectedFiles)}
+        sendMediaMessage={(files) => setSelectedFiles(files)}
+        selectedFiles={selectedFiles}
+        setSelectedFiles={setSelectedFiles}
+        isDark={isDark}
+        replyTo={replyTo}
+        setReplyTo={setReplyTo}
+        disabled={isBlocked}
+      />
+
+      {/* Fullscreen MediaViewer */}
+      {mediaViewerData.isOpen && (
+        <MediaViewer
+          url={mediaViewerData.items[mediaViewerData.startIndex].url}
+          type={mediaViewerData.items[mediaViewerData.startIndex].type}
+          items={mediaViewerData.items}
+          startIndex={mediaViewerData.startIndex}
+          onClose={() => setMediaViewerData({ ...mediaViewerData, isOpen: false })}
+        />
       )}
+
+      <ToastContainer position="top-center" autoClose={1500} hideProgressBar />
     </div>
   );
 }
