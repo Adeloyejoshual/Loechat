@@ -28,7 +28,7 @@ export default function MessageItem({
   setPinnedMessage,
   onReplyClick,
   friendId,
-  messages, // new prop: full messages array for media viewer indexing
+  messages = [], // full messages array for media viewer
 }) {
   const isMine = message.senderId === myUid;
   const { theme } = useContext(ThemeContext);
@@ -42,8 +42,11 @@ export default function MessageItem({
   const [reactedEmoji, setReactedEmoji] = useState(message.reactions?.[myUid] || "");
   const [deleted, setDeleted] = useState(false);
   const [fadeOut, setFadeOut] = useState(false);
-  const [showMediaViewer, setShowMediaViewer] = useState(false);
-  const [currentMediaIndex, setCurrentMediaIndex] = useState(0);
+  const [mediaViewerData, setMediaViewerData] = useState({
+    isOpen: false,
+    items: [],
+    startIndex: 0,
+  });
   const [translateX, setTranslateX] = useState(0);
   const [status, setStatus] = useState(message.status || "Sent");
   const [showFullText, setShowFullText] = useState(false);
@@ -51,14 +54,14 @@ export default function MessageItem({
   const [fadeIn, setFadeIn] = useState(false);
   const [reactionBubbles, setReactionBubbles] = useState([]);
 
-  // ---------------- Animate new messages ----------------
+  // Animate new messages
   useEffect(() => {
     setFadeIn(true);
     const timer = setTimeout(() => setFadeIn(false), 500);
     return () => clearTimeout(timer);
   }, []);
 
-  // ---------------- Firestore: friend online & seen detection ----------------
+  // Firestore: friend online & seen detection
   useEffect(() => {
     if (!friendId) return;
     const unsub = onSnapshot(doc(db, "users", friendId), (snap) => {
@@ -70,7 +73,7 @@ export default function MessageItem({
     return () => unsub();
   }, [friendId, message, isMine, status]);
 
-  // ---------------- Firestore actions ----------------
+  // Firestore actions
   const togglePin = async () => {
     const chatRef = doc(db, "chats", chatId);
     const newPin = pinnedMessage?.id !== message.id;
@@ -95,7 +98,7 @@ export default function MessageItem({
     toast.success("Copied!");
   };
 
-  // ---------------- Reactions ----------------
+  // Reactions
   const applyReaction = async (emoji) => {
     const msgRef = doc(db, "chats", chatId, "messages", message.id);
     const newEmoji = reactedEmoji === emoji ? "" : emoji;
@@ -111,7 +114,7 @@ export default function MessageItem({
     toast.success(newEmoji ? `Reacted ${newEmoji}` : "Reaction removed");
   };
 
-  // ---------------- Double tap for ❤️ ----------------
+  // Double tap for ❤️
   const handleTap = () => {
     const now = Date.now();
     if (now - lastTap.current < 300) {
@@ -122,7 +125,7 @@ export default function MessageItem({
     }
   };
 
-  // ---------------- Swipe-to-reply ----------------
+  // Swipe-to-reply
   const handleTouchStart = (e) => (startX.current = e.touches[0].clientX);
   const handleTouchMove = (e) => {
     const deltaX = e.touches[0].clientX - startX.current;
@@ -138,7 +141,7 @@ export default function MessageItem({
 
   if (deleted) return null;
 
-  // ---------------- Smooth Read More ----------------
+  // Smooth Read More
   useEffect(() => {
     if (textRef.current) {
       setTextHeight(
@@ -156,11 +159,7 @@ export default function MessageItem({
     return (
       <div
         ref={textRef}
-        style={{
-          maxHeight: textHeight,
-          overflow: "hidden",
-          transition: "max-height 0.3s ease",
-        }}
+        style={{ maxHeight: textHeight, overflow: "hidden", transition: "max-height 0.3s ease" }}
       >
         {message.text.slice(0, READ_MORE_LIMIT)}
         {!showFullText && (
@@ -176,15 +175,17 @@ export default function MessageItem({
     );
   };
 
-  // ---------------- Media Viewer ----------------
+  // Open Media Viewer
   const handleOpenMediaViewer = () => {
-    if (!messages) return;
     const mediaItems = messages
       .filter((m) => m.mediaUrl)
       .map((m) => ({ url: m.mediaUrl, type: m.mediaType || "image" }));
     const index = mediaItems.findIndex((m) => m.url === message.mediaUrl);
-    setCurrentMediaIndex(index >= 0 ? index : 0);
-    setShowMediaViewer(true);
+    setMediaViewerData({
+      isOpen: true,
+      items: mediaItems,
+      startIndex: index >= 0 ? index : 0,
+    });
   };
 
   return (
@@ -360,9 +361,10 @@ export default function MessageItem({
                 gap: 4,
               }}
             >
-              {new Date(
-                message.createdAt.toDate ? message.createdAt.toDate() : message.createdAt
-              ).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+              {new Date(message.createdAt.toDate ? message.createdAt.toDate() : message.createdAt).toLocaleTimeString([], {
+                hour: "2-digit",
+                minute: "2-digit",
+              })}
               {isMine && status && <>• {status === "sending" ? "Sending..." : status}</>}
             </div>
           )}
@@ -407,11 +409,11 @@ export default function MessageItem({
       )}
 
       {/* Media Viewer */}
-      {showMediaViewer && messages && (
+      {mediaViewerData.isOpen && (
         <MediaViewer
-          items={messages.filter((m) => m.mediaUrl).map((m) => ({ url: m.mediaUrl, type: m.mediaType || "image" }))}
-          startIndex={currentMediaIndex}
-          onClose={() => setShowMediaViewer(false)}
+          items={mediaViewerData.items}
+          startIndex={mediaViewerData.startIndex}
+          onClose={() => setMediaViewerData({ ...mediaViewerData, isOpen: false })}
         />
       )}
 
