@@ -1,5 +1,5 @@
 // src/components/ChatConversationPage.jsx
-import React, { useEffect, useState, useRef, useContext } from "react";
+import React, { useEffect, useState, useRef, useContext, useCallback } from "react";
 import { useParams } from "react-router-dom";
 import {
   collection,
@@ -44,7 +44,7 @@ export default function ChatConversationPage() {
   const [isAtBottom, setIsAtBottom] = useState(true);
   const [showPreview, setShowPreview] = useState(false);
   const [isBlocked, setIsBlocked] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState({}); // Track per-file upload
+  const [uploadProgress, setUploadProgress] = useState({});
 
   // -------------------- Load chat & friend info --------------------
   useEffect(() => {
@@ -81,7 +81,6 @@ export default function ChatConversationPage() {
     const unsub = onSnapshot(q, (snap) => {
       const docs = snap.docs.map((d) => ({ id: d.id, ...d.data(), status: "sent" }));
       setMessages(docs);
-
       if (isAtBottom) endRef.current?.scrollIntoView({ behavior: "smooth" });
     });
 
@@ -121,10 +120,10 @@ export default function ChatConversationPage() {
     return acc;
   }, []);
 
-  const scrollToMessage = (id) => {
+  const scrollToMessage = useCallback((id) => {
     const el = document.getElementById(id);
     if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
-  };
+  }, []);
 
   // -------------------- File Input Handlers --------------------
   const handleAddFiles = () => fileInputRef.current?.click();
@@ -136,19 +135,19 @@ export default function ChatConversationPage() {
     e.target.value = null;
   };
 
-  // -------------------- Send messages (text + media) --------------------
+  // -------------------- Send messages --------------------
   const sendMessage = async (textMsg = "", files = []) => {
     if (isBlocked) return toast.error("You cannot send messages to this user");
     if (!textMsg && files.length === 0) return;
 
     const messagesCol = collection(db, "chats", chatId, "messages");
 
+    // -------------------- Send media messages --------------------
     for (let i = 0; i < files.length; i++) {
       const f = files[i];
       const type = f.type.startsWith("image/") ? "image" : f.type.startsWith("video/") ? "video" : "file";
       const tempId = `temp-${Date.now()}-${Math.random()}`;
 
-      // Optimistic UI: show in chat immediately
       const tempMessage = {
         id: tempId,
         senderId: myUid,
@@ -197,7 +196,6 @@ export default function ChatConversationPage() {
 
         const docRef = await addDoc(messagesCol, payload);
 
-        // Replace temp message with final
         setMessages((prev) =>
           prev.map((m) =>
             m.id === tempId ? { ...payload, id: docRef.id, status: "sent", createdAt: new Date() } : m
@@ -239,7 +237,6 @@ export default function ChatConversationPage() {
       try {
         const payload = { ...tempMessage, createdAt: serverTimestamp(), status: "sent" };
         const docRef = await addDoc(messagesCol, payload);
-
         setMessages((prev) =>
           prev.map((m) =>
             m.id === tempId ? { ...payload, id: docRef.id, createdAt: new Date() } : m
@@ -320,7 +317,10 @@ export default function ChatConversationPage() {
       >
         {groupedMessages.map((item, idx) =>
           item.type === "date-separator" ? (
-            <div key={idx} style={{ textAlign: "center", margin: "10px 0", fontSize: 12, color: isDark ? "#aaa" : "#555" }}>
+            <div
+              key={idx}
+              style={{ textAlign: "center", margin: "10px 0", fontSize: 12, color: isDark ? "#aaa" : "#555" }}
+            >
               {item.date}
             </div>
           ) : (
@@ -359,15 +359,13 @@ export default function ChatConversationPage() {
       {/* Image Preview Modal */}
       {showPreview && selectedFiles.length > 0 && (
         <ImagePreviewModal
-          files={selectedFiles}
-          onRemove={(i) => setSelectedFiles((prev) => prev.filter((_, idx) => idx !== i))}
-          onSend={() => sendMessage("", selectedFiles)}
-          onCancel={() => setShowPreview(false)}
-          onAddFiles={handleAddFiles}
+          previews={selectedFiles.map((f) => ({ file: f, url: URL.createObjectURL(f) }))}
+          currentIndex={0}
+          onRemove={(idx) => setSelectedFiles((prev) => prev.filter((_, i) => i !== idx))}
+          onClose={() => setShowPreview(false)}
+          onNext={() => {}}
+          onPrev={() => {}}
           isDark={isDark}
-          chatId={chatId}
-          replyTo={replyTo}
-          setReplyTo={setReplyTo}
         />
       )}
 
