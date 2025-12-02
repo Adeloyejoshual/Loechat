@@ -40,18 +40,22 @@ html, body, #root {
   --placeholder-color: #6b7280;
 }
 
-/* ===== Light Theme (improved readability) ===== */
+/* ===== Light Theme (IMPROVED) ===== */
 .light-theme {
-  --bg-color: #f0f2f5;         /* soft background */
-  --text-color: #111827;       /* dark text */
+  --bg-color: #f1f5f9;              /* softer than pure white */
+  --text-color: #111827;
   --primary-color: #3b82f6;
   --secondary-color: #2563eb;
+
   --header-bg: #ffffff;
-  --header-border: #d1d5db;
+  --header-border: #cbd5e1;
+
   --card-bg: #ffffff;
-  --input-bg: #f8f9fa;         /* slightly gray input */
-  --input-border: #9ca3af;     /* darker border for visibility */
-  --bubble-received: #f1f5f9;
+
+  --input-bg: #ffffff;
+  --input-border: #9aa3b2;         /* stronger border */
+
+  --bubble-received: #e2e8f0;      /* slightly darker for visibility */
   --placeholder-color: #6b7280;
 }
 
@@ -61,12 +65,16 @@ html, body, #root {
   --text-color: #e5e5e5;
   --primary-color: #2563eb;
   --secondary-color: #7c3aed;
+
   --header-bg: #141414;
   --header-border: #222;
+
   --card-bg: #1a1a1a;
+
   --input-bg: #111;
   --input-border: #333;
-  --bubble-received: #1b1b1b;
+
+  --bubble-received: #1e1e1e;
   --placeholder-color: #aaa;
 }
 
@@ -139,7 +147,7 @@ input, textarea, select {
   width: 100%;
   padding: var(--spacing-sm) var(--spacing-md);
   border-radius: var(--radius-md);
-  border: 1px solid var(--input-border);
+  border: 1.4px solid var(--input-border); /* thicker for visibility */
   background: var(--input-bg);
   color: var(--text-color);
   transition: 0.25s ease;
@@ -179,10 +187,9 @@ button:active {
   padding-top: var(--spacing-md);
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
 }
 
-/* Scrollbar */
 ::-webkit-scrollbar {
   width: 6px;
 }
@@ -197,16 +204,19 @@ button:active {
 .message-row {
   display: flex;
   width: 100%;
+  padding: 2px 0;
 }
 
-/* Sent → right */
+/* Sent (Right) */
 .message-row.sent {
   justify-content: flex-end;
+  text-align: right;
 }
 
-/* Received → left */
+/* Received (Left) */
 .message-row.received {
   justify-content: flex-start;
+  text-align: left;
 }
 
 .message-bubble {
@@ -217,8 +227,8 @@ button:active {
   line-height: 1.4;
   word-break: break-word;
   position: relative;
+  box-shadow: 0 2px 5px rgba(0,0,0,0.12); /* subtle bubble shadow */
   animation: fadeIn 0.25s ease-out;
-  display: inline-block;
 }
 
 /* Sent bubble */
@@ -226,7 +236,6 @@ button:active {
   background: var(--bubble-sent);
   color: #fff;
   border-bottom-right-radius: 6px;
-  text-align: right;
 }
 
 /* Received bubble */
@@ -234,21 +243,18 @@ button:active {
   background: var(--bubble-received);
   color: var(--text-color);
   border-bottom-left-radius: 6px;
-  text-align: left;
 }
 
 /* Reply preview */
 .message-bubble .reply-preview {
   font-size: 0.75rem;
-  opacity: 0.7;
-  border-left: 2px solid #888;
+  opacity: 0.75;
+  border-left: 2px solid #666;
   padding-left: 6px;
   margin-bottom: 4px;
-  cursor: pointer;
-  word-break: break-word;
 }
 
-/* Media inside bubble */
+/* Media */
 .message-bubble img, 
 .message-bubble video {
   max-width: 100%;
@@ -265,15 +271,14 @@ button:active {
   font-size: 0.75rem;
   padding: 2px 6px;
   border-radius: 12px;
-  background: rgba(0,0,0,0.15);
+  background: rgba(0,0,0,0.1);
 }
 
 /* Timestamp */
 .message-time {
   font-size: 0.7rem;
   margin-top: 3px;
-  opacity: 0.7;
-  text-align: right;
+  opacity: 0.6;
 }
 
 /* =========================================
