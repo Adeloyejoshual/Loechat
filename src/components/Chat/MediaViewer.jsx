@@ -4,44 +4,69 @@ import { FiX, FiChevronLeft, FiChevronRight } from "react-icons/fi";
 
 export default function MediaViewer({ items = [], startIndex = 0, onClose }) {
   const [currentIndex, setCurrentIndex] = useState(startIndex);
-  const containerRef = useRef(null);
-  const startX = useRef(0);
-  const deltaX = useRef(0);
+  const [translateY, setTranslateY] = useState(0);
+  const [scale, setScale] = useState(1);
+  const [opacity, setOpacity] = useState(1);
+  const [isDragging, setIsDragging] = useState(false);
 
-  useEffect(() => {
-    setCurrentIndex(startIndex);
-  }, [startIndex]);
+  const startX = useRef(0);
+  const startY = useRef(0);
+  const deltaX = useRef(0);
+  const deltaY = useRef(0);
+
+  useEffect(() => setCurrentIndex(startIndex), [startIndex]);
 
   if (!items.length) return null;
+  const currentItem = items[currentIndex];
 
-  const handleNext = () => {
-    setCurrentIndex((i) => Math.min(i + 1, items.length - 1));
-  };
+  const handleNext = () => setCurrentIndex((i) => Math.min(i + 1, items.length - 1));
+  const handlePrev = () => setCurrentIndex((i) => Math.max(i - 1, 0));
 
-  const handlePrev = () => {
-    setCurrentIndex((i) => Math.max(i - 1, 0));
-  };
-
-  // Swipe handlers
   const handleTouchStart = (e) => {
     startX.current = e.touches[0].clientX;
+    startY.current = e.touches[0].clientY;
     deltaX.current = 0;
+    deltaY.current = 0;
+    setIsDragging(true);
   };
 
   const handleTouchMove = (e) => {
     deltaX.current = e.touches[0].clientX - startX.current;
+    deltaY.current = e.touches[0].clientY - startY.current;
+
+    // Vertical swipe
+    if (deltaY.current > 0) {
+      setTranslateY(deltaY.current);
+      setOpacity(Math.max(1 - deltaY.current / 300, 0.3));
+      setScale(Math.max(1 - deltaY.current / 1000, 0.95)); // subtle scale-down
+    }
   };
 
   const handleTouchEnd = () => {
-    if (deltaX.current > 50) handlePrev();
-    else if (deltaX.current < -50) handleNext();
-  };
+    setIsDragging(false);
 
-  const currentItem = items[currentIndex];
+    // Horizontal swipe (prev/next)
+    if (Math.abs(deltaX.current) > 50 && Math.abs(deltaY.current) < 50) {
+      if (deltaX.current > 0) handlePrev();
+      else handleNext();
+    }
+
+    // Swipe down to close
+    if (deltaY.current > 100) {
+      setTranslateY(500);
+      setOpacity(0);
+      setScale(0.95);
+      setTimeout(onClose, 200);
+    } else {
+      // spring-back
+      setTranslateY(0);
+      setOpacity(1);
+      setScale(1);
+    }
+  };
 
   return (
     <div
-      ref={containerRef}
       style={{
         position: "fixed",
         top: 0,
@@ -54,6 +79,8 @@ export default function MediaViewer({ items = [], startIndex = 0, onClose }) {
         alignItems: "center",
         zIndex: 9999,
         touchAction: "pan-y",
+        opacity: opacity,
+        transition: isDragging ? "none" : "opacity 0.2s ease",
       }}
       onTouchStart={handleTouchStart}
       onTouchMove={handleTouchMove}
@@ -78,7 +105,7 @@ export default function MediaViewer({ items = [], startIndex = 0, onClose }) {
         <FiX />
       </button>
 
-      {/* Prev Button */}
+      {/* Prev/Next Buttons */}
       {currentIndex > 0 && (
         <button
           onClick={handlePrev}
@@ -99,8 +126,6 @@ export default function MediaViewer({ items = [], startIndex = 0, onClose }) {
           <FiChevronLeft />
         </button>
       )}
-
-      {/* Next Button */}
       {currentIndex < items.length - 1 && (
         <button
           onClick={handleNext}
@@ -123,7 +148,15 @@ export default function MediaViewer({ items = [], startIndex = 0, onClose }) {
       )}
 
       {/* Media Display */}
-      <div style={{ maxWidth: "90%", maxHeight: "90%", textAlign: "center" }}>
+      <div
+        style={{
+          maxWidth: "90%",
+          maxHeight: "90%",
+          textAlign: "center",
+          transform: `translateY(${translateY}px) scale(${scale})`,
+          transition: isDragging ? "none" : "transform 0.25s cubic-bezier(0.25, 1.5, 0.5, 1)",
+        }}
+      >
         {currentItem.type === "image" && (
           <img
             src={currentItem.url}
