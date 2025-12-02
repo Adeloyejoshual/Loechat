@@ -1,367 +1,160 @@
-// src/components/ChatConversationPage.jsx
-import React, { useEffect, useState, useRef, useContext, useCallback } from "react";
-import { useParams } from "react-router-dom";
-import {
-  collection,
-  addDoc,
-  query,
-  orderBy,
-  onSnapshot,
-  serverTimestamp,
-  doc,
-  updateDoc,
-} from "firebase/firestore";
-import { db, auth } from "../firebaseConfig";
-import { ThemeContext } from "../context/ThemeContext";
-import { UserContext } from "../context/UserContext";
+// src/components/Chat/MediaViewer.jsx
+import React, { useState, useEffect, useRef } from "react";
+import { FiX, FiChevronLeft, FiChevronRight } from "react-icons/fi";
 
-import ChatHeader from "./Chat/ChatHeader";
-import MessageItem from "./Chat/MessageItem";
-import ChatInput from "./Chat/ChatInput";
-import MediaViewer from "./Chat/MediaViewer";
-import { toast, ToastContainer } from "react-toastify";
-import "react-toastify/dist/ReactToastify.css";
-import axios from "axios";
+export default function MediaViewer({ url, type, items = [], startIndex = 0, onClose }) {
+  const [currentIndex, setCurrentIndex] = useState(startIndex);
+  const containerRef = useRef(null);
+  const startX = useRef(0);
+  const deltaX = useRef(0);
 
-export default function ChatConversationPage() {
-  const { chatId } = useParams();
-  const { theme, wallpaper } = useContext(ThemeContext);
-  const { profilePic, profileName } = useContext(UserContext);
-  const isDark = theme === "dark";
-  const myUid = auth.currentUser?.uid;
-
-  const messagesRefEl = useRef(null);
-  const endRef = useRef(null);
-  const fileInputRef = useRef(null);
-
-  const [chatInfo, setChatInfo] = useState(null);
-  const [friendInfo, setFriendInfo] = useState(null);
-  const [messages, setMessages] = useState([]);
-  const [text, setText] = useState("");
-  const [selectedFiles, setSelectedFiles] = useState([]);
-  const [replyTo, setReplyTo] = useState(null);
-  const [pinnedMessage, setPinnedMessage] = useState(null);
-  const [isAtBottom, setIsAtBottom] = useState(true);
-  const [isBlocked, setIsBlocked] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState({});
-  const [mediaViewerData, setMediaViewerData] = useState({ isOpen: false, items: [], startIndex: 0 });
-
-  // -------------------- Load chat & friend info --------------------
   useEffect(() => {
-    if (!chatId) return;
-    const chatRef = doc(db, "chats", chatId);
+    setCurrentIndex(startIndex);
+  }, [startIndex]);
 
-    const unsubChat = onSnapshot(chatRef, (snap) => {
-      if (!snap.exists()) return;
-      const data = snap.data();
-      setChatInfo({ id: snap.id, ...data });
-      setIsBlocked(data.blocked || false);
-
-      const friendId = data.participants?.find((p) => p !== myUid);
-      if (friendId) {
-        const userRef = doc(db, "users", friendId);
-        onSnapshot(userRef, (s) => s.exists() && setFriendInfo({ id: s.id, ...s.data() }));
-      }
-
-      if (data.pinnedMessageId) {
-        const pinnedRef = doc(db, "chats", chatId, "messages", data.pinnedMessageId);
-        onSnapshot(pinnedRef, (s) => s.exists() && setPinnedMessage({ id: s.id, ...s.data() }));
-      }
-    });
-
-    return () => unsubChat();
-  }, [chatId, myUid]);
-
-  // -------------------- Real-time messages --------------------
-  useEffect(() => {
-    if (!chatId) return;
-    const messagesRef = collection(db, "chats", chatId, "messages");
-    const q = query(messagesRef, orderBy("createdAt", "asc"));
-
-    const unsub = onSnapshot(q, (snap) => {
-      const docs = snap.docs.map((d) => ({ id: d.id, ...d.data(), status: "sent" }));
-      setMessages(docs);
-      if (isAtBottom) endRef.current?.scrollIntoView({ behavior: "smooth" });
-    });
-
-    return () => unsub();
-  }, [chatId, isAtBottom]);
-
-  // -------------------- Scroll detection --------------------
-  useEffect(() => {
-    const el = messagesRefEl.current;
-    if (!el) return;
-    const onScroll = () => setIsAtBottom(el.scrollHeight - el.scrollTop - el.clientHeight < 80);
-    el.addEventListener("scroll", onScroll);
-    return () => el.removeEventListener("scroll", onScroll);
-  }, []);
-
-  // -------------------- Date helpers --------------------
-  const formatDateSeparator = (date) => {
-    if (!date) return "";
-    const msgDate = new Date(date.toDate?.() || date);
-    const now = new Date();
-    const yesterday = new Date();
-    yesterday.setDate(now.getDate() - 1);
-
-    if (msgDate.toDateString() === now.toDateString()) return "Today";
-    if (msgDate.toDateString() === yesterday.toDateString()) return "Yesterday";
-
-    const options = { month: "short", day: "numeric" };
-    if (msgDate.getFullYear() !== now.getFullYear()) options.year = "numeric";
-    return msgDate.toLocaleDateString(undefined, options);
+  const handleNext = () => {
+    if (currentIndex < items.length - 1) setCurrentIndex((i) => i + 1);
   };
 
-  const groupedMessages = messages.reduce((acc, msg) => {
-    const dateStr = formatDateSeparator(msg.createdAt);
-    const lastDate = acc.length ? acc[acc.length - 1].date : null;
-    if (dateStr !== lastDate) acc.push({ type: "date-separator", date: dateStr });
-    acc.push({ type: "message", data: msg });
-    return acc;
-  }, []);
-
-  const scrollToMessage = useCallback((id) => {
-    const el = document.getElementById(id);
-    if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
-  }, []);
-
-  // -------------------- File Input Handlers --------------------
-  const handleAddFiles = () => fileInputRef.current?.click();
-  const handleFilesSelected = (e) => {
-    const files = Array.from(e.target.files);
-    if (!files.length) return;
-    setSelectedFiles((prev) => [...prev, ...files]);
-    e.target.value = null;
+  const handlePrev = () => {
+    if (currentIndex > 0) setCurrentIndex((i) => i - 1);
   };
 
-  // -------------------- Send messages --------------------
-  const sendMessage = async (textMsg = "", files = []) => {
-    if (isBlocked) return toast.error("You cannot send messages to this user");
-    if (!textMsg && files.length === 0) return;
-
-    const messagesCol = collection(db, "chats", chatId, "messages");
-
-    for (let i = 0; i < files.length; i++) {
-      const f = files[i];
-      const type = f.type.startsWith("image/") ? "image" : f.type.startsWith("video/") ? "video" : "file";
-      const tempId = `temp-${Date.now()}-${Math.random()}`;
-
-      const tempMessage = {
-        id: tempId,
-        senderId: myUid,
-        text: textMsg || "",
-        mediaUrl: URL.createObjectURL(f),
-        mediaType: type,
-        createdAt: new Date(),
-        reactions: {},
-        seenBy: [],
-        status: "sending",
-        replyTo: replyTo ? { id: replyTo.id, text: replyTo.text, senderId: replyTo.senderId } : null,
-      };
-      setMessages((prev) => [...prev, tempMessage]);
-      endRef.current?.scrollIntoView({ behavior: "smooth" });
-
-      try {
-        let mediaUrl = "";
-        if (type !== "file") {
-          const formData = new FormData();
-          formData.append("file", f);
-          formData.append("upload_preset", import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET);
-
-          const res = await axios.post(
-            `https://api.cloudinary.com/v1_1/${import.meta.env.VITE_CLOUDINARY_CLOUD_NAME}/auto/upload`,
-            formData,
-            {
-              onUploadProgress: (e) => {
-                const percent = Math.round((e.loaded * 100) / e.total);
-                setUploadProgress((prev) => ({ ...prev, [tempId]: percent }));
-              },
-            }
-          );
-          mediaUrl = res.data.secure_url;
-        }
-
-        const payload = {
-          senderId: myUid,
-          text: textMsg || "",
-          mediaUrl,
-          mediaType: type,
-          createdAt: serverTimestamp(),
-          reactions: {},
-          seenBy: [],
-          replyTo: replyTo ? { id: replyTo.id, text: replyTo.text, senderId: replyTo.senderId } : null,
-        };
-
-        const docRef = await addDoc(messagesCol, payload);
-
-        setMessages((prev) =>
-          prev.map((m) =>
-            m.id === tempId ? { ...payload, id: docRef.id, status: "sent", createdAt: new Date() } : m
-          )
-        );
-      } catch (err) {
-        console.error(err);
-        toast.error("Failed to send media");
-        setMessages((prev) =>
-          prev.map((m) => (m.id === tempId ? { ...m, status: "failed" } : m))
-        );
-      } finally {
-        setUploadProgress((prev) => {
-          const copy = { ...prev };
-          delete copy[tempId];
-          return copy;
-        });
-      }
-    }
-
-    if (textMsg.trim() && files.length === 0) {
-      const tempId = `temp-${Date.now()}-${Math.random()}`;
-      const tempMessage = {
-        id: tempId,
-        senderId: myUid,
-        text: textMsg.trim(),
-        mediaUrl: "",
-        mediaType: null,
-        createdAt: new Date(),
-        reactions: {},
-        seenBy: [],
-        status: "sending",
-        replyTo: replyTo ? { id: replyTo.id, text: replyTo.text, senderId: replyTo.senderId } : null,
-      };
-      setMessages((prev) => [...prev, tempMessage]);
-      endRef.current?.scrollIntoView({ behavior: "smooth" });
-
-      try {
-        const payload = { ...tempMessage, createdAt: serverTimestamp(), status: "sent" };
-        const docRef = await addDoc(messagesCol, payload);
-        setMessages((prev) =>
-          prev.map((m) =>
-            m.id === tempId ? { ...payload, id: docRef.id, createdAt: new Date() } : m
-          )
-        );
-      } catch (err) {
-        console.error(err);
-        toast.error("Failed to send message");
-        setMessages((prev) =>
-          prev.map((m) => (m.id === tempId ? { ...m, status: "failed" } : m))
-        );
-      }
-    }
-
-    const chatRef = doc(db, "chats", chatId);
-    await updateDoc(chatRef, {
-      lastMessage: textMsg || "",
-      lastMessageSender: myUid,
-      lastMessageAt: serverTimestamp(),
-      lastMessageStatus: "delivered",
-    });
-
-    setText("");
-    setSelectedFiles([]);
-    setReplyTo(null);
+  const handleTouchStart = (e) => {
+    startX.current = e.touches[0].clientX;
+    deltaX.current = 0;
   };
 
-  // -------------------- Open MediaViewer --------------------
-  const handleOpenMediaViewer = (clickedIndex) => {
-    const mediaItems = messages
-      .filter((m) => m.mediaUrl)
-      .map((m) => ({ url: m.mediaUrl, type: m.mediaType || "image" }));
-    const startIndex = clickedIndex; // clickedIndex can be 0 for first image/video
-    setMediaViewerData({ isOpen: true, items: mediaItems, startIndex });
+  const handleTouchMove = (e) => {
+    deltaX.current = e.touches[0].clientX - startX.current;
   };
+
+  const handleTouchEnd = () => {
+    if (deltaX.current > 50) handlePrev();
+    else if (deltaX.current < -50) handleNext();
+  };
+
+  if (!items.length) return null;
+
+  const currentItem = items[currentIndex];
 
   return (
     <div
+      ref={containerRef}
       style={{
+        position: "fixed",
+        top: 0,
+        left: 0,
+        width: "100%",
+        height: "100%",
+        backgroundColor: "rgba(0,0,0,0.95)",
         display: "flex",
-        flexDirection: "column",
-        height: "100vh",
-        backgroundColor: wallpaper || (isDark ? "#0b0b0b" : "#f5f5f5"),
-        color: isDark ? "#fff" : "#000",
-        position: "relative",
+        justifyContent: "center",
+        alignItems: "center",
+        zIndex: 9999,
+        touchAction: "pan-y",
       }}
+      onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
+      onTouchEnd={handleTouchEnd}
     >
-      <input
-        type="file"
-        ref={fileInputRef}
-        style={{ display: "none" }}
-        multiple
-        accept="image/*,video/*"
-        onChange={handleFilesSelected}
-      />
-
-      <ChatHeader
-        friendId={friendInfo?.id}
-        chatId={chatId}
-        pinnedMessage={pinnedMessage}
-        setBlockedStatus={setIsBlocked}
-        onClearChat={async () => {
-          if (!window.confirm("Clear this chat?")) return;
-          messages.forEach(async (msg) => {
-            const msgRef = doc(db, "chats", chatId, "messages", msg.id);
-            await updateDoc(msgRef, { deleted: true });
-          });
-          toast.success("Chat cleared");
+      {/* Close Button */}
+      <button
+        onClick={onClose}
+        style={{
+          position: "absolute",
+          top: 20,
+          right: 20,
+          background: "rgba(0,0,0,0.5)",
+          border: "none",
+          borderRadius: "50%",
+          padding: 8,
+          cursor: "pointer",
+          color: "#fff",
+          fontSize: 24,
         }}
-      />
-
-      {/* Messages */}
-      <div
-        ref={messagesRefEl}
-        style={{ flex: 1, overflowY: "auto", padding: 8, display: "flex", flexDirection: "column" }}
       >
-        {groupedMessages.map((item, idx) =>
-          item.type === "date-separator" ? (
-            <div
-              key={idx}
-              style={{ textAlign: "center", margin: "10px 0", fontSize: 12, color: isDark ? "#aaa" : "#555" }}
-            >
-              {item.date}
-            </div>
-          ) : (
-            <MessageItem
-              key={item.data.id}
-              message={{ ...item.data, uploadProgress: uploadProgress[item.data.id] }}
-              myUid={myUid}
-              isDark={isDark}
-              chatId={chatId}
-              setReplyTo={setReplyTo}
-              pinnedMessage={pinnedMessage}
-              setPinnedMessage={setPinnedMessage}
-              friendId={friendInfo?.id}
-              onReplyClick={(id) => scrollToMessage(id)}
-              onOpenMediaViewer={(index) => handleOpenMediaViewer(index)}
-            />
-          )
-        )}
-        <div ref={endRef} />
-      </div>
+        <FiX />
+      </button>
 
-      <ChatInput
-        text={text}
-        setText={setText}
-        sendTextMessage={() => sendMessage(text, selectedFiles)}
-        sendMediaMessage={(files) => setSelectedFiles(files)}
-        selectedFiles={selectedFiles}
-        setSelectedFiles={setSelectedFiles}
-        isDark={isDark}
-        replyTo={replyTo}
-        setReplyTo={setReplyTo}
-        disabled={isBlocked}
-      />
-
-      {/* Fullscreen MediaViewer */}
-      {mediaViewerData.isOpen && (
-        <MediaViewer
-          url={mediaViewerData.items[mediaViewerData.startIndex].url}
-          type={mediaViewerData.items[mediaViewerData.startIndex].type}
-          items={mediaViewerData.items}
-          startIndex={mediaViewerData.startIndex}
-          onClose={() => setMediaViewerData({ ...mediaViewerData, isOpen: false })}
-        />
+      {/* Prev Button */}
+      {currentIndex > 0 && (
+        <button
+          onClick={handlePrev}
+          style={{
+            position: "absolute",
+            left: 20,
+            top: "50%",
+            transform: "translateY(-50%)",
+            background: "rgba(0,0,0,0.5)",
+            border: "none",
+            borderRadius: "50%",
+            padding: 8,
+            cursor: "pointer",
+            color: "#fff",
+            fontSize: 24,
+          }}
+        >
+          <FiChevronLeft />
+        </button>
       )}
 
-      <ToastContainer position="top-center" autoClose={1500} hideProgressBar />
+      {/* Next Button */}
+      {currentIndex < items.length - 1 && (
+        <button
+          onClick={handleNext}
+          style={{
+            position: "absolute",
+            right: 20,
+            top: "50%",
+            transform: "translateY(-50%)",
+            background: "rgba(0,0,0,0.5)",
+            border: "none",
+            borderRadius: "50%",
+            padding: 8,
+            cursor: "pointer",
+            color: "#fff",
+            fontSize: 24,
+          }}
+        >
+          <FiChevronRight />
+        </button>
+      )}
+
+      {/* Media Display */}
+      <div style={{ maxWidth: "90%", maxHeight: "90%", textAlign: "center" }}>
+        {currentItem.type === "image" && (
+          <img
+            src={currentItem.url}
+            alt="media"
+            style={{ maxWidth: "100%", maxHeight: "100%", borderRadius: 12 }}
+          />
+        )}
+        {currentItem.type === "video" && (
+          <video
+            src={currentItem.url}
+            controls
+            autoPlay
+            style={{ maxWidth: "100%", maxHeight: "100%", borderRadius: 12 }}
+          />
+        )}
+      </div>
+
+      {/* Indicator */}
+      {items.length > 1 && (
+        <div
+          style={{
+            position: "absolute",
+            bottom: 20,
+            left: "50%",
+            transform: "translateX(-50%)",
+            color: "#fff",
+            fontSize: 14,
+          }}
+        >
+          {currentIndex + 1} / {items.length}
+        </div>
+      )}
     </div>
   );
 }
