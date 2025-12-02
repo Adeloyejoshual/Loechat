@@ -6,20 +6,16 @@ import axios from "axios";
 
 export default function ImagePreviewModal({ files, onRemove, onCancel, onAddFiles, chatId, replyTo = null }) {
   const [activeIndex, setActiveIndex] = useState(0);
-  const [textMap, setTextMap] = useState({}); // captions per file
+  const [textMap, setTextMap] = useState({});
   const [uploading, setUploading] = useState(false);
   const [progressMap, setProgressMap] = useState({});
-  const [skippedFiles, setSkippedFiles] = useState([]);
+
+  // Previews
   const [previews, setPreviews] = useState([]);
-
-  // Generate preview URLs once
   useEffect(() => {
-    const urls = files.map((f) => ({ file: f, url: URL.createObjectURL(f) }));
+    const urls = files.map(f => ({ file: f, url: URL.createObjectURL(f) }));
     setPreviews(urls);
-
-    return () => {
-      urls.forEach((p) => URL.revokeObjectURL(p.url));
-    };
+    return () => urls.forEach(p => URL.revokeObjectURL(p.url));
   }, [files]);
 
   const activeFile = previews[activeIndex]?.file;
@@ -36,7 +32,7 @@ export default function ImagePreviewModal({ files, onRemove, onCancel, onAddFile
       {
         onUploadProgress: (e) => {
           const percent = Math.round((e.loaded * 100) / e.total);
-          setProgressMap((prev) => ({ ...prev, [index]: percent }));
+          setProgressMap(prev => ({ ...prev, [index]: percent }));
         },
       }
     );
@@ -46,62 +42,35 @@ export default function ImagePreviewModal({ files, onRemove, onCancel, onAddFile
   const handleSend = async () => {
     if (!files.length) return;
     setUploading(true);
-    setSkippedFiles([]);
 
-    try {
-      for (let i = 0; i < files.length; i++) {
-        const file = files[i];
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      if (!file.type.startsWith("image/") && !file.type.startsWith("video/")) continue;
 
-        // Skip unsupported files
-        if (!file.type.startsWith("image/") && !file.type.startsWith("video/")) {
-          setSkippedFiles((prev) => [...prev, file.name]);
-          continue;
-        }
+      const mediaType = file.type.startsWith("image/") ? "image" : "video";
 
-        let mediaUrl = "";
-        const mediaType = file.type.startsWith("image/") ? "image" : "video";
+      let mediaUrl = "";
+      try { mediaUrl = await uploadToCloudinary(file, i); } 
+      catch (err) { console.error("Upload error:", err); continue; }
 
-        try {
-          mediaUrl = await uploadToCloudinary(file, i);
-        } catch (err) {
-          console.error(`Failed to upload ${file.name}:`, err);
-          continue;
-        }
+      const payload = {
+        senderId: auth.currentUser.uid,
+        text: textMap[i] || "",
+        mediaUrl,
+        mediaType,
+        reactions: {},
+        createdAt: serverTimestamp(),
+        seenBy: [],
+        status: "sent",
+      };
 
-        const payload = {
-          senderId: auth.currentUser.uid,
-          text: textMap[i] || "",
-          mediaUrl,
-          mediaType,
-          reactions: {},
-          createdAt: serverTimestamp(),
-          seenBy: [],
-          status: "sent",
-        };
+      if (replyTo) payload.replyTo = { id: replyTo.id, text: replyTo.text, senderId: replyTo.senderId };
 
-        if (replyTo) {
-          payload.replyTo = {
-            id: replyTo.id,
-            text: replyTo.text,
-            senderId: replyTo.senderId,
-          };
-        }
-
-        await addDoc(collection(db, "chats", chatId, "messages"), payload);
-      }
-
-      if (skippedFiles.length > 0) {
-        alert(`Skipped unsupported files: ${skippedFiles.join(", ")}`);
-      }
-
-      onCancel();
-    } catch (err) {
-      console.error("Failed to send files:", err);
-      alert("Failed to send files. Check console for details.");
-    } finally {
-      setUploading(false);
-      setProgressMap({});
+      await addDoc(collection(db, "chats", chatId, "messages"), payload);
     }
+
+    setUploading(false);
+    onCancel();
   };
 
   return (
@@ -121,7 +90,7 @@ export default function ImagePreviewModal({ files, onRemove, onCancel, onAddFile
           type="text"
           placeholder="Write a message..."
           value={textMap[activeIndex] || ""}
-          onChange={(e) => setTextMap((prev) => ({ ...prev, [activeIndex]: e.target.value }))}
+          onChange={(e) => setTextMap(prev => ({ ...prev, [activeIndex]: e.target.value }))}
           style={{ marginTop: 10, width: "80%", padding: "8px 12px", borderRadius: 8, border: "1px solid #ccc", outline: "none", fontSize: 16 }}
         />
       </div>
@@ -132,11 +101,10 @@ export default function ImagePreviewModal({ files, onRemove, onCancel, onAddFile
 
         {previews.map((p, i) => (
           <div key={i} onClick={() => setActiveIndex(i)} style={{ position: "relative", width: 80, height: 80, borderRadius: 10, cursor: "pointer", border: activeIndex === i ? "2px solid #34B7F1" : "2px solid transparent", overflow: "hidden", background: "rgba(255,255,255,0.1)", flexShrink: 0 }}>
-            {(p.file.type.startsWith("image/") || p.file.type.startsWith("video/")) && <img src={p.url} alt="thumb" style={{ width: "100%", height: "100%", objectFit: "cover" }} />}
+            <img src={p.url} alt="thumb" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
             <button onClick={(e) => { e.stopPropagation(); onRemove(i); }} style={{ position: "absolute", top: 4, right: 4, background: "rgba(0,0,0,0.5)", border: "none", borderRadius: "50%", width: 24, height: 24, display: "flex", justifyContent: "center", alignItems: "center", cursor: "pointer" }}>
               <X size={16} color="#fff" />
             </button>
-
             {uploading && progressMap[i] != null && <div style={{ position: "absolute", bottom: 0, left: 0, width: `${progressMap[i]}%`, height: 4, background: "#34B7F1" }} />}
           </div>
         ))}
