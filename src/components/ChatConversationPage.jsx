@@ -1,3 +1,4 @@
+// src/components/ChatConversationPage.jsx
 import React, { useEffect, useState, useRef, useContext } from "react";
 import { useParams } from "react-router-dom";
 import {
@@ -69,7 +70,7 @@ export default function ChatConversationPage() {
     return () => unsubChat();
   }, [chatId, myUid]);
 
-  // -------------------- Real-time messages & mark as seen --------------------
+  // -------------------- Real-time messages --------------------
   useEffect(() => {
     if (!chatId) return;
     const messagesRef = collection(db, "chats", chatId, "messages");
@@ -80,9 +81,7 @@ export default function ChatConversationPage() {
       setMessages(docs);
 
       // Mark unread messages as seen
-      const unseen = docs.filter(
-        (m) => m.senderId !== myUid && !(m.seenBy || []).includes(myUid)
-      );
+      const unseen = docs.filter((m) => m.senderId !== myUid && !(m.seenBy || []).includes(myUid));
       if (unseen.length > 0) {
         unseen.forEach(async (msg) => {
           const msgRef = doc(db, "chats", chatId, "messages", msg.id);
@@ -100,8 +99,7 @@ export default function ChatConversationPage() {
   useEffect(() => {
     const el = messagesRefEl.current;
     if (!el) return;
-    const onScroll = () =>
-      setIsAtBottom(el.scrollHeight - el.scrollTop - el.clientHeight < 80);
+    const onScroll = () => setIsAtBottom(el.scrollHeight - el.scrollTop - el.clientHeight < 80);
     el.addEventListener("scroll", onScroll);
     return () => el.removeEventListener("scroll", onScroll);
   }, []);
@@ -135,12 +133,12 @@ export default function ChatConversationPage() {
     if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
   };
 
-  // -------------------- Send messages --------------------
+  // -------------------- Send message --------------------
   const sendMessage = async (textMsg = "", files = []) => {
     if (isBlocked) return toast.error("You cannot send messages to this user");
     if (!textMsg && files.length === 0) return;
 
-    // Handle media first
+    // send files
     for (let f of files) {
       const type = f.type.startsWith("image/")
         ? "image"
@@ -180,7 +178,7 @@ export default function ChatConversationPage() {
       await addDoc(collection(db, "chats", chatId, "messages"), payload);
     }
 
-    // Handle text message
+    // send text
     if (textMsg.trim()) {
       const payload = {
         senderId: myUid,
@@ -195,7 +193,7 @@ export default function ChatConversationPage() {
       await addDoc(collection(db, "chats", chatId, "messages"), payload);
     }
 
-    // Update last message in chat
+    // update last message in chat
     const chatRef = doc(db, "chats", chatId);
     await updateDoc(chatRef, {
       lastMessage: textMsg || files[0]?.name,
@@ -207,6 +205,7 @@ export default function ChatConversationPage() {
     setText("");
     setSelectedFiles([]);
     setReplyTo(null);
+    setShowPreview(false);
     endRef.current?.scrollIntoView({ behavior: "smooth" });
   };
 
