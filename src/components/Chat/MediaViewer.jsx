@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { FiX, FiChevronLeft, FiChevronRight } from "react-icons/fi";
 
-export default function MediaViewer({ url, type, items = [], startIndex = 0, onClose }) {
+export default function MediaViewer({ items = [], startIndex = 0, onClose }) {
   const [currentIndex, setCurrentIndex] = useState(startIndex);
   const containerRef = useRef(null);
   const startX = useRef(0);
@@ -12,14 +12,17 @@ export default function MediaViewer({ url, type, items = [], startIndex = 0, onC
     setCurrentIndex(startIndex);
   }, [startIndex]);
 
+  if (!items.length) return null;
+
   const handleNext = () => {
-    if (currentIndex < items.length - 1) setCurrentIndex((i) => i + 1);
+    setCurrentIndex((i) => Math.min(i + 1, items.length - 1));
   };
 
   const handlePrev = () => {
-    if (currentIndex > 0) setCurrentIndex((i) => i - 1);
+    setCurrentIndex((i) => Math.max(i - 1, 0));
   };
 
+  // Swipe handlers
   const handleTouchStart = (e) => {
     startX.current = e.touches[0].clientX;
     deltaX.current = 0;
@@ -33,8 +36,6 @@ export default function MediaViewer({ url, type, items = [], startIndex = 0, onC
     if (deltaX.current > 50) handlePrev();
     else if (deltaX.current < -50) handleNext();
   };
-
-  if (!items.length) return null;
 
   const currentItem = items[currentIndex];
 
