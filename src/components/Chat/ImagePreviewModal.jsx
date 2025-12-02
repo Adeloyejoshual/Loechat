@@ -1,19 +1,12 @@
-// src/components/Chat/ImagePreviewModal.jsx
 import React, { useState } from "react";
 import { X } from "lucide-react";
 import { addDoc, collection, serverTimestamp } from "firebase/firestore";
 import { db, auth } from "../../firebaseConfig";
 import axios from "axios";
 
-export default function ImagePreviewModal({
-  files,
-  onRemove,
-  onCancel,
-  onAddFiles,
-  chatId,
-  replyTo = null, // <-- added
-}) {
+export default function ImagePreviewModal({ files, onRemove, onCancel, onAddFiles, chatId, replyTo = null }) {
   const [activeIndex, setActiveIndex] = useState(0);
+  const [text, setText] = useState(""); // single caption for all files
   const [uploading, setUploading] = useState(false);
 
   const activeFile = files[activeIndex];
@@ -22,16 +15,18 @@ export default function ImagePreviewModal({
   const uploadToCloudinary = async (file) => {
     const formData = new FormData();
     formData.append("file", file);
-    formData.append("upload_preset", "YOUR_CLOUDINARY_PRESET"); // replace with your preset
+    formData.append("upload_preset", import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET);
     const res = await axios.post(
-      "https://api.cloudinary.com/v1_1/YOUR_CLOUD_NAME/auto/upload", // replace with your Cloud name
+      `https://api.cloudinary.com/v1_1/${import.meta.env.VITE_CLOUDINARY_CLOUD_NAME}/auto/upload`,
       formData
     );
     return res.data.secure_url;
   };
 
   const handleSend = async () => {
+    if (!files.length) return;
     setUploading(true);
+
     try {
       for (const file of files) {
         const isImage = file.type.startsWith("image/");
@@ -45,21 +40,18 @@ export default function ImagePreviewModal({
           mediaType = isImage ? "image" : isVideo ? "video" : "audio";
         } else {
           mediaType = "file";
-          mediaUrl = ""; // optional: upload files elsewhere if needed
         }
 
         const payload = {
           senderId: auth.currentUser.uid,
-          text: file.name || "",
+          text: text || file.name, // single caption for all
           mediaUrl,
           mediaType,
           reactions: {},
           createdAt: serverTimestamp(),
-          delivered: false,
-          seen: false,
+          seenBy: [],
         };
 
-        // Include replyTo if exists
         if (replyTo) {
           payload.replyTo = {
             id: replyTo.id,
@@ -71,10 +63,10 @@ export default function ImagePreviewModal({
         await addDoc(collection(db, "chats", chatId, "messages"), payload);
       }
 
-      onCancel();
+      onCancel(); // close modal
     } catch (err) {
-      console.error("Upload failed:", err);
-      alert("Upload failed. Try again.");
+      console.error(err);
+      alert("Failed to send files. Try again.");
     } finally {
       setUploading(false);
     }
@@ -119,29 +111,47 @@ export default function ImagePreviewModal({
         style={{
           flex: 1,
           display: "flex",
+          flexDirection: "column",
           justifyContent: "center",
           alignItems: "center",
           maxHeight: "70vh",
+          width: "100%",
         }}
       >
         {activeFile.type.startsWith("image/") && (
           <img
             src={URL.createObjectURL(activeFile)}
             alt="preview"
-            style={{ maxWidth: "90%", maxHeight: "90%", borderRadius: 12, objectFit: "contain" }}
+            style={{ maxWidth: "90%", maxHeight: "60%", borderRadius: 12, objectFit: "contain" }}
           />
         )}
         {activeFile.type.startsWith("video/") && (
           <video
             src={URL.createObjectURL(activeFile)}
             controls
-            style={{ maxWidth: "90%", maxHeight: "90%", borderRadius: 12 }}
+            style={{ maxWidth: "90%", maxHeight: "60%", borderRadius: 12 }}
           />
         )}
-        {activeFile.type.startsWith("audio/") && <audio src={URL.createObjectURL(activeFile)} controls />}
-        {!activeFile.type.startsWith("image/") &&
-          !activeFile.type.startsWith("video/") &&
-          !activeFile.type.startsWith("audio/") && <div>{activeFile.name}</div>}
+        {activeFile.type.startsWith("audio/") && (
+          <audio src={URL.createObjectURL(activeFile)} controls style={{ marginTop: 10 }} />
+        )}
+
+        {/* Single Caption Input */}
+        <input
+          type="text"
+          placeholder="Write a message..."
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          style={{
+            marginTop: 10,
+            width: "80%",
+            padding: "8px 12px",
+            borderRadius: 8,
+            border: "1px solid #ccc",
+            outline: "none",
+            fontSize: 16,
+          }}
+        />
       </div>
 
       {/* Thumbnails */}
