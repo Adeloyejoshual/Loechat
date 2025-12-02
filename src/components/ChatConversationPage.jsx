@@ -18,7 +18,7 @@ import { UserContext } from "../context/UserContext";
 import ChatHeader from "./Chat/ChatHeader";
 import MessageItem from "./Chat/MessageItem";
 import ChatInput from "./Chat/ChatInput";
-import ImagePreviewModal from "./Chat/ImagePreviewModal";
+import MediaViewer from "./Chat/MediaViewer";
 import { toast, ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import axios from "axios";
@@ -42,9 +42,9 @@ export default function ChatConversationPage() {
   const [replyTo, setReplyTo] = useState(null);
   const [pinnedMessage, setPinnedMessage] = useState(null);
   const [isAtBottom, setIsAtBottom] = useState(true);
-  const [showPreview, setShowPreview] = useState(false);
   const [isBlocked, setIsBlocked] = useState(false);
   const [uploadProgress, setUploadProgress] = useState({});
+  const [mediaViewerData, setMediaViewerData] = useState({ isOpen: false, items: [], startIndex: 0 });
 
   // -------------------- Load chat & friend info --------------------
   useEffect(() => {
@@ -131,7 +131,6 @@ export default function ChatConversationPage() {
     const files = Array.from(e.target.files);
     if (!files.length) return;
     setSelectedFiles((prev) => [...prev, ...files]);
-    setShowPreview(true);
     e.target.value = null;
   };
 
@@ -142,7 +141,6 @@ export default function ChatConversationPage() {
 
     const messagesCol = collection(db, "chats", chatId, "messages");
 
-    // -------------------- Send media messages --------------------
     for (let i = 0; i < files.length; i++) {
       const f = files[i];
       const type = f.type.startsWith("image/") ? "image" : f.type.startsWith("video/") ? "video" : "file";
@@ -151,7 +149,7 @@ export default function ChatConversationPage() {
       const tempMessage = {
         id: tempId,
         senderId: myUid,
-        text: textMsg || f.name,
+        text: textMsg || "",
         mediaUrl: URL.createObjectURL(f),
         mediaType: type,
         createdAt: new Date(),
@@ -185,7 +183,7 @@ export default function ChatConversationPage() {
 
         const payload = {
           senderId: myUid,
-          text: textMsg || f.name,
+          text: textMsg || "",
           mediaUrl,
           mediaType: type,
           createdAt: serverTimestamp(),
@@ -203,7 +201,7 @@ export default function ChatConversationPage() {
         );
       } catch (err) {
         console.error(err);
-        toast.error(`Failed to send ${f.name}`);
+        toast.error("Failed to send media");
         setMessages((prev) =>
           prev.map((m) => (m.id === tempId ? { ...m, status: "failed" } : m))
         );
@@ -216,7 +214,6 @@ export default function ChatConversationPage() {
       }
     }
 
-    // -------------------- Send text-only message --------------------
     if (textMsg.trim() && files.length === 0) {
       const tempId = `temp-${Date.now()}-${Math.random()}`;
       const tempMessage = {
@@ -251,10 +248,9 @@ export default function ChatConversationPage() {
       }
     }
 
-    // -------------------- Update last message in chat --------------------
     const chatRef = doc(db, "chats", chatId);
     await updateDoc(chatRef, {
-      lastMessage: textMsg || files[0]?.name,
+      lastMessage: textMsg || "",
       lastMessageSender: myUid,
       lastMessageAt: serverTimestamp(),
       lastMessageStatus: "delivered",
@@ -263,7 +259,15 @@ export default function ChatConversationPage() {
     setText("");
     setSelectedFiles([]);
     setReplyTo(null);
-    setShowPreview(false);
+  };
+
+  // -------------------- Open MediaViewer --------------------
+  const handleOpenMediaViewer = (clickedIndex) => {
+    const mediaItems = messages
+      .filter((m) => m.mediaUrl)
+      .map((m) => ({ url: m.mediaUrl, type: m.mediaType || "image" }));
+    const startIndex = clickedIndex; // clickedIndex can be 0 for first image/video
+    setMediaViewerData({ isOpen: true, items: mediaItems, startIndex });
   };
 
   return (
@@ -277,7 +281,6 @@ export default function ChatConversationPage() {
         position: "relative",
       }}
     >
-      {/* Hidden File Input */}
       <input
         type="file"
         ref={fileInputRef}
@@ -287,7 +290,6 @@ export default function ChatConversationPage() {
         onChange={handleFilesSelected}
       />
 
-      {/* Chat Header */}
       <ChatHeader
         friendId={friendInfo?.id}
         chatId={chatId}
@@ -301,16 +303,9 @@ export default function ChatConversationPage() {
           });
           toast.success("Chat cleared");
         }}
-        onSearch={() => {
-          const q = prompt("Search text:");
-          if (!q) return;
-          const results = messages.filter((m) => m.text?.toLowerCase().includes(q.toLowerCase()));
-          if (!results.length) return toast.info("No messages found");
-          scrollToMessage(results[0].id);
-        }}
       />
 
-      {/* Messages List */}
+      {/* Messages */}
       <div
         ref={messagesRefEl}
         style={{ flex: 1, overflowY: "auto", padding: 8, display: "flex", flexDirection: "column" }}
@@ -335,37 +330,34 @@ export default function ChatConversationPage() {
               setPinnedMessage={setPinnedMessage}
               friendId={friendInfo?.id}
               onReplyClick={(id) => scrollToMessage(id)}
+              onOpenMediaViewer={(index) => handleOpenMediaViewer(index)}
             />
           )
         )}
         <div ref={endRef} />
       </div>
 
-      {/* Chat Input */}
       <ChatInput
         text={text}
         setText={setText}
         sendTextMessage={() => sendMessage(text, selectedFiles)}
-        sendMediaMessage={(files) => { setSelectedFiles(files); setShowPreview(true); }}
+        sendMediaMessage={(files) => setSelectedFiles(files)}
         selectedFiles={selectedFiles}
         setSelectedFiles={setSelectedFiles}
         isDark={isDark}
-        setShowPreview={setShowPreview}
         replyTo={replyTo}
         setReplyTo={setReplyTo}
         disabled={isBlocked}
       />
 
-      {/* Image Preview Modal */}
-      {showPreview && selectedFiles.length > 0 && (
-        <ImagePreviewModal
-          previews={selectedFiles.map((f) => ({ file: f, url: URL.createObjectURL(f) }))}
-          currentIndex={0}
-          onRemove={(idx) => setSelectedFiles((prev) => prev.filter((_, i) => i !== idx))}
-          onClose={() => setShowPreview(false)}
-          onNext={() => {}}
-          onPrev={() => {}}
-          isDark={isDark}
+      {/* Fullscreen MediaViewer */}
+      {mediaViewerData.isOpen && (
+        <MediaViewer
+          url={mediaViewerData.items[mediaViewerData.startIndex].url}
+          type={mediaViewerData.items[mediaViewerData.startIndex].type}
+          items={mediaViewerData.items}
+          startIndex={mediaViewerData.startIndex}
+          onClose={() => setMediaViewerData({ ...mediaViewerData, isOpen: false })}
         />
       )}
 
