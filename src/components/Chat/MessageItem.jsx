@@ -1,5 +1,5 @@
-import React, { useState, useRef, useContext } from "react";
-import { doc, updateDoc } from "firebase/firestore";
+import React, { useState, useRef, useContext, useEffect } from "react";
+import { doc, updateDoc, onSnapshot } from "firebase/firestore";
 import { db } from "../../firebaseConfig";
 import { ThemeContext } from "../../context/ThemeContext";
 import LongPressMessageModal from "./LongPressMessageModal";
@@ -24,7 +24,7 @@ export default function MessageItem({
   pinnedMessage,
   setPinnedMessage,
   onReplyClick,
-  isBlockedUser,
+  friendId,
 }) {
   const isMine = message.senderId === myUid;
   const { theme } = useContext(ThemeContext);
@@ -38,10 +38,25 @@ export default function MessageItem({
   const [deleted, setDeleted] = useState(false);
   const [showMediaViewer, setShowMediaViewer] = useState(false);
   const [translateX, setTranslateX] = useState(0);
+  const [status, setStatus] = useState("Sent"); // Sent / Delivered / Seen
+
+  // ---------------- Firestore: friend online detection ----------------
+  useEffect(() => {
+    if (!friendId || !isMine) return;
+    const unsub = onSnapshot(doc(db, "users", friendId), (snap) => {
+      if (!snap.exists()) return;
+      const data = snap.data();
+      if (data.isOnline) {
+        setStatus("Delivered");
+      }
+      // Check if message is seen
+      if (message.seenBy?.includes(friendId)) setStatus("Seen");
+    });
+    return () => unsub();
+  }, [friendId, message, isMine]);
 
   // ---------------- Firestore actions ----------------
   const togglePin = async () => {
-    if (isBlockedUser) return toast.error("Cannot pin messages while blocked");
     const chatRef = doc(db, "chats", chatId);
     const newPin = pinnedMessage?.id !== message.id;
     await updateDoc(chatRef, { pinnedMessageId: newPin ? message.id : null });
@@ -50,9 +65,8 @@ export default function MessageItem({
   };
 
   const deleteMessage = async () => {
-    if (isBlockedUser) return toast.error("Cannot delete while blocked");
     if (!window.confirm(`Delete this message for ${isMine ? "everyone" : "them"}?`)) return;
-    setDeleted(true); // fade-out animation
+    setDeleted(true);
     await updateDoc(doc(db, "chats", chatId, "messages", message.id), { deleted: true });
     toast.success("Message deleted for everyone");
   };
@@ -63,7 +77,6 @@ export default function MessageItem({
   };
 
   const applyReaction = async (emoji) => {
-    if (isBlockedUser) return toast.error("Cannot react while blocked");
     const msgRef = doc(db, "chats", chatId, "messages", message.id);
     const newEmoji = reactedEmoji === emoji ? "" : emoji;
     await updateDoc(msgRef, { [`reactions.${myUid}`]: newEmoji });
@@ -83,21 +96,14 @@ export default function MessageItem({
   };
 
   // ---------------- Long press modal ----------------
-  const handleLongPress = () => {
-    if (isBlockedUser) return toast.error("Blocked users cannot edit messages");
-    setShowModal(true);
-  };
+  const handleLongPress = () => setShowModal(true);
 
   // ---------------- Swipe-to-reply ----------------
-  const handleTouchStart = (e) => {
-    startX.current = e.touches[0].clientX;
-  };
-
+  const handleTouchStart = (e) => (startX.current = e.touches[0].clientX);
   const handleTouchMove = (e) => {
     const deltaX = e.touches[0].clientX - startX.current;
     if (!isMine && deltaX > 0) setTranslateX(Math.min(deltaX, 100));
   };
-
   const handleTouchEnd = () => {
     if (translateX > 50) {
       setReplyTo(message);
@@ -123,12 +129,14 @@ export default function MessageItem({
           transition: translateX === 0 ? "transform 0.2s ease" : "none",
         }}
         onClick={handleTap}
-        onContextMenu={(e) => { e.preventDefault(); handleLongPress(); }}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          handleLongPress();
+        }}
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
       >
-        {/* Message Bubble */}
         <div
           className="message-bubble"
           style={{
@@ -212,7 +220,7 @@ export default function MessageItem({
             </div>
           )}
 
-          {/* Timestamp */}
+          {/* Timestamp + Status */}
           {message.createdAt && (
             <div
               style={{
@@ -225,7 +233,8 @@ export default function MessageItem({
               {new Date(message.createdAt.toDate ? message.createdAt.toDate() : message.createdAt).toLocaleTimeString([], {
                 hour: "2-digit",
                 minute: "2-digit",
-              })}
+              })}{" "}
+              {isMine && `• ${status}`}
             </div>
           )}
         </div>
@@ -236,7 +245,11 @@ export default function MessageItem({
         <LongPressMessageModal
           onClose={() => setShowModal(false)}
           onReaction={applyReaction}
-          onReply={() => { setReplyTo(message); setShowModal(false); toast.info("Replying…"); }}
+          onReply={() => {
+            setReplyTo(message);
+            setShowModal(false);
+            toast.info("Replying…");
+          }}
           onCopy={copyMessage}
           onPin={togglePin}
           onDelete={deleteMessage}
@@ -247,11 +260,7 @@ export default function MessageItem({
 
       {/* Media Viewer */}
       {showMediaViewer && (
-        <MediaViewer
-          url={message.mediaUrl}
-          type={message.mediaType || "image"}
-          onClose={() => setShowMediaViewer(false)}
-        />
+        <MediaViewer url={message.mediaUrl} type={message.mediaType || "image"} onClose={() => setShowMediaViewer(false)} />
       )}
     </>
   );
