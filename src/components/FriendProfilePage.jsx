@@ -2,12 +2,10 @@
 import React, { useEffect, useState, useContext } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { auth, db } from "../firebaseConfig";
-import { doc, getDoc } from "firebase/firestore";
+import { doc, onSnapshot, updateDoc } from "firebase/firestore";
 import { ThemeContext } from "../context/ThemeContext";
 
-// -----------------------------
-// UTILITY FUNCTIONS
-// -----------------------------
+// ---------------- UTILITY FUNCTIONS ----------------
 const stringToColor = (str) => {
   let hash = 0;
   for (let i = 0; i < str.length; i++) {
@@ -32,7 +30,7 @@ const formatLastSeen = (ts) => {
   const options = { hour: "numeric", minute: "numeric", hour12: true };
   const time = d.toLocaleTimeString(undefined, options);
 
-  if (d.toDateString() === now.toDateString()) return `Online`;
+  if (d.toDateString() === now.toDateString()) return "Online";
 
   const yesterday = new Date();
   yesterday.setDate(now.getDate() - 1);
@@ -47,70 +45,46 @@ const formatLastSeen = (ts) => {
   return `Last seen: ${d.toLocaleDateString(undefined, dateOptions)} at ${time}`;
 };
 
-// -----------------------------
-// COMPONENT
-// -----------------------------
+const getCloudinaryUrl = (path) => {
+  if (!path) return null;
+  return `https://res.cloudinary.com/<your-cloud-name>/image/upload/w_300,h_300,c_thumb/${path}.jpg`;
+};
+
+// ---------------- COMPONENT ----------------
 export default function FriendProfilePage() {
   const { uid } = useParams();
   const navigate = useNavigate();
   const { theme } = useContext(ThemeContext);
   const isDark = theme === "dark";
-
   const currentUser = auth.currentUser;
 
+  const [friend, setFriend] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [friend, setFriend] = useState({
-    displayName: "",
-    email: "",
-    about: "",
-    photoPath: "", // store Cloudinary public_id or URL
-    lastSeen: null,
-    blockedBy: [],
-    isOnline: false,
-  });
-
   const [actionLoading, setActionLoading] = useState(false);
 
-  // -----------------------------
-  // LOAD FRIEND DATA
-  // -----------------------------
+  // ---------------- LOAD FRIEND DATA REAL-TIME ----------------
   useEffect(() => {
-    async function loadFriend() {
-      try {
-        const ref = doc(db, "users", uid);
-        const snap = await getDoc(ref);
-        if (snap.exists()) setFriend(snap.data());
-      } catch (err) {
-        console.error("Error loading friend profile:", err);
-      } finally {
-        setLoading(false);
-      }
-    }
-    loadFriend();
+    if (!uid) return;
+    const ref = doc(db, "users", uid);
+    const unsub = onSnapshot(ref, (snap) => {
+      if (snap.exists()) setFriend(snap.data());
+      setLoading(false);
+    });
+    return () => unsub();
   }, [uid]);
 
-  // -----------------------------
-  // ACTIONS
-  // -----------------------------
+  // ---------------- ACTIONS ----------------
   const toggleBlock = async () => {
-    if (!currentUser) return;
+    if (!currentUser || !friend) return;
     setActionLoading(true);
     try {
       const ref = doc(db, "users", uid);
       const isBlocked = friend.blockedBy?.includes(currentUser.uid);
-
       await updateDoc(ref, {
         blockedBy: isBlocked
           ? friend.blockedBy.filter((id) => id !== currentUser.uid)
           : [...(friend.blockedBy || []), currentUser.uid],
       });
-
-      setFriend((f) => ({
-        ...f,
-        blockedBy: isBlocked
-          ? f.blockedBy.filter((id) => id !== currentUser.uid)
-          : [...(f.blockedBy || []), currentUser.uid],
-      }));
     } catch (err) {
       console.error(err);
       alert("Failed to update block status.");
@@ -120,23 +94,15 @@ export default function FriendProfilePage() {
   };
 
   const sendMessage = () => {
+    if (!currentUser || !uid) return;
     navigate(`/chat/${[currentUser.uid, uid].sort().join("_")}`);
   };
 
   const reportUser = () => {
-    alert(`You reported ${friend.displayName || "this user"}.`);
+    alert(`You reported ${friend?.displayName || "this user"}.`);
   };
 
-  // -----------------------------
-  // CLOUDINARY URL
-  // -----------------------------
-  const getCloudinaryUrl = (path) => {
-    if (!path) return null;
-    // Use your Cloudinary base URL
-    return `https://res.cloudinary.com/<your-cloud-name>/image/upload/w_300,h_300,c_thumb/${path}.jpg`;
-  };
-
-  if (loading) {
+  if (loading || !friend) {
     return (
       <div
         className={`flex h-screen items-center justify-center ${
@@ -152,10 +118,8 @@ export default function FriendProfilePage() {
   const profileUrl = getCloudinaryUrl(friend.photoPath);
 
   return (
-    <div
-      className={`${isDark ? "bg-black text-white" : "bg-white text-black"} min-h-screen p-4`}
-    >
-      {/* BACK */}
+    <div className={`${isDark ? "bg-black text-white" : "bg-white text-black"} min-h-screen p-4`}>
+      {/* BACK HEADER */}
       <div className="flex items-center gap-3 mb-6">
         <button onClick={() => navigate(-1)} className="text-2xl font-bold">
           ←
@@ -163,7 +127,7 @@ export default function FriendProfilePage() {
         <h2 className="text-xl font-semibold">Profile</h2>
       </div>
 
-      {/* PROFILE PICTURE + ONLINE STATUS */}
+      {/* PROFILE PICTURE */}
       <div className="w-32 h-32 rounded-full mb-4 relative flex items-center justify-center border border-gray-700 overflow-hidden mx-auto">
         {profileUrl ? (
           <img
@@ -172,10 +136,14 @@ export default function FriendProfilePage() {
             className="w-full h-full object-cover"
           />
         ) : (
-          <span className="text-white font-bold text-3xl">
+          <span
+            className="text-white font-bold text-3xl"
+            style={{ backgroundColor: stringToColor(friend.displayName), width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}
+          >
             {getInitials(friend.displayName)}
           </span>
         )}
+
         {/* ONLINE DOT */}
         <span
           className={`absolute bottom-2 right-2 w-4 h-4 rounded-full border-2 border-white ${
@@ -205,12 +173,12 @@ export default function FriendProfilePage() {
 
         <button
           onClick={toggleBlock}
+          disabled={actionLoading}
           className={`py-2 rounded-lg font-semibold transition ${
             isBlocked
               ? "bg-green-600 text-white hover:bg-green-700"
               : "bg-red-600 text-white hover:bg-red-700"
           }`}
-          disabled={actionLoading}
         >
           {isBlocked ? "Unblock User" : "Block User"}
         </button>
