@@ -76,24 +76,15 @@ export default function ChatConversationPage() {
     const messagesRef = collection(db, "chats", chatId, "messages");
     const q = query(messagesRef, orderBy("createdAt", "asc"));
 
-    const unsub = onSnapshot(q, async (snap) => {
-      const docs = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    const unsub = onSnapshot(q, (snap) => {
+      const docs = snap.docs.map((d) => ({ id: d.id, ...d.data(), status: "sent" }));
       setMessages(docs);
-
-      // Mark unread messages as seen
-      const unseen = docs.filter((m) => m.senderId !== myUid && !(m.seenBy || []).includes(myUid));
-      if (unseen.length > 0) {
-        unseen.forEach(async (msg) => {
-          const msgRef = doc(db, "chats", chatId, "messages", msg.id);
-          await updateDoc(msgRef, { seenBy: [...(msg.seenBy || []), myUid] });
-        });
-      }
 
       if (isAtBottom) endRef.current?.scrollIntoView({ behavior: "smooth" });
     });
 
     return () => unsub();
-  }, [chatId, myUid, isAtBottom]);
+  }, [chatId, isAtBottom]);
 
   // -------------------- Scroll detection --------------------
   useEffect(() => {
@@ -133,12 +124,13 @@ export default function ChatConversationPage() {
     if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
   };
 
-  // -------------------- Send message --------------------
+  // -------------------- Send message (optimistic UI) --------------------
   const sendMessage = async (textMsg = "", files = []) => {
     if (isBlocked) return toast.error("You cannot send messages to this user");
     if (!textMsg && files.length === 0) return;
 
-    // send files
+    const messagesCol = collection(db, "chats", chatId, "messages");
+
     for (let f of files) {
       const type = f.type.startsWith("image/")
         ? "image"
@@ -148,52 +140,102 @@ export default function ChatConversationPage() {
             ? "audio"
             : "file";
 
-      let mediaUrl = "";
-      if (type !== "file") {
-        try {
+      const tempId = `temp-${Date.now()}-${Math.random()}`;
+
+      const tempMessage = {
+        id: tempId,
+        senderId: myUid,
+        text: f.name,
+        mediaUrl: URL.createObjectURL(f),
+        mediaType: type,
+        createdAt: new Date(),
+        reactions: {},
+        seenBy: [],
+        status: "sending",
+        replyTo: replyTo ? { id: replyTo.id, text: replyTo.text, senderId: replyTo.senderId } : null,
+      };
+      setMessages((prev) => [...prev, tempMessage]);
+      endRef.current?.scrollIntoView({ behavior: "smooth" });
+
+      // Upload to Cloudinary
+      try {
+        let mediaUrl = "";
+        if (type !== "file") {
           const formData = new FormData();
           formData.append("file", f);
           formData.append("upload_preset", import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET);
+
           const res = await axios.post(
             `https://api.cloudinary.com/v1_1/${import.meta.env.VITE_CLOUDINARY_CLOUD_NAME}/auto/upload`,
             formData
           );
           mediaUrl = res.data.secure_url;
-        } catch (err) {
-          toast.error(`Failed to upload ${f.name}`);
-          continue;
         }
-      }
 
-      const payload = {
-        senderId: myUid,
-        text: f.name,
-        mediaUrl,
-        mediaType: type,
-        createdAt: serverTimestamp(),
-        reactions: {},
-        seenBy: [],
-        replyTo: replyTo ? { id: replyTo.id, text: replyTo.text, senderId: replyTo.senderId } : null,
-      };
-      await addDoc(collection(db, "chats", chatId, "messages"), payload);
+        const payload = {
+          senderId: myUid,
+          text: f.name,
+          mediaUrl,
+          mediaType: type,
+          createdAt: serverTimestamp(),
+          reactions: {},
+          seenBy: [],
+          replyTo: replyTo ? { id: replyTo.id, text: replyTo.text, senderId: replyTo.senderId } : null,
+        };
+
+        const docRef = await addDoc(messagesCol, payload);
+
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === tempId ? { ...payload, id: docRef.id, status: "sent", createdAt: new Date() } : m
+          )
+        );
+      } catch (err) {
+        console.error(err);
+        toast.error(`Failed to send ${f.name}`);
+        setMessages((prev) =>
+          prev.map((m) => (m.id === tempId ? { ...m, status: "failed" } : m))
+        );
+      }
     }
 
-    // send text
+    // -------------------- Text messages --------------------
     if (textMsg.trim()) {
-      const payload = {
+      const tempId = `temp-${Date.now()}-${Math.random()}`;
+      const tempMessage = {
+        id: tempId,
         senderId: myUid,
         text: textMsg.trim(),
         mediaUrl: "",
         mediaType: null,
-        createdAt: serverTimestamp(),
+        createdAt: new Date(),
         reactions: {},
         seenBy: [],
+        status: "sending",
         replyTo: replyTo ? { id: replyTo.id, text: replyTo.text, senderId: replyTo.senderId } : null,
       };
-      await addDoc(collection(db, "chats", chatId, "messages"), payload);
+      setMessages((prev) => [...prev, tempMessage]);
+      endRef.current?.scrollIntoView({ behavior: "smooth" });
+
+      try {
+        const payload = { ...tempMessage, createdAt: serverTimestamp(), status: "sent" };
+        const docRef = await addDoc(messagesCol, payload);
+
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === tempId ? { ...payload, id: docRef.id, createdAt: new Date() } : m
+          )
+        );
+      } catch (err) {
+        console.error(err);
+        toast.error("Failed to send message");
+        setMessages((prev) =>
+          prev.map((m) => (m.id === tempId ? { ...m, status: "failed" } : m))
+        );
+      }
     }
 
-    // update last message in chat
+    // -------------------- Update chat last message --------------------
     const chatRef = doc(db, "chats", chatId);
     await updateDoc(chatRef, {
       lastMessage: textMsg || files[0]?.name,
@@ -206,7 +248,6 @@ export default function ChatConversationPage() {
     setSelectedFiles([]);
     setReplyTo(null);
     setShowPreview(false);
-    endRef.current?.scrollIntoView({ behavior: "smooth" });
   };
 
   return (
