@@ -1,4 +1,4 @@
-// MessageItem.jsx (updated)
+// MessageItem.jsx (with upload progress)
 import React, { useState, useRef, useContext, useEffect } from "react";
 import { doc, updateDoc, onSnapshot } from "firebase/firestore";
 import { db } from "../../firebaseConfig";
@@ -171,6 +171,7 @@ export default function MessageItem({
     <>
       <div
         ref={containerRef}
+        id={message.id}
         className={`message-item ${isMine ? "mine" : "other"}`}
         style={{
           display: "flex",
@@ -237,7 +238,7 @@ export default function MessageItem({
 
           {/* Media + Text */}
           {message.mediaUrl ? (
-            <div style={{ display: "flex", flexDirection: "column" }}>
+            <div style={{ display: "flex", flexDirection: "column", position: "relative" }}>
               {message.mediaType === "image" && (
                 <img src={message.mediaUrl} alt="media" style={{ maxWidth: "100%", borderRadius: 12, cursor: "pointer" }} onClick={() => setShowMediaViewer(true)} />
               )}
@@ -246,6 +247,11 @@ export default function MessageItem({
               )}
               {message.mediaType === "audio" && <audio src={message.mediaUrl} controls style={{ marginTop: 4 }} />}
               {message.text && <div style={{ marginTop: 4, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{message.text}</div>}
+
+              {/* Upload Progress Bar */}
+              {message.status === "sending" && message.uploadProgress != null && (
+                <div style={{ position: "absolute", bottom: 0, left: 0, height: 4, background: "#34B7F1", width: `${message.uploadProgress}%`, borderRadius: "0 0 12px 12px" }} />
+              )}
             </div>
           ) : (
             renderMessageText()
@@ -285,8 +291,7 @@ export default function MessageItem({
               {new Date(message.createdAt.toDate ? message.createdAt.toDate() : message.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
               {isMine && status && (
                 <>
-                  •{" "}
-                  {status === "sending" ? <span className="rolling-dot">●●●</span> : status}
+                  • {status === "sending" ? "Sending..." : status}
                 </>
               )}
             </div>
@@ -340,16 +345,6 @@ export default function MessageItem({
           0% { transform: translate(-50%, 0) scale(1); opacity: 1; }
           50% { transform: translate(-50%, -20px) scale(1.3); opacity: 1; }
           100% { transform: translate(-50%, -40px) scale(1); opacity: 0; }
-        }
-        .rolling-dot {
-          display: inline-block;
-          animation: rolling 1s linear infinite;
-        }
-        @keyframes rolling {
-          0% { content:'●'; }
-          33% { content:'● ●'; }
-          66% { content:'● ● ●'; }
-          100% { content:'●'; }
         }
       `}</style>
     </>
