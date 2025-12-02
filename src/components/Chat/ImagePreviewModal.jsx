@@ -1,121 +1,148 @@
-import React, { useState, useEffect } from "react";
-import { X } from "lucide-react";
-import { addDoc, collection, serverTimestamp } from "firebase/firestore";
-import { db, auth } from "../../firebaseConfig";
-import axios from "axios";
+// src/components/Chat/ImagePreviewModal.jsx
+import React from "react";
 
-export default function ImagePreviewModal({ files, onRemove, onCancel, onAddFiles, chatId, replyTo = null }) {
-  const [activeIndex, setActiveIndex] = useState(0);
-  const [textMap, setTextMap] = useState({});
-  const [uploading, setUploading] = useState(false);
-  const [progressMap, setProgressMap] = useState({});
+const SPACING = { xs: 4, sm: 8, md: 12, lg: 14, xl: 20, borderRadius: 12 };
+const COLORS = {
+  lightCard: "#fff",
+  darkCard: "#1b1b1b",
+  darkText: "#fff",
+  lightText: "#000",
+  grayBorder: "rgba(0,0,0,0.06)",
+};
 
-  // Previews
-  const [previews, setPreviews] = useState([]);
-  useEffect(() => {
-    const urls = files.map(f => ({ file: f, url: URL.createObjectURL(f) }));
-    setPreviews(urls);
-    return () => urls.forEach(p => URL.revokeObjectURL(p.url));
-  }, [files]);
+export default function ImagePreviewModal({
+  previews = [],
+  currentIndex = 0,
+  onClose = () => {},
+  onNext = () => {},
+  onPrev = () => {},
+  onRemove = () => {},
+  isDark = false,
+}) {
+  if (!previews.length) return null;
 
-  const activeFile = previews[activeIndex]?.file;
-  if (!activeFile) return null;
-
-  const uploadToCloudinary = async (file, index) => {
-    const formData = new FormData();
-    formData.append("file", file);
-    formData.append("upload_preset", import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET);
-
-    const res = await axios.post(
-      `https://api.cloudinary.com/v1_1/${import.meta.env.VITE_CLOUDINARY_CLOUD_NAME}/auto/upload`,
-      formData,
-      {
-        onUploadProgress: (e) => {
-          const percent = Math.round((e.loaded * 100) / e.total);
-          setProgressMap(prev => ({ ...prev, [index]: percent }));
-        },
-      }
-    );
-    return res.data.secure_url;
-  };
-
-  const handleSend = async () => {
-    if (!files.length) return;
-    setUploading(true);
-
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
-      if (!file.type.startsWith("image/") && !file.type.startsWith("video/")) continue;
-
-      const mediaType = file.type.startsWith("image/") ? "image" : "video";
-
-      let mediaUrl = "";
-      try { mediaUrl = await uploadToCloudinary(file, i); } 
-      catch (err) { console.error("Upload error:", err); continue; }
-
-      const payload = {
-        senderId: auth.currentUser.uid,
-        text: textMap[i] || "",
-        mediaUrl,
-        mediaType,
-        reactions: {},
-        createdAt: serverTimestamp(),
-        seenBy: [],
-        status: "sent",
-      };
-
-      if (replyTo) payload.replyTo = { id: replyTo.id, text: replyTo.text, senderId: replyTo.senderId };
-
-      await addDoc(collection(db, "chats", chatId, "messages"), payload);
-    }
-
-    setUploading(false);
-    onCancel();
-  };
+  const current = previews[currentIndex];
 
   return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", display: "flex", flexDirection: "column", zIndex: 9999, padding: 20, color: "#fff" }}>
-      {/* Close */}
-      <button onClick={onCancel} style={{ position: "absolute", top: 20, right: 20, background: "rgba(0,0,0,0.4)", borderRadius: "50%", border: "none", width: 40, height: 40, display: "flex", justifyContent: "center", alignItems: "center", cursor: "pointer" }}>
-        <X color="#fff" size={22} />
-      </button>
+    <div
+      style={{
+        position: "fixed",
+        top: 0,
+        left: 0,
+        width: "100vw",
+        height: "100vh",
+        backgroundColor: "rgba(0,0,0,0.8)",
+        display: "flex",
+        justifyContent: "center",
+        alignItems: "center",
+        zIndex: 1000,
+      }}
+      onClick={onClose}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          position: "relative",
+          maxWidth: "90%",
+          maxHeight: "90%",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+        }}
+      >
+        {/* Media */}
+        {current?.type === "image" && (
+          <img
+            src={current.url}
+            alt={current.name}
+            style={{ maxHeight: "80vh", maxWidth: "80vw", borderRadius: SPACING.borderRadius }}
+          />
+        )}
+        {current?.type === "video" && (
+          <video
+            src={current.url}
+            controls
+            style={{ maxHeight: "80vh", maxWidth: "80vw", borderRadius: SPACING.borderRadius }}
+          />
+        )}
 
-      {/* Active Preview */}
-      <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", maxHeight: "70vh", width: "100%" }}>
-        {activeFile.type.startsWith("image/") && <img src={previews[activeIndex].url} alt="preview" style={{ maxWidth: "90%", maxHeight: "60%", borderRadius: 12, objectFit: "contain" }} />}
-        {activeFile.type.startsWith("video/") && <video src={previews[activeIndex].url} controls style={{ maxWidth: "90%", maxHeight: "60%", borderRadius: 12 }} />}
-
-        {/* Caption */}
-        <input
-          type="text"
-          placeholder="Write a message..."
-          value={textMap[activeIndex] || ""}
-          onChange={(e) => setTextMap(prev => ({ ...prev, [activeIndex]: e.target.value }))}
-          style={{ marginTop: 10, width: "80%", padding: "8px 12px", borderRadius: 8, border: "1px solid #ccc", outline: "none", fontSize: 16 }}
-        />
-      </div>
-
-      {/* Thumbnails */}
-      <div style={{ display: "flex", gap: 10, overflowX: "auto", paddingBottom: 10, marginTop: 10 }}>
-        <div onClick={onAddFiles} style={{ width: 80, height: 80, borderRadius: 10, background: "rgba(255,255,255,0.2)", display: "flex", justifyContent: "center", alignItems: "center", fontSize: 32, fontWeight: "bold", color: "#fff", cursor: "pointer", flexShrink: 0 }}>+</div>
-
-        {previews.map((p, i) => (
-          <div key={i} onClick={() => setActiveIndex(i)} style={{ position: "relative", width: 80, height: 80, borderRadius: 10, cursor: "pointer", border: activeIndex === i ? "2px solid #34B7F1" : "2px solid transparent", overflow: "hidden", background: "rgba(255,255,255,0.1)", flexShrink: 0 }}>
-            <img src={p.url} alt="thumb" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-            <button onClick={(e) => { e.stopPropagation(); onRemove(i); }} style={{ position: "absolute", top: 4, right: 4, background: "rgba(0,0,0,0.5)", border: "none", borderRadius: "50%", width: 24, height: 24, display: "flex", justifyContent: "center", alignItems: "center", cursor: "pointer" }}>
-              <X size={16} color="#fff" />
+        {/* Navigation */}
+        {previews.length > 1 && (
+          <>
+            <button
+              onClick={onPrev}
+              style={{
+                position: "absolute",
+                left: 0,
+                top: "50%",
+                transform: "translateY(-50%)",
+                background: "rgba(0,0,0,0.5)",
+                border: "none",
+                color: "#fff",
+                fontSize: 24,
+                padding: "8px",
+                cursor: "pointer",
+              }}
+            >
+              ‹
             </button>
-            {uploading && progressMap[i] != null && <div style={{ position: "absolute", bottom: 0, left: 0, width: `${progressMap[i]}%`, height: 4, background: "#34B7F1" }} />}
-          </div>
-        ))}
-      </div>
+            <button
+              onClick={onNext}
+              style={{
+                position: "absolute",
+                right: 0,
+                top: "50%",
+                transform: "translateY(-50%)",
+                background: "rgba(0,0,0,0.5)",
+                border: "none",
+                color: "#fff",
+                fontSize: 24,
+                padding: "8px",
+                cursor: "pointer",
+              }}
+            >
+              ›
+            </button>
+          </>
+        )}
 
-      {/* Actions */}
-      <div style={{ display: "flex", gap: 15, justifyContent: "center", marginTop: 20 }}>
-        <button onClick={onCancel} style={{ padding: "10px 20px", borderRadius: 10, border: "none", background: "#666", color: "#fff", fontWeight: "bold" }}>Cancel</button>
-        <button onClick={handleSend} disabled={uploading} style={{ padding: "10px 20px", borderRadius: 10, border: "none", background: "#34B7F1", color: "#fff", fontWeight: "bold", cursor: uploading ? "not-allowed" : "pointer" }}>
-          {uploading ? "Sending..." : `Send (${files.length})`}
-        </button>
+        {/* Footer actions */}
+        <div
+          style={{
+            marginTop: 12,
+            display: "flex",
+            gap: 12,
+            justifyContent: "center",
+            width: "100%",
+          }}
+        >
+          <button
+            onClick={onRemove}
+            style={{
+              padding: SPACING.sm,
+              borderRadius: SPACING.borderRadius,
+              border: `1px solid ${COLORS.grayBorder}`,
+              background: isDark ? COLORS.darkCard : COLORS.lightCard,
+              color: isDark ? COLORS.darkText : COLORS.lightText,
+              cursor: "pointer",
+            }}
+          >
+            Remove
+          </button>
+          <button
+            onClick={onClose}
+            style={{
+              padding: SPACING.sm,
+              borderRadius: SPACING.borderRadius,
+              border: `1px solid ${COLORS.grayBorder}`,
+              background: isDark ? COLORS.darkCard : COLORS.lightCard,
+              color: isDark ? COLORS.darkText : COLORS.lightText,
+              cursor: "pointer",
+            }}
+          >
+            Close
+          </button>
+        </div>
       </div>
     </div>
   );
