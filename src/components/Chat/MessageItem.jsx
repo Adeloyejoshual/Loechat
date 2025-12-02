@@ -1,4 +1,4 @@
-// MessageItem.jsx (with upload progress)
+// src/components/Chat/MessageItem.jsx
 import React, { useState, useRef, useContext, useEffect } from "react";
 import { doc, updateDoc, onSnapshot } from "firebase/firestore";
 import { db } from "../../firebaseConfig";
@@ -28,6 +28,7 @@ export default function MessageItem({
   setPinnedMessage,
   onReplyClick,
   friendId,
+  messages, // new prop: full messages array for media viewer indexing
 }) {
   const isMine = message.senderId === myUid;
   const { theme } = useContext(ThemeContext);
@@ -42,8 +43,9 @@ export default function MessageItem({
   const [deleted, setDeleted] = useState(false);
   const [fadeOut, setFadeOut] = useState(false);
   const [showMediaViewer, setShowMediaViewer] = useState(false);
+  const [currentMediaIndex, setCurrentMediaIndex] = useState(0);
   const [translateX, setTranslateX] = useState(0);
-  const [status, setStatus] = useState(message.status || "Sent"); // "sending" support
+  const [status, setStatus] = useState(message.status || "Sent");
   const [showFullText, setShowFullText] = useState(false);
   const [textHeight, setTextHeight] = useState("auto");
   const [fadeIn, setFadeIn] = useState(false);
@@ -139,7 +141,11 @@ export default function MessageItem({
   // ---------------- Smooth Read More ----------------
   useEffect(() => {
     if (textRef.current) {
-      setTextHeight(showFullText ? `${textRef.current.scrollHeight}px` : `${Math.min(textRef.current.scrollHeight, 80)}px`);
+      setTextHeight(
+        showFullText
+          ? `${textRef.current.scrollHeight}px`
+          : `${Math.min(textRef.current.scrollHeight, 80)}px`
+      );
     }
   }, [showFullText]);
 
@@ -158,13 +164,27 @@ export default function MessageItem({
       >
         {message.text.slice(0, READ_MORE_LIMIT)}
         {!showFullText && (
-          <span style={{ color: COLORS.primary, cursor: "pointer", fontWeight: 500, marginLeft: 4 }} onClick={() => setShowFullText(true)}>
+          <span
+            style={{ color: COLORS.primary, cursor: "pointer", fontWeight: 500, marginLeft: 4 }}
+            onClick={() => setShowFullText(true)}
+          >
             Read More
           </span>
         )}
         {showFullText && message.text.slice(READ_MORE_LIMIT)}
       </div>
     );
+  };
+
+  // ---------------- Media Viewer ----------------
+  const handleOpenMediaViewer = () => {
+    if (!messages) return;
+    const mediaItems = messages
+      .filter((m) => m.mediaUrl)
+      .map((m) => ({ url: m.mediaUrl, type: m.mediaType || "image" }));
+    const index = mediaItems.findIndex((m) => m.url === message.mediaUrl);
+    setCurrentMediaIndex(index >= 0 ? index : 0);
+    setShowMediaViewer(true);
   };
 
   return (
@@ -184,7 +204,10 @@ export default function MessageItem({
           opacity: fadeOut ? 0 : fadeIn ? 0 : 1,
         }}
         onClick={handleTap}
-        onContextMenu={(e) => { e.preventDefault(); setShowModal(true); }}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          setShowModal(true);
+        }}
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
@@ -213,7 +236,9 @@ export default function MessageItem({
               height: 0,
               borderStyle: "solid",
               borderWidth: "6px 6px 0 0",
-              borderColor: isMine ? `${COLORS.primary} transparent transparent transparent` : `${isDark ? COLORS.darkCard : COLORS.lightCard} transparent transparent transparent`,
+              borderColor: isMine
+                ? `${COLORS.primary} transparent transparent transparent`
+                : `${isDark ? COLORS.darkCard : COLORS.lightCard} transparent transparent transparent`,
               right: isMine ? -6 : "auto",
               left: isMine ? "auto" : -6,
             }}
@@ -239,18 +264,45 @@ export default function MessageItem({
           {/* Media + Text */}
           {message.mediaUrl ? (
             <div style={{ display: "flex", flexDirection: "column", position: "relative" }}>
-              {message.mediaType === "image" && (
-                <img src={message.mediaUrl} alt="media" style={{ maxWidth: "100%", borderRadius: 12, cursor: "pointer" }} onClick={() => setShowMediaViewer(true)} />
+              {(message.mediaType === "image" || message.mediaType === "video") && (
+                <>
+                  {message.mediaType === "image" && (
+                    <img
+                      src={message.mediaUrl}
+                      alt="media"
+                      style={{ maxWidth: "100%", borderRadius: 12, cursor: "pointer" }}
+                      onClick={handleOpenMediaViewer}
+                    />
+                  )}
+                  {message.mediaType === "video" && (
+                    <video
+                      src={message.mediaUrl}
+                      controls
+                      style={{ maxWidth: "100%", borderRadius: 12, cursor: "pointer" }}
+                      onClick={handleOpenMediaViewer}
+                    />
+                  )}
+                </>
               )}
-              {message.mediaType === "video" && (
-                <video src={message.mediaUrl} controls style={{ maxWidth: "100%", borderRadius: 12, cursor: "pointer" }} onClick={() => setShowMediaViewer(true)} />
+              {message.text && (
+                <div style={{ marginTop: 4, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+                  {message.text}
+                </div>
               )}
-              {message.mediaType === "audio" && <audio src={message.mediaUrl} controls style={{ marginTop: 4 }} />}
-              {message.text && <div style={{ marginTop: 4, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{message.text}</div>}
 
               {/* Upload Progress Bar */}
               {message.status === "sending" && message.uploadProgress != null && (
-                <div style={{ position: "absolute", bottom: 0, left: 0, height: 4, background: "#34B7F1", width: `${message.uploadProgress}%`, borderRadius: "0 0 12px 12px" }} />
+                <div
+                  style={{
+                    position: "absolute",
+                    bottom: 0,
+                    left: 0,
+                    height: 4,
+                    background: "#34B7F1",
+                    width: `${message.uploadProgress}%`,
+                    borderRadius: "0 0 12px 12px",
+                  }}
+                />
               )}
             </div>
           ) : (
@@ -263,7 +315,17 @@ export default function MessageItem({
               Object.values(message.reactions)
                 .filter(Boolean)
                 .map((emoji, i) => (
-                  <span key={i} style={{ background: COLORS.reactionBg, color: "#fff", padding: "0 6px", borderRadius: 12, fontSize: 12, marginRight: 4 }}>
+                  <span
+                    key={i}
+                    style={{
+                      background: COLORS.reactionBg,
+                      color: "#fff",
+                      padding: "0 6px",
+                      borderRadius: 12,
+                      fontSize: 12,
+                      marginRight: 4,
+                    }}
+                  >
                     {emoji}
                   </span>
                 ))}
@@ -287,13 +349,21 @@ export default function MessageItem({
 
           {/* Timestamp + Status */}
           {message.createdAt && (
-            <div style={{ fontSize: 10, opacity: 0.6, marginTop: 4, textAlign: isMine ? "right" : "left", display: "flex", alignItems: "center", gap: 4 }}>
-              {new Date(message.createdAt.toDate ? message.createdAt.toDate() : message.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-              {isMine && status && (
-                <>
-                  • {status === "sending" ? "Sending..." : status}
-                </>
-              )}
+            <div
+              style={{
+                fontSize: 10,
+                opacity: 0.6,
+                marginTop: 4,
+                textAlign: isMine ? "right" : "left",
+                display: "flex",
+                alignItems: "center",
+                gap: 4,
+              }}
+            >
+              {new Date(
+                message.createdAt.toDate ? message.createdAt.toDate() : message.createdAt
+              ).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+              {isMine && status && <>• {status === "sending" ? "Sending..." : status}</>}
             </div>
           )}
 
@@ -337,7 +407,13 @@ export default function MessageItem({
       )}
 
       {/* Media Viewer */}
-      {showMediaViewer && <MediaViewer url={message.mediaUrl} type={message.mediaType || "image"} onClose={() => setShowMediaViewer(false)} />}
+      {showMediaViewer && messages && (
+        <MediaViewer
+          items={messages.filter((m) => m.mediaUrl).map((m) => ({ url: m.mediaUrl, type: m.mediaType || "image" }))}
+          startIndex={currentMediaIndex}
+          onClose={() => setShowMediaViewer(false)}
+        />
+      )}
 
       {/* Keyframes */}
       <style>{`
