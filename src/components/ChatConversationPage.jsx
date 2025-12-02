@@ -1,4 +1,3 @@
-// src/components/ChatConversationPage.jsx
 import React, { useEffect, useState, useRef, useContext } from "react";
 import { useParams } from "react-router-dom";
 import {
@@ -10,7 +9,6 @@ import {
   serverTimestamp,
   doc,
   updateDoc,
-  getDocs,
 } from "firebase/firestore";
 import { db, auth } from "../firebaseConfig";
 import { ThemeContext } from "../context/ThemeContext";
@@ -33,12 +31,10 @@ export default function ChatConversationPage() {
 
   const messagesRefEl = useRef(null);
   const endRef = useRef(null);
-  const messageRefs = useRef({});
 
   const [chatInfo, setChatInfo] = useState(null);
   const [friendInfo, setFriendInfo] = useState(null);
   const [messages, setMessages] = useState([]);
-  const [loadingMsgs, setLoadingMsgs] = useState(true);
   const [text, setText] = useState("");
   const [selectedFiles, setSelectedFiles] = useState([]);
   const [replyTo, setReplyTo] = useState(null);
@@ -50,61 +46,55 @@ export default function ChatConversationPage() {
   // -------------------- Load chat & friend info --------------------
   useEffect(() => {
     if (!chatId) return;
-    let unsubChat = null;
-    let unsubUser = null;
+    const chatRef = doc(db, "chats", chatId);
 
-    const loadMeta = async () => {
-      const cRef = doc(db, "chats", chatId);
-      unsubChat = onSnapshot(cRef, (snap) => {
-        if (!snap.exists()) return;
-        const data = snap.data();
-        setChatInfo({ id: snap.id, ...data });
-        setIsBlocked(data.blocked || false);
+    const unsubChat = onSnapshot(chatRef, (snap) => {
+      if (!snap.exists()) return;
+      const data = snap.data();
+      setChatInfo({ id: snap.id, ...data });
+      setIsBlocked(data.blocked || false);
 
-        const friendId = data.participants?.find((p) => p !== myUid);
-        if (friendId) {
-          const userRef = doc(db, "users", friendId);
-          unsubUser = onSnapshot(userRef, (s) => {
-            if (s.exists()) setFriendInfo({ id: s.id, ...s.data() });
-          });
-        }
+      const friendId = data.participants?.find((p) => p !== myUid);
+      if (friendId) {
+        const userRef = doc(db, "users", friendId);
+        onSnapshot(userRef, (s) => s.exists() && setFriendInfo({ id: s.id, ...s.data() }));
+      }
 
-        // Handle pinned message
-        if (data.pinnedMessageId) {
-          const pinnedMsgRef = doc(db, "chats", chatId, "messages", data.pinnedMessageId);
-          onSnapshot(pinnedMsgRef, (s) => {
-            if (s.exists()) setPinnedMessage({ id: s.id, ...s.data() });
-          });
-        }
-      });
-    };
+      if (data.pinnedMessageId) {
+        const pinnedRef = doc(db, "chats", chatId, "messages", data.pinnedMessageId);
+        onSnapshot(pinnedRef, (s) => s.exists() && setPinnedMessage({ id: s.id, ...s.data() }));
+      }
+    });
 
-    loadMeta();
-
-    return () => {
-      if (unsubChat) unsubChat();
-      if (unsubUser) unsubUser();
-    };
+    return () => unsubChat();
   }, [chatId, myUid]);
 
-  // -------------------- Real-time messages --------------------
+  // -------------------- Real-time messages & mark as seen --------------------
   useEffect(() => {
     if (!chatId) return;
-    setLoadingMsgs(true);
-
     const messagesRef = collection(db, "chats", chatId, "messages");
     const q = query(messagesRef, orderBy("createdAt", "asc"));
 
-    const unsub = onSnapshot(q, (snap) => {
+    const unsub = onSnapshot(q, async (snap) => {
       const docs = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
       setMessages(docs);
 
+      // Mark unread messages as seen
+      const unseen = docs.filter(
+        (m) => m.senderId !== myUid && !(m.seenBy || []).includes(myUid)
+      );
+      if (unseen.length > 0) {
+        unseen.forEach(async (msg) => {
+          const msgRef = doc(db, "chats", chatId, "messages", msg.id);
+          await updateDoc(msgRef, { seenBy: [...(msg.seenBy || []), myUid] });
+        });
+      }
+
       if (isAtBottom) endRef.current?.scrollIntoView({ behavior: "smooth" });
-      setLoadingMsgs(false);
     });
 
     return () => unsub();
-  }, [chatId, isAtBottom]);
+  }, [chatId, myUid, isAtBottom]);
 
   // -------------------- Scroll detection --------------------
   useEffect(() => {
@@ -132,73 +122,25 @@ export default function ChatConversationPage() {
     return msgDate.toLocaleDateString(undefined, options);
   };
 
-  const groupMessagesByDay = (msgs) => {
-    const grouped = [];
-    let lastDate = null;
-    msgs.forEach((msg) => {
-      const timestamp = msg.createdAt || new Date();
-      const dateStr = formatDateSeparator(timestamp);
-      if (dateStr !== lastDate) {
-        grouped.push({ type: "date-separator", date: dateStr });
-        lastDate = dateStr;
-      }
-      grouped.push({ type: "message", data: msg });
-    });
-    return grouped;
-  };
-
-  const groupedMessages = groupMessagesByDay(messages);
+  const groupedMessages = messages.reduce((acc, msg) => {
+    const dateStr = formatDateSeparator(msg.createdAt);
+    const lastDate = acc.length ? acc[acc.length - 1].date : null;
+    if (dateStr !== lastDate) acc.push({ type: "date-separator", date: dateStr });
+    acc.push({ type: "message", data: msg });
+    return acc;
+  }, []);
 
   const scrollToMessage = (id) => {
-    const el = messageRefs.current[id];
+    const el = document.getElementById(id);
     if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
   };
 
-  // -------------------- Send message helpers --------------------
-  const updateParentChat = async (lastMsgText) => {
-    const chatRef = doc(db, "chats", chatId);
-    await updateDoc(chatRef, {
-      lastMessage: lastMsgText,
-      lastMessageSender: myUid,
-      lastMessageAt: serverTimestamp(),
-      lastMessageStatus: "delivered",
-    });
-  };
-
-  const sendTextMessage = async () => {
+  // -------------------- Send messages --------------------
+  const sendMessage = async (textMsg = "", files = []) => {
     if (isBlocked) return toast.error("You cannot send messages to this user");
-    if (!text.trim() && selectedFiles.length === 0) return;
+    if (!textMsg && files.length === 0) return;
 
-    if (selectedFiles.length > 0) {
-      setShowPreview(true);
-      return;
-    }
-
-    const payload = {
-      senderId: myUid,
-      text: text.trim(),
-      mediaUrl: "",
-      mediaType: null,
-      createdAt: serverTimestamp(),
-      reactions: {},
-      delivered: false,
-      seen: false,
-      replyTo: replyTo ? { id: replyTo.id, text: replyTo.text, senderId: replyTo.senderId } : null,
-    };
-
-    setReplyTo(null);
-    await addDoc(collection(db, "chats", chatId, "messages"), payload);
-    await updateParentChat(payload.text);
-
-    setText("");
-    endRef.current?.scrollIntoView({ behavior: "smooth" });
-  };
-
-  const sendMediaMessage = async (files, rTo = replyTo) => {
-    if (isBlocked) return toast.error("You cannot send messages to this user");
-    if (!files || files.length === 0) return;
-    setShowPreview(false);
-
+    // Handle media first
     for (let f of files) {
       const type = f.type.startsWith("image/")
         ? "image"
@@ -232,71 +174,98 @@ export default function ChatConversationPage() {
         mediaType: type,
         createdAt: serverTimestamp(),
         reactions: {},
-        delivered: false,
-        seen: false,
-        replyTo: rTo ? { id: rTo.id, text: rTo.text, senderId: rTo.senderId } : null,
+        seenBy: [],
+        replyTo: replyTo ? { id: replyTo.id, text: replyTo.text, senderId: replyTo.senderId } : null,
       };
-
-      setReplyTo(null);
       await addDoc(collection(db, "chats", chatId, "messages"), payload);
-      await updateParentChat(payload.text);
     }
 
+    // Handle text message
+    if (textMsg.trim()) {
+      const payload = {
+        senderId: myUid,
+        text: textMsg.trim(),
+        mediaUrl: "",
+        mediaType: null,
+        createdAt: serverTimestamp(),
+        reactions: {},
+        seenBy: [],
+        replyTo: replyTo ? { id: replyTo.id, text: replyTo.text, senderId: replyTo.senderId } : null,
+      };
+      await addDoc(collection(db, "chats", chatId, "messages"), payload);
+    }
+
+    // Update last message in chat
+    const chatRef = doc(db, "chats", chatId);
+    await updateDoc(chatRef, {
+      lastMessage: textMsg || files[0]?.name,
+      lastMessageSender: myUid,
+      lastMessageAt: serverTimestamp(),
+      lastMessageStatus: "delivered",
+    });
+
+    setText("");
     setSelectedFiles([]);
+    setReplyTo(null);
     endRef.current?.scrollIntoView({ behavior: "smooth" });
   };
 
-  // -------------------- Search / Clear --------------------
-  const handleSearch = () => {
-    const q = prompt("Search text:");
-    if (!q) return;
-    const results = messages.filter((m) => m.text?.toLowerCase().includes(q.toLowerCase()));
-    if (!results.length) return toast.info("No messages found");
-    scrollToMessage(results[0].id);
-  };
-
-  const clearChat = async () => {
-    if (!window.confirm("Clear this chat?")) return;
-    try {
-      const snap = await getDocs(collection(db, "chats", chatId, "messages"));
-      await Promise.all(snap.docs.map((d) => updateDoc(d.ref, { deleted: true })));
-      toast.success("Chat cleared");
-    } catch (err) {
-      toast.error("Failed to clear chat");
-    }
-  };
-
   return (
-    <div style={{
-      display: "flex",
-      flexDirection: "column",
-      height: "100vh",
-      backgroundColor: wallpaper || (isDark ? "#0b0b0b" : "#f5f5f5"),
-      color: isDark ? "#fff" : "#000",
-      position: "relative"
-    }}>
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        height: "100vh",
+        backgroundColor: wallpaper || (isDark ? "#0b0b0b" : "#f5f5f5"),
+        color: isDark ? "#fff" : "#000",
+        position: "relative",
+      }}
+    >
       <ChatHeader
         friendId={friendInfo?.id}
         chatId={chatId}
         pinnedMessage={pinnedMessage}
         setBlockedStatus={setIsBlocked}
-        onClearChat={clearChat}
-        onSearch={handleSearch}
+        onClearChat={async () => {
+          if (!window.confirm("Clear this chat?")) return;
+          messages.forEach(async (msg) => {
+            const msgRef = doc(db, "chats", chatId, "messages", msg.id);
+            await updateDoc(msgRef, { deleted: true });
+          });
+          toast.success("Chat cleared");
+        }}
+        onSearch={() => {
+          const q = prompt("Search text:");
+          if (!q) return;
+          const results = messages.filter((m) => m.text?.toLowerCase().includes(q.toLowerCase()));
+          if (!results.length) return toast.info("No messages found");
+          scrollToMessage(results[0].id);
+        }}
       />
 
-      <div ref={messagesRefEl} style={{
-        flex: 1,
-        overflowY: "auto",
-        padding: 8,
-        display: "flex",
-        flexDirection: "column",
-        justifyContent: "flex-start",
-      }}>
-        {loadingMsgs && <div style={{ textAlign: "center", marginTop: 12 }}>Loading...</div>}
-
+      <div
+        ref={messagesRefEl}
+        style={{
+          flex: 1,
+          overflowY: "auto",
+          padding: 8,
+          display: "flex",
+          flexDirection: "column",
+        }}
+      >
         {groupedMessages.map((item, idx) =>
           item.type === "date-separator" ? (
-            <div key={idx} style={{ textAlign: "center", margin: "10px 0", fontSize: 12, color: isDark ? "#aaa" : "#555" }}>{item.date}</div>
+            <div
+              key={idx}
+              style={{
+                textAlign: "center",
+                margin: "10px 0",
+                fontSize: 12,
+                color: isDark ? "#aaa" : "#555",
+              }}
+            >
+              {item.date}
+            </div>
           ) : (
             <MessageItem
               key={item.data.id}
@@ -307,22 +276,19 @@ export default function ChatConversationPage() {
               setReplyTo={setReplyTo}
               pinnedMessage={pinnedMessage}
               setPinnedMessage={setPinnedMessage}
-              onReplyClick={(id) => {
-                const el = messageRefs.current[id];
-                if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
-              }}
+              friendId={friendInfo?.id}
+              onReplyClick={(id) => scrollToMessage(id)}
             />
           )
         )}
-
         <div ref={endRef} />
       </div>
 
       <ChatInput
         text={text}
         setText={setText}
-        sendTextMessage={sendTextMessage}
-        sendMediaMessage={sendMediaMessage}
+        sendTextMessage={() => sendMessage(text, selectedFiles)}
+        sendMediaMessage={(files) => sendMessage("", files)}
         selectedFiles={selectedFiles}
         setSelectedFiles={setSelectedFiles}
         isDark={isDark}
@@ -336,7 +302,7 @@ export default function ChatConversationPage() {
         <ImagePreviewModal
           files={selectedFiles}
           onRemove={(i) => setSelectedFiles((prev) => prev.filter((_, idx) => idx !== i))}
-          onSend={async () => { await sendMediaMessage(selectedFiles, replyTo); setReplyTo(null); }}
+          onSend={() => sendMessage("", selectedFiles)}
           onCancel={() => setShowPreview(false)}
           onAddFiles={() => document.getElementById("file-input")?.click()}
           isDark={isDark}
