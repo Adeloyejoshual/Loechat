@@ -19,7 +19,7 @@ export default function ChatHeader({
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef(null);
 
-  // Load friend info
+  // -------------------- Load Friend Info --------------------
   useEffect(() => {
     if (!friendId) return;
     const unsub = onSnapshot(doc(db, "users", friendId), (snap) => {
@@ -28,20 +28,20 @@ export default function ChatHeader({
     return () => unsub();
   }, [friendId]);
 
-  // Load chat info
+  // -------------------- Load Chat Info --------------------
   useEffect(() => {
     if (!chatId) return;
     const unsub = onSnapshot(doc(db, "chats", chatId), (snap) => {
       if (snap.exists()) {
         const data = snap.data();
         setChatInfo(data);
-        if (setBlockedStatus) setBlockedStatus(data.blocked);
+        setBlockedStatus && setBlockedStatus(data.blocked);
       }
     });
     return () => unsub();
   }, [chatId, setBlockedStatus]);
 
-  // Close menu on click outside
+  // -------------------- Close Menu on Outside Click --------------------
   useEffect(() => {
     const handleClickOutside = (e) => {
       if (menuRef.current && !menuRef.current.contains(e.target)) setMenuOpen(false);
@@ -50,24 +50,26 @@ export default function ChatHeader({
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
+  // -------------------- Toggle Block & Mute --------------------
   const toggleBlock = async () => {
     if (!chatInfo) return;
     const newBlocked = !chatInfo.blocked;
     await updateDoc(doc(db, "chats", chatId), { blocked: newBlocked });
     setChatInfo((prev) => ({ ...prev, blocked: newBlocked }));
-    if (setBlockedStatus) setBlockedStatus(newBlocked);
+    setBlockedStatus && setBlockedStatus(newBlocked);
     setMenuOpen(false);
   };
 
   const toggleMute = async () => {
     if (!chatInfo) return;
     const isMuted = chatInfo.mutedUntil && chatInfo.mutedUntil > Date.now();
-    const newMutedUntil = isMuted ? 0 : Date.now() + 24 * 60 * 60 * 1000;
+    const newMutedUntil = isMuted ? 0 : Date.now() + 24 * 60 * 60 * 1000; // 24 hours
     await updateDoc(doc(db, "chats", chatId), { mutedUntil: newMutedUntil });
     setChatInfo((prev) => ({ ...prev, mutedUntil: newMutedUntil }));
     setMenuOpen(false);
   };
 
+  // -------------------- Utilities --------------------
   const getInitials = (name) => {
     if (!name) return "U";
     const parts = name.trim().split(" ");
@@ -78,153 +80,76 @@ export default function ChatHeader({
 
   const formatLastSeen = (timestamp) => {
     if (!timestamp) return "";
-    const date = timestamp.toDate();
+    const lastSeenDate = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
     const now = new Date();
-    const hours = date.getHours();
-    const minutes = date.getMinutes();
+
+    // Online if last seen within 1 minute
+    if (now - lastSeenDate <= 60 * 1000) return "Online";
+
+    const hours = lastSeenDate.getHours();
+    const minutes = lastSeenDate.getMinutes();
     const ampm = hours >= 12 ? "pm" : "am";
     const formattedHour = hours % 12 || 12;
     const formattedMinutes = minutes.toString().padStart(2, "0");
     const timeString = `${formattedHour}:${formattedMinutes} ${ampm}`;
 
     const today = new Date();
-    if (date.toDateString() === today.toDateString()) return `Today at ${timeString}`;
+    if (lastSeenDate.toDateString() === today.toDateString()) return `Today at ${timeString}`;
 
     const yesterday = new Date();
     yesterday.setDate(today.getDate() - 1);
-    if (date.toDateString() === yesterday.toDateString()) return `Yesterday at ${timeString}`;
+    if (lastSeenDate.toDateString() === yesterday.toDateString()) return `Yesterday at ${timeString}`;
 
-    if (date.getFullYear() === now.getFullYear())
-      return `${date.toLocaleDateString([], { month: "short", day: "numeric" })} at ${timeString}`;
+    if (lastSeenDate.getFullYear() === now.getFullYear()) {
+      return `${lastSeenDate.toLocaleDateString([], { month: "short", day: "numeric" })} at ${timeString}`;
+    }
 
-    return `${date.toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" })}`;
+    return `${lastSeenDate.toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" })} at ${timeString}`;
   };
 
   const startVoiceCall = () => navigate(`/call/voice/${chatId}`);
   const startVideoCall = () => navigate(`/call/video/${chatId}`);
   const pinned = chatInfo?.pinnedMessage || null;
 
+  // -------------------- Render --------------------
   return (
     <>
-      <div
-        style={{
-          width: "100%",
-          backgroundColor: "#075e54",
-          padding: "8px 12px",
-          display: "flex",
-          alignItems: "center",
-          position: "sticky",
-          top: 0,
-          zIndex: 999,
-          gap: 10,
-        }}
-      >
-        {/* Back button */}
-        <div
-          onClick={() => navigate("/chat")}
-          style={{
-            width: 40,
-            height: 40,
-            borderRadius: "50%",
-            background: "rgba(255,255,255,0.15)",
-            display: "flex",
-            justifyContent: "center",
-            alignItems: "center",
-            cursor: "pointer",
-            color: "white",
-            fontSize: 22,
-            fontWeight: "600",
-          }}
-        >
-          ←
-        </div>
+      <div className="chat-header">
+        {/* Back Button */}
+        <div className="chat-back" onClick={() => navigate("/chat")}>←</div>
 
         {/* Avatar */}
-        <div
-          onClick={() => navigate(`/friend/${friendId}`)}
-          style={{
-            width: 50,
-            height: 50,
-            minWidth: 50,
-            minHeight: 50,
-            borderRadius: "50%",
-            backgroundColor: "#e0e0e0",
-            overflow: "hidden",
-            cursor: "pointer",
-            display: "flex",
-            justifyContent: "center",
-            alignItems: "center",
-            fontWeight: "600",
-            fontSize: 18,
-            color: "#333",
-          }}
-        >
+        <div className="chat-avatar" onClick={() => navigate(`/friend/${friendId}`)}>
           {friendInfo?.profilePic ? (
-            <img
-              src={friendInfo.profilePic}
-              alt=""
-              style={{ width: "100%", height: "100%", objectFit: "cover" }}
-            />
+            <img src={friendInfo.profilePic} alt="" />
           ) : (
             getInitials(friendInfo?.name)
           )}
         </div>
 
-        {/* Name + last seen */}
-        <div
-          style={{
-            flex: 1,
-            color: "#fff",
-            display: "flex",
-            flexDirection: "column",
-            overflow: "hidden",
-            cursor: "pointer",
-          }}
-          onClick={() => navigate(`/friend/${friendId}`)}
-        >
-          <span style={{ fontSize: 16, fontWeight: "600", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-            {friendInfo?.name || "Loading..."}
-          </span>
-          <span style={{ fontSize: 13, opacity: 0.9 }}>
-            {friendInfo?.isOnline ? "Online" : formatLastSeen(friendInfo?.lastSeen)}
-          </span>
+        {/* Name + Last Seen */}
+        <div className="chat-info" onClick={() => navigate(`/friend/${friendId}`)}>
+          <span className="chat-name">{friendInfo?.name || "Loading..."}</span>
+          <span className="chat-lastseen">{formatLastSeen(friendInfo?.lastSeen)}</span>
         </div>
 
-        {/* Call buttons */}
-        <div style={{ display: "flex", gap: 10 }}>
-          <FiPhone size={22} color="white" onClick={startVoiceCall} style={{ cursor: "pointer" }} />
-          <FiVideo size={22} color="white" onClick={startVideoCall} style={{ cursor: "pointer" }} />
+        {/* Call Buttons */}
+        <div className="chat-actions">
+          <FiPhone size={22} className="action-btn" onClick={startVoiceCall} />
+          <FiVideo size={22} className="action-btn" onClick={startVideoCall} />
         </div>
 
         {/* Menu */}
-        <div ref={menuRef} style={{ position: "relative", marginLeft: 8 }}>
-          <FiMoreVertical
-            onClick={() => setMenuOpen(!menuOpen)}
-            size={24}
-            color="white"
-            style={{ cursor: "pointer", padding: 4 }}
-          />
+        <div ref={menuRef} className="chat-menu">
+          <FiMoreVertical size={24} onClick={() => setMenuOpen(!menuOpen)} className="action-btn" />
           {menuOpen && (
-            <div
-              style={{
-                position: "absolute",
-                top: 36,
-                right: 0,
-                background: "#fff",
-                color: "#000",
-                borderRadius: 10,
-                padding: "8px 0",
-                width: 170,
-                boxShadow: "0 4px 14px rgba(0,0,0,0.3)",
-                zIndex: 999,
-              }}
-            >
-              <div style={menuItem} onClick={() => { setMenuOpen(false); onSearch(); }}>Search</div>
-              <div style={menuItem} onClick={() => { setMenuOpen(false); onClearChat(); }}>Clear Chat</div>
-              <div style={menuItem} onClick={toggleMute}>
+            <div className="menu-dropdown">
+              <div onClick={() => { setMenuOpen(false); onSearch(); }}>Search</div>
+              <div onClick={() => { setMenuOpen(false); onClearChat(); }}>Clear Chat</div>
+              <div onClick={toggleMute}>
                 {chatInfo?.mutedUntil > Date.now() ? "Unmute" : "Mute"}
               </div>
-              <div style={{ ...menuItem, color: "red", fontWeight: 600 }} onClick={toggleBlock}>
+              <div onClick={toggleBlock} className="danger">
                 {chatInfo?.blocked ? "Unblock" : "Block"}
               </div>
             </div>
@@ -232,39 +157,137 @@ export default function ChatHeader({
         </div>
       </div>
 
-      {/* Pinned message */}
+      {/* Pinned Message */}
       {pinned && (
-        <div
-          onClick={() => onGoToPinned(pinned.messageId)}
-          style={{
-            position: "sticky",
-            top: 56,
-            width: "100%",
-            background: "#f7f7f7",
-            padding: "6px 12px",
-            borderBottom: "1px solid #ddd",
-            fontSize: 14,
-            display: "flex",
-            alignItems: "center",
-            gap: 6,
-            cursor: "pointer",
-            color: "#444",
-            zIndex: 998,
-          }}
-        >
-          📌
-          <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: "90%" }}>
-            {pinned.text || "Pinned message"}
-          </span>
+        <div className="pinned-message" onClick={() => onGoToPinned(pinned.messageId)}>
+          📌 <span>{pinned.text || "Pinned message"}</span>
         </div>
       )}
+
+      {/* -------------------- Styles -------------------- */}
+      <style jsx>{`
+        .chat-header {
+          display: flex;
+          align-items: center;
+          padding: 8px 12px;
+          background-color: #075e54;
+          position: sticky;
+          top: 0;
+          z-index: 999;
+          gap: 10px;
+        }
+        .chat-back {
+          width: 40px;
+          height: 40px;
+          border-radius: 50%;
+          background: rgba(255,255,255,0.15);
+          display: flex;
+          justify-content: center;
+          align-items: center;
+          cursor: pointer;
+          color: white;
+          font-size: 22px;
+          font-weight: 600;
+          transition: background 0.2s;
+        }
+        .chat-back:hover {
+          background: rgba(255,255,255,0.25);
+        }
+        .chat-avatar {
+          width: 50px;
+          height: 50px;
+          border-radius: 50%;
+          overflow: hidden;
+          cursor: pointer;
+          display: flex;
+          justify-content: center;
+          align-items: center;
+          font-weight: 600;
+          font-size: 18px;
+          color: #333;
+          background-color: #e0e0e0;
+        }
+        .chat-avatar img {
+          width: 100%;
+          height: 100%;
+          object-fit: cover;
+        }
+        .chat-info {
+          flex: 1;
+          display: flex;
+          flex-direction: column;
+          overflow: hidden;
+          cursor: pointer;
+          color: #fff;
+        }
+        .chat-name {
+          font-size: 16px;
+          font-weight: 600;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+        .chat-lastseen {
+          font-size: 13px;
+          opacity: 0.9;
+        }
+        .chat-actions {
+          display: flex;
+          gap: 10px;
+        }
+        .action-btn {
+          cursor: pointer;
+          transition: opacity 0.2s;
+        }
+        .action-btn:hover {
+          opacity: 0.7;
+        }
+        .chat-menu {
+          position: relative;
+          margin-left: 8px;
+        }
+        .menu-dropdown {
+          position: absolute;
+          top: 36px;
+          right: 0;
+          background: #fff;
+          color: #000;
+          border-radius: 10px;
+          padding: 8px 0;
+          width: 170px;
+          box-shadow: 0 4px 14px rgba(0,0,0,0.3);
+          z-index: 999;
+        }
+        .menu-dropdown div {
+          padding: 12px 16px;
+          cursor: pointer;
+          font-size: 15px;
+          white-space: nowrap;
+          transition: background 0.2s;
+        }
+        .menu-dropdown div:hover {
+          background: #f0f0f0;
+        }
+        .menu-dropdown .danger {
+          color: red;
+          font-weight: 600;
+        }
+        .pinned-message {
+          position: sticky;
+          top: 56px;
+          width: 100%;
+          background: #f7f7f7;
+          padding: 6px 12px;
+          border-bottom: 1px solid #ddd;
+          font-size: 14px;
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          cursor: pointer;
+          color: #444;
+          z-index: 998;
+        }
+      `}</style>
     </>
   );
 }
-
-const menuItem = {
-  padding: "12px 16px",
-  cursor: "pointer",
-  fontSize: 15,
-  whiteSpace: "nowrap",
-};
