@@ -44,6 +44,7 @@ export default function ChatConversationPage() {
   const [isAtBottom, setIsAtBottom] = useState(true);
   const [showPreview, setShowPreview] = useState(false);
   const [isBlocked, setIsBlocked] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState({}); // Track per-file upload
 
   // -------------------- Load chat & friend info --------------------
   useEffect(() => {
@@ -127,37 +128,31 @@ export default function ChatConversationPage() {
 
   // -------------------- File Input Handlers --------------------
   const handleAddFiles = () => fileInputRef.current?.click();
-
   const handleFilesSelected = (e) => {
     const files = Array.from(e.target.files);
     if (!files.length) return;
     setSelectedFiles((prev) => [...prev, ...files]);
     setShowPreview(true);
-    e.target.value = null; // reset input
+    e.target.value = null;
   };
 
-  // -------------------- Send message (optimistic UI) --------------------
+  // -------------------- Send messages (text + media) --------------------
   const sendMessage = async (textMsg = "", files = []) => {
     if (isBlocked) return toast.error("You cannot send messages to this user");
     if (!textMsg && files.length === 0) return;
 
     const messagesCol = collection(db, "chats", chatId, "messages");
 
-    for (let f of files) {
-      const type = f.type.startsWith("image/")
-        ? "image"
-        : f.type.startsWith("video/")
-          ? "video"
-          : f.type.startsWith("audio/")
-            ? "audio"
-            : "file";
-
+    for (let i = 0; i < files.length; i++) {
+      const f = files[i];
+      const type = f.type.startsWith("image/") ? "image" : f.type.startsWith("video/") ? "video" : "file";
       const tempId = `temp-${Date.now()}-${Math.random()}`;
 
+      // Optimistic UI: show in chat immediately
       const tempMessage = {
         id: tempId,
         senderId: myUid,
-        text: f.name,
+        text: textMsg || f.name,
         mediaUrl: URL.createObjectURL(f),
         mediaType: type,
         createdAt: new Date(),
@@ -169,7 +164,6 @@ export default function ChatConversationPage() {
       setMessages((prev) => [...prev, tempMessage]);
       endRef.current?.scrollIntoView({ behavior: "smooth" });
 
-      // Upload to Cloudinary
       try {
         let mediaUrl = "";
         if (type !== "file") {
@@ -179,14 +173,20 @@ export default function ChatConversationPage() {
 
           const res = await axios.post(
             `https://api.cloudinary.com/v1_1/${import.meta.env.VITE_CLOUDINARY_CLOUD_NAME}/auto/upload`,
-            formData
+            formData,
+            {
+              onUploadProgress: (e) => {
+                const percent = Math.round((e.loaded * 100) / e.total);
+                setUploadProgress((prev) => ({ ...prev, [tempId]: percent }));
+              },
+            }
           );
           mediaUrl = res.data.secure_url;
         }
 
         const payload = {
           senderId: myUid,
-          text: f.name,
+          text: textMsg || f.name,
           mediaUrl,
           mediaType: type,
           createdAt: serverTimestamp(),
@@ -197,6 +197,7 @@ export default function ChatConversationPage() {
 
         const docRef = await addDoc(messagesCol, payload);
 
+        // Replace temp message with final
         setMessages((prev) =>
           prev.map((m) =>
             m.id === tempId ? { ...payload, id: docRef.id, status: "sent", createdAt: new Date() } : m
@@ -208,11 +209,17 @@ export default function ChatConversationPage() {
         setMessages((prev) =>
           prev.map((m) => (m.id === tempId ? { ...m, status: "failed" } : m))
         );
+      } finally {
+        setUploadProgress((prev) => {
+          const copy = { ...prev };
+          delete copy[tempId];
+          return copy;
+        });
       }
     }
 
-    // -------------------- Text messages --------------------
-    if (textMsg.trim()) {
+    // -------------------- Send text-only message --------------------
+    if (textMsg.trim() && files.length === 0) {
       const tempId = `temp-${Date.now()}-${Math.random()}`;
       const tempMessage = {
         id: tempId,
@@ -247,7 +254,7 @@ export default function ChatConversationPage() {
       }
     }
 
-    // -------------------- Update chat last message --------------------
+    // -------------------- Update last message in chat --------------------
     const chatRef = doc(db, "chats", chatId);
     await updateDoc(chatRef, {
       lastMessage: textMsg || files[0]?.name,
@@ -276,7 +283,6 @@ export default function ChatConversationPage() {
       {/* Hidden File Input */}
       <input
         type="file"
-        id="file-input"
         ref={fileInputRef}
         style={{ display: "none" }}
         multiple
@@ -310,31 +316,17 @@ export default function ChatConversationPage() {
       {/* Messages List */}
       <div
         ref={messagesRefEl}
-        style={{
-          flex: 1,
-          overflowY: "auto",
-          padding: 8,
-          display: "flex",
-          flexDirection: "column",
-        }}
+        style={{ flex: 1, overflowY: "auto", padding: 8, display: "flex", flexDirection: "column" }}
       >
         {groupedMessages.map((item, idx) =>
           item.type === "date-separator" ? (
-            <div
-              key={idx}
-              style={{
-                textAlign: "center",
-                margin: "10px 0",
-                fontSize: 12,
-                color: isDark ? "#aaa" : "#555",
-              }}
-            >
+            <div key={idx} style={{ textAlign: "center", margin: "10px 0", fontSize: 12, color: isDark ? "#aaa" : "#555" }}>
               {item.date}
             </div>
           ) : (
             <MessageItem
               key={item.data.id}
-              message={item.data}
+              message={{ ...item.data, uploadProgress: uploadProgress[item.data.id] }}
               myUid={myUid}
               isDark={isDark}
               chatId={chatId}
@@ -354,10 +346,7 @@ export default function ChatConversationPage() {
         text={text}
         setText={setText}
         sendTextMessage={() => sendMessage(text, selectedFiles)}
-        sendMediaMessage={(files) => {
-          setSelectedFiles(files);
-          setShowPreview(true);
-        }}
+        sendMediaMessage={(files) => { setSelectedFiles(files); setShowPreview(true); }}
         selectedFiles={selectedFiles}
         setSelectedFiles={setSelectedFiles}
         isDark={isDark}
