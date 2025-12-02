@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { X } from "lucide-react";
 import { addDoc, collection, serverTimestamp } from "firebase/firestore";
 import { db, auth } from "../../firebaseConfig";
@@ -6,12 +6,23 @@ import axios from "axios";
 
 export default function ImagePreviewModal({ files, onRemove, onCancel, onAddFiles, chatId, replyTo = null }) {
   const [activeIndex, setActiveIndex] = useState(0);
-  const [text, setText] = useState("");
+  const [textMap, setTextMap] = useState({}); // captions per file
   const [uploading, setUploading] = useState(false);
   const [progressMap, setProgressMap] = useState({});
-  const [skippedFiles, setSkippedFiles] = useState([]); // unsupported files
+  const [skippedFiles, setSkippedFiles] = useState([]);
+  const [previews, setPreviews] = useState([]);
 
-  const activeFile = files[activeIndex];
+  // Generate preview URLs once
+  useEffect(() => {
+    const urls = files.map((f) => ({ file: f, url: URL.createObjectURL(f) }));
+    setPreviews(urls);
+
+    return () => {
+      urls.forEach((p) => URL.revokeObjectURL(p.url));
+    };
+  }, [files]);
+
+  const activeFile = previews[activeIndex]?.file;
   if (!activeFile) return null;
 
   const uploadToCloudinary = async (file, index) => {
@@ -43,7 +54,6 @@ export default function ImagePreviewModal({ files, onRemove, onCancel, onAddFile
 
         // Skip unsupported files
         if (!file.type.startsWith("image/") && !file.type.startsWith("video/")) {
-          console.warn(`Skipped unsupported file: ${file.name}`);
           setSkippedFiles((prev) => [...prev, file.name]);
           continue;
         }
@@ -55,12 +65,12 @@ export default function ImagePreviewModal({ files, onRemove, onCancel, onAddFile
           mediaUrl = await uploadToCloudinary(file, i);
         } catch (err) {
           console.error(`Failed to upload ${file.name}:`, err);
-          continue; // skip this file but continue with others
+          continue;
         }
 
         const payload = {
           senderId: auth.currentUser.uid,
-          text: text || "",
+          text: textMap[i] || "",
           mediaUrl,
           mediaType,
           reactions: {},
@@ -103,15 +113,15 @@ export default function ImagePreviewModal({ files, onRemove, onCancel, onAddFile
 
       {/* Active Preview */}
       <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", maxHeight: "70vh", width: "100%" }}>
-        {activeFile.type.startsWith("image/") && <img src={URL.createObjectURL(activeFile)} alt="preview" style={{ maxWidth: "90%", maxHeight: "60%", borderRadius: 12, objectFit: "contain" }} />}
-        {activeFile.type.startsWith("video/") && <video src={URL.createObjectURL(activeFile)} controls style={{ maxWidth: "90%", maxHeight: "60%", borderRadius: 12 }} />}
+        {activeFile.type.startsWith("image/") && <img src={previews[activeIndex].url} alt="preview" style={{ maxWidth: "90%", maxHeight: "60%", borderRadius: 12, objectFit: "contain" }} />}
+        {activeFile.type.startsWith("video/") && <video src={previews[activeIndex].url} controls style={{ maxWidth: "90%", maxHeight: "60%", borderRadius: 12 }} />}
 
         {/* Caption */}
         <input
           type="text"
           placeholder="Write a message..."
-          value={text}
-          onChange={(e) => setText(e.target.value)}
+          value={textMap[activeIndex] || ""}
+          onChange={(e) => setTextMap((prev) => ({ ...prev, [activeIndex]: e.target.value }))}
           style={{ marginTop: 10, width: "80%", padding: "8px 12px", borderRadius: 8, border: "1px solid #ccc", outline: "none", fontSize: 16 }}
         />
       </div>
@@ -120,9 +130,9 @@ export default function ImagePreviewModal({ files, onRemove, onCancel, onAddFile
       <div style={{ display: "flex", gap: 10, overflowX: "auto", paddingBottom: 10, marginTop: 10 }}>
         <div onClick={onAddFiles} style={{ width: 80, height: 80, borderRadius: 10, background: "rgba(255,255,255,0.2)", display: "flex", justifyContent: "center", alignItems: "center", fontSize: 32, fontWeight: "bold", color: "#fff", cursor: "pointer", flexShrink: 0 }}>+</div>
 
-        {files.map((f, i) => (
+        {previews.map((p, i) => (
           <div key={i} onClick={() => setActiveIndex(i)} style={{ position: "relative", width: 80, height: 80, borderRadius: 10, cursor: "pointer", border: activeIndex === i ? "2px solid #34B7F1" : "2px solid transparent", overflow: "hidden", background: "rgba(255,255,255,0.1)", flexShrink: 0 }}>
-            {(f.type.startsWith("image/") || f.type.startsWith("video/")) && <img src={URL.createObjectURL(f)} alt="thumb" style={{ width: "100%", height: "100%", objectFit: "cover" }} />}
+            {(p.file.type.startsWith("image/") || p.file.type.startsWith("video/")) && <img src={p.url} alt="thumb" style={{ width: "100%", height: "100%", objectFit: "cover" }} />}
             <button onClick={(e) => { e.stopPropagation(); onRemove(i); }} style={{ position: "absolute", top: 4, right: 4, background: "rgba(0,0,0,0.5)", border: "none", borderRadius: "50%", width: 24, height: 24, display: "flex", justifyContent: "center", alignItems: "center", cursor: "pointer" }}>
               <X size={16} color="#fff" />
             </button>
