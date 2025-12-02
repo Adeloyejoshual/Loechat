@@ -4,7 +4,6 @@ import { doc, updateDoc, onSnapshot } from "firebase/firestore";
 import { db } from "../../firebaseConfig";
 import { ThemeContext } from "../../context/ThemeContext";
 import LongPressMessageModal from "./LongPressMessageModal";
-import MediaViewer from "./MediaViewer";
 import { toast } from "react-toastify";
 
 const COLORS = {
@@ -28,7 +27,8 @@ export default function MessageItem({
   setPinnedMessage,
   onReplyClick,
   friendId,
-  messages = [], // full messages array for media viewer
+  messages = [],
+  onOpenMediaViewer, // parent handler
 }) {
   const isMine = message.senderId === myUid;
   const { theme } = useContext(ThemeContext);
@@ -42,11 +42,6 @@ export default function MessageItem({
   const [reactedEmoji, setReactedEmoji] = useState(message.reactions?.[myUid] || "");
   const [deleted, setDeleted] = useState(false);
   const [fadeOut, setFadeOut] = useState(false);
-  const [mediaViewerData, setMediaViewerData] = useState({
-    isOpen: false,
-    items: [],
-    startIndex: 0,
-  });
   const [translateX, setTranslateX] = useState(0);
   const [status, setStatus] = useState(message.status || "Sent");
   const [showFullText, setShowFullText] = useState(false);
@@ -61,7 +56,7 @@ export default function MessageItem({
     return () => clearTimeout(timer);
   }, []);
 
-  // Firestore: friend online & seen detection
+  // Friend online & seen detection
   useEffect(() => {
     if (!friendId) return;
     const unsub = onSnapshot(doc(db, "users", friendId), (snap) => {
@@ -73,7 +68,7 @@ export default function MessageItem({
     return () => unsub();
   }, [friendId, message, isMine, status]);
 
-  // Firestore actions
+  // Pin / delete / copy
   const togglePin = async () => {
     const chatRef = doc(db, "chats", chatId);
     const newPin = pinnedMessage?.id !== message.id;
@@ -159,7 +154,11 @@ export default function MessageItem({
     return (
       <div
         ref={textRef}
-        style={{ maxHeight: textHeight, overflow: "hidden", transition: "max-height 0.3s ease" }}
+        style={{
+          maxHeight: textHeight,
+          overflow: "hidden",
+          transition: "max-height 0.3s ease",
+        }}
       >
         {message.text.slice(0, READ_MORE_LIMIT)}
         {!showFullText && (
@@ -175,17 +174,11 @@ export default function MessageItem({
     );
   };
 
-  // Open Media Viewer
-  const handleOpenMediaViewer = () => {
-    const mediaItems = messages
-      .filter((m) => m.mediaUrl)
-      .map((m) => ({ url: m.mediaUrl, type: m.mediaType || "image" }));
-    const index = mediaItems.findIndex((m) => m.url === message.mediaUrl);
-    setMediaViewerData({
-      isOpen: true,
-      items: mediaItems,
-      startIndex: index >= 0 ? index : 0,
-    });
+  // Media click
+  const handleMediaClick = () => {
+    if (onOpenMediaViewer && message.mediaUrl) {
+      onOpenMediaViewer(message.mediaUrl);
+    }
   };
 
   return (
@@ -265,45 +258,26 @@ export default function MessageItem({
           {/* Media + Text */}
           {message.mediaUrl ? (
             <div style={{ display: "flex", flexDirection: "column", position: "relative" }}>
-              {(message.mediaType === "image" || message.mediaType === "video") && (
-                <>
-                  {message.mediaType === "image" && (
-                    <img
-                      src={message.mediaUrl}
-                      alt="media"
-                      style={{ maxWidth: "100%", borderRadius: 12, cursor: "pointer" }}
-                      onClick={handleOpenMediaViewer}
-                    />
-                  )}
-                  {message.mediaType === "video" && (
-                    <video
-                      src={message.mediaUrl}
-                      controls
-                      style={{ maxWidth: "100%", borderRadius: 12, cursor: "pointer" }}
-                      onClick={handleOpenMediaViewer}
-                    />
-                  )}
-                </>
+              {message.mediaType === "image" && (
+                <img
+                  src={message.mediaUrl}
+                  alt="media"
+                  style={{ maxWidth: "100%", borderRadius: 12, cursor: "pointer" }}
+                  onClick={handleMediaClick}
+                />
+              )}
+              {message.mediaType === "video" && (
+                <video
+                  src={message.mediaUrl}
+                  controls
+                  style={{ maxWidth: "100%", borderRadius: 12, cursor: "pointer" }}
+                  onClick={handleMediaClick}
+                />
               )}
               {message.text && (
                 <div style={{ marginTop: 4, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
                   {message.text}
                 </div>
-              )}
-
-              {/* Upload Progress Bar */}
-              {message.status === "sending" && message.uploadProgress != null && (
-                <div
-                  style={{
-                    position: "absolute",
-                    bottom: 0,
-                    left: 0,
-                    height: 4,
-                    background: "#34B7F1",
-                    width: `${message.uploadProgress}%`,
-                    borderRadius: "0 0 12px 12px",
-                  }}
-                />
               )}
             </div>
           ) : (
@@ -369,7 +343,7 @@ export default function MessageItem({
             </div>
           )}
 
-          {/* Reply Hint while swiping */}
+          {/* Reply hint while swiping */}
           {Math.abs(translateX) > 10 && (
             <div
               style={{
@@ -408,16 +382,6 @@ export default function MessageItem({
         />
       )}
 
-      {/* Media Viewer */}
-      {mediaViewerData.isOpen && (
-        <MediaViewer
-          items={mediaViewerData.items}
-          startIndex={mediaViewerData.startIndex}
-          onClose={() => setMediaViewerData({ ...mediaViewerData, isOpen: false })}
-        />
-      )}
-
-      {/* Keyframes */}
       <style>{`
         @keyframes popUp {
           0% { transform: translate(-50%, 0) scale(1); opacity: 1; }
