@@ -79,14 +79,12 @@ export default function MessageItem({
   const deleteMessage = async () => {
     if (!window.confirm(`Delete this message for ${isMine ? "everyone" : "them"}?`)) return;
     
-    // Start fade-out animation
     setFadeOut(true);
-
     setTimeout(async () => {
       setDeleted(true);
       await updateDoc(doc(db, "chats", chatId, "messages", message.id), { deleted: true });
       toast.success("Message deleted for everyone");
-    }, 300); // duration matches CSS transition
+    }, 300);
   };
 
   const copyMessage = async () => {
@@ -104,9 +102,7 @@ export default function MessageItem({
     if (newEmoji) {
       const bubbleId = Date.now();
       setReactionBubbles((prev) => [...prev, { id: bubbleId, emoji: newEmoji }]);
-      setTimeout(() => {
-        setReactionBubbles((prev) => prev.filter((b) => b.id !== bubbleId));
-      }, 800);
+      setTimeout(() => setReactionBubbles((prev) => prev.filter((b) => b.id !== bubbleId)), 800);
     }
 
     toast.success(newEmoji ? `Reacted ${newEmoji}` : "Reaction removed");
@@ -192,10 +188,7 @@ export default function MessageItem({
           opacity: fadeOut ? 0 : fadeIn ? 0 : 1,
         }}
         onClick={handleTap}
-        onContextMenu={(e) => {
-          e.preventDefault();
-          handleLongPress();
-        }}
+        onContextMenu={(e) => { e.preventDefault(); handleLongPress(); }}
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
@@ -249,17 +242,36 @@ export default function MessageItem({
             </div>
           )}
 
-          {/* Message Text */}
-          {renderMessageText()}
-
-          {/* Media */}
-          {message.mediaUrl && (
-            <img
-              src={message.mediaUrl}
-              alt="media"
-              style={{ maxWidth: "100%", borderRadius: 12, marginTop: 6, cursor: "pointer" }}
-              onClick={() => setShowMediaViewer(true)}
-            />
+          {/* Media + Text */}
+          {message.mediaUrl ? (
+            <div style={{ display: "flex", flexDirection: "column" }}>
+              {message.mediaType === "image" && (
+                <img
+                  src={message.mediaUrl}
+                  alt="media"
+                  style={{ maxWidth: "100%", borderRadius: 12, cursor: "pointer" }}
+                  onClick={() => setShowMediaViewer(true)}
+                />
+              )}
+              {message.mediaType === "video" && (
+                <video
+                  src={message.mediaUrl}
+                  controls
+                  style={{ maxWidth: "100%", borderRadius: 12, cursor: "pointer" }}
+                  onClick={() => setShowMediaViewer(true)}
+                />
+              )}
+              {message.mediaType === "audio" && (
+                <audio src={message.mediaUrl} controls style={{ marginTop: 4 }} />
+              )}
+              {message.text && (
+                <div style={{ marginTop: 4, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+                  {message.text}
+                </div>
+              )}
+            </div>
+          ) : (
+            renderMessageText()
           )}
 
           {/* Reactions */}
@@ -282,7 +294,6 @@ export default function MessageItem({
                     {emoji}
                   </span>
                 ))}
-            {/* Reaction bubbles animation */}
             {reactionBubbles.map((b) => (
               <div
                 key={b.id}
