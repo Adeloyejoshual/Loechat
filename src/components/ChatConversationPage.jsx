@@ -261,13 +261,13 @@ export default function ChatConversationPage() {
     setReplyTo(null);
   };
 
-  // -------------------- Open MediaViewer --------------------
-  const handleOpenMediaViewer = (clickedIndex) => {
+  // -------------------- Open MediaViewer dynamically --------------------
+  const handleOpenMediaViewer = (clickedMediaUrl) => {
     const mediaItems = messages
       .filter((m) => m.mediaUrl)
       .map((m) => ({ url: m.mediaUrl, type: m.mediaType || "image" }));
-    const startIndex = clickedIndex; // clickedIndex can be 0 for first image/video
-    setMediaViewerData({ isOpen: true, items: mediaItems, startIndex });
+    const startIndex = mediaItems.findIndex((m) => m.url === clickedMediaUrl);
+    setMediaViewerData({ isOpen: true, items: mediaItems, startIndex: startIndex >= 0 ? startIndex : 0 });
   };
 
   return (
@@ -330,7 +330,7 @@ export default function ChatConversationPage() {
               setPinnedMessage={setPinnedMessage}
               friendId={friendInfo?.id}
               onReplyClick={(id) => scrollToMessage(id)}
-              onOpenMediaViewer={(index) => handleOpenMediaViewer(index)}
+              onOpenMediaViewer={(mediaUrl) => handleOpenMediaViewer(mediaUrl)}
             />
           )
         )}
@@ -353,8 +353,6 @@ export default function ChatConversationPage() {
       {/* Fullscreen MediaViewer */}
       {mediaViewerData.isOpen && (
         <MediaViewer
-          url={mediaViewerData.items[mediaViewerData.startIndex].url}
-          type={mediaViewerData.items[mediaViewerData.startIndex].type}
           items={mediaViewerData.items}
           startIndex={mediaViewerData.startIndex}
           onClose={() => setMediaViewerData({ ...mediaViewerData, isOpen: false })}
