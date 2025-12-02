@@ -32,34 +32,38 @@ html, body, #root {
   --spacing-lg: 18px;
   --spacing-xl: 24px;
 
-  --shadow-soft: 0 4px 12px rgba(0,0,0,0.06);
-  --shadow-strong: 0 6px 20px rgba(0,0,0,0.12);
+  --shadow-soft: 0 4px 12px rgba(0, 0, 0, 0.06);
+  --shadow-strong: 0 6px 20px rgba(0, 0, 0, 0.12);
 
-  --bubble-sent: #3b82f6;
-  --bubble-received: #e5e7eb;
   --placeholder-color: #6b7280;
 }
 
-/* ===== Light Theme (IMPROVED) ===== */
+/* =========================================
+   LIGHT THEME (Soft Cream)
+========================================= */
 .light-theme {
-  --bg-color: #f1f5f9;              /* softer than pure white */
-  --text-color: #111827;
-  --primary-color: #3b82f6;
-  --secondary-color: #2563eb;
+  --bg-color: #f7f7f2;                     /* warm soft cream background */
+  --text-color: #0f172a;                   /* deep navy text */
+  --primary-color: #2563eb;                /* strong blue */
+  --secondary-color: #3b82f6;
 
-  --header-bg: #ffffff;
-  --header-border: #cbd5e1;
+  --header-bg: #ffffff;                    /* white header with contrast */
+  --header-border: #c7c7c7;
 
   --card-bg: #ffffff;
 
-  --input-bg: #ffffff;
-  --input-border: #9aa3b2;         /* stronger border */
+  --input-bg: #ffffff;                     /* pure white input */
+  --input-border: #8a8a8a;                 /* dark border for visibility */
 
-  --bubble-received: #e2e8f0;      /* slightly darker for visibility */
+  --bubble-sent: #2563eb;                  /* blue sent bubble */
+  --bubble-received: #efefe9;              /* soft cream-gray */
+
   --placeholder-color: #6b7280;
 }
 
-/* ===== Dark Theme ===== */
+/* =========================================
+   DARK THEME
+========================================= */
 .dark-theme {
   --bg-color: #0b0b0b;
   --text-color: #e5e5e5;
@@ -74,27 +78,41 @@ html, body, #root {
   --input-bg: #111;
   --input-border: #333;
 
-  --bubble-received: #1e1e1e;
-  --placeholder-color: #aaa;
+  --bubble-sent: #2563eb;
+  --bubble-received: #1b1b1b;
+
+  --placeholder-color: #999;
 }
 
-/* Placeholder styling */
+/* =========================================
+   INPUT STYLING
+========================================= */
+input,
+textarea,
+select {
+  width: 100%;
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--input-border);
+  background: var(--input-bg);
+  color: var(--text-color);
+  transition: 0.25s ease;
+}
+
+input:focus,
+textarea:focus {
+  border-color: var(--primary-color);
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.25);
+}
+
 input::placeholder,
 textarea::placeholder {
   color: var(--placeholder-color);
 }
 
 /* =========================================
-   APP LAYOUT
-========================================= */
-.app-container {
-  min-height: 100vh;
-  display: flex;
-  flex-direction: column;
-}
-
-/* =========================================
-   PROFESSIONAL HEADER
+   HEADER
 ========================================= */
 .app-header {
   display: flex;
@@ -106,95 +124,47 @@ textarea::placeholder {
   box-shadow: var(--shadow-soft);
   position: sticky;
   top: 0;
-  z-index: 20;
-}
-
-.app-header-title {
-  font-size: 1.2rem;
-  font-weight: 700;
-}
-
-.app-header small {
-  font-size: 0.75rem;
-  opacity: 0.7;
+  z-index: 10;
 }
 
 .header-avatar {
-  width: 42px;
   height: 42px;
+  width: 42px;
   border-radius: 50%;
-  object-fit: cover;
   background: #ddd;
+  object-fit: cover;
 }
 
 .back-btn {
-  font-size: 1.4rem;
-  padding: 4px 10px;
-  border-radius: var(--radius-md);
-  background: transparent;
   border: none;
+  background: transparent;
   color: var(--text-color);
+  font-size: 1.4rem;
 }
 
 .back-btn:active {
-  transform: scale(0.92);
+  transform: scale(0.9);
 }
 
 /* =========================================
-   INPUT FIELDS + BUTTONS
-========================================= */
-input, textarea, select {
-  width: 100%;
-  padding: var(--spacing-sm) var(--spacing-md);
-  border-radius: var(--radius-md);
-  border: 1.4px solid var(--input-border); /* thicker for visibility */
-  background: var(--input-bg);
-  color: var(--text-color);
-  transition: 0.25s ease;
-}
-
-input:focus, textarea:focus {
-  border-color: var(--primary-color);
-  box-shadow: 0 0 0 3px rgba(59,130,246,0.25);
-  outline: none;
-}
-
-button {
-  padding: var(--spacing-sm) var(--spacing-md);
-  background: var(--primary-color);
-  color: #fff;
-  border-radius: var(--radius-md);
-  border: none;
-  font-weight: 600;
-  transition: 0.2s;
-}
-
-button:hover {
-  filter: brightness(1.05);
-}
-
-button:active {
-  transform: scale(0.96);
-}
-
-/* =========================================
-   CHAT PAGE
+   CHAT PAGE LAYOUT
 ========================================= */
 .chat-wrapper {
   flex: 1;
-  overflow-y: auto;
   padding: var(--spacing-lg);
   padding-top: var(--spacing-md);
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
 }
 
+/* Scrollbar */
 ::-webkit-scrollbar {
   width: 6px;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(0,0,0,0.25);
+  background: rgba(0, 0, 0, 0.25);
   border-radius: 8px;
 }
 
@@ -204,109 +174,92 @@ button:active {
 .message-row {
   display: flex;
   width: 100%;
-  padding: 2px 0;
 }
 
-/* Sent (Right) */
+/* Sent messages (right) */
 .message-row.sent {
   justify-content: flex-end;
-  text-align: right;
 }
 
-/* Received (Left) */
+/* Received messages (left) */
 .message-row.received {
   justify-content: flex-start;
-  text-align: left;
 }
 
 .message-bubble {
   max-width: 78%;
   padding: 10px 14px;
   border-radius: 16px;
-  font-size: 0.95rem;
   line-height: 1.4;
+  font-size: 0.95rem;
   word-break: break-word;
-  position: relative;
-  box-shadow: 0 2px 5px rgba(0,0,0,0.12); /* subtle bubble shadow */
   animation: fadeIn 0.25s ease-out;
 }
 
-/* Sent bubble */
+/* Sent bubble (RIGHT) */
 .message-bubble.sent {
   background: var(--bubble-sent);
-  color: #fff;
+  color: white;
   border-bottom-right-radius: 6px;
+  text-align: right;
 }
 
-/* Received bubble */
+/* Received bubble (LEFT) */
 .message-bubble.received {
   background: var(--bubble-received);
   color: var(--text-color);
   border-bottom-left-radius: 6px;
+  text-align: left;
 }
 
-/* Reply preview */
-.message-bubble .reply-preview {
-  font-size: 0.75rem;
-  opacity: 0.75;
-  border-left: 2px solid #666;
-  padding-left: 6px;
-  margin-bottom: 4px;
-}
-
-/* Media */
-.message-bubble img, 
-.message-bubble video {
-  max-width: 100%;
-  border-radius: 12px;
-  margin-top: 6px;
-  cursor: pointer;
-}
-
-/* Reactions */
-.message-bubble .reactions {
-  display: flex;
-  gap: 6px;
-  margin-top: 6px;
-  font-size: 0.75rem;
-  padding: 2px 6px;
-  border-radius: 12px;
-  background: rgba(0,0,0,0.1);
-}
-
-/* Timestamp */
 .message-time {
   font-size: 0.7rem;
   margin-top: 3px;
-  opacity: 0.6;
+  opacity: 0.7;
 }
 
 /* =========================================
-   CARDS / CONTAINERS
+   INPUT - SEND BAR
 ========================================= */
-.card {
-  background: var(--card-bg);
-  border-radius: var(--radius-lg);
-  padding: var(--spacing-lg);
+.chat-input-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: var(--spacing-md);
+  background: var(--header-bg);
+  border-top: 1px solid var(--header-border);
   box-shadow: var(--shadow-soft);
-  transition: 0.25s ease;
+  position: sticky;
+  bottom: 0;
 }
 
-.card:hover {
-  box-shadow: var(--shadow-strong);
+.chat-input-bar input {
+  flex: 1;
+}
+
+.send-btn {
+  background: var(--primary-color);
+  color: #ffffff;
+  padding: 10px 14px;
+  border-radius: var(--radius-md);
+  border: none;
+  font-size: 1.1rem;
+}
+
+.send-btn:active {
+  transform: scale(0.9);
 }
 
 /* =========================================
-   UTILITY
+   ANIMATIONS
 ========================================= */
-.flex-center { display: flex; justify-content: center; align-items: center; }
-.text-center { text-align: center; }
-
-.fade-in {
-  animation: fadeIn 0.3s ease-out forwards;
-}
-
 @keyframes fadeIn {
-  from { opacity: 0; transform: translateY(6px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(5px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
