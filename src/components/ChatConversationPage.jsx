@@ -1,352 +1,293 @@
-// src/components/ChatConversationPage.jsx
-import React, { useEffect, useState, useRef, useContext } from "react";
-import { useParams } from "react-router-dom";
-import {
-  collection,
-  addDoc,
-  query,
-  orderBy,
-  onSnapshot,
-  serverTimestamp,
-  doc,
-  updateDoc,
-  getDocs,
-} from "firebase/firestore";
-import { db, auth } from "../firebaseConfig";
-import { ThemeContext } from "../context/ThemeContext";
-import { UserContext } from "../context/UserContext";
+// src/components/Chat/ChatHeader.jsx
+import React, { useEffect, useState, useRef } from "react";
+import { useNavigate } from "react-router-dom";
+import { doc, onSnapshot, updateDoc } from "firebase/firestore";
+import { db } from "../../firebaseConfig";
+import { FiMoreVertical, FiPhone, FiVideo } from "react-icons/fi";
 
-import ChatHeader from "./Chat/ChatHeader";
-import MessageItem from "./Chat/MessageItem";
-import ChatInput from "./Chat/ChatInput";
-import ImagePreviewModal from "./Chat/ImagePreviewModal";
-import { toast, ToastContainer } from "react-toastify";
-import "react-toastify/dist/ReactToastify.css";
-import axios from "axios";
-
-export default function ChatConversationPage() {
-  const { chatId } = useParams();
-  const { theme, wallpaper } = useContext(ThemeContext);
-  const { profilePic, profileName } = useContext(UserContext);
-  const isDark = theme === "dark";
-  const myUid = auth.currentUser?.uid;
-
-  const messagesRefEl = useRef(null);
-  const endRef = useRef(null);
-  const messageRefs = useRef({});
-
-  const [chatInfo, setChatInfo] = useState(null);
+export default function ChatHeader({
+  friendId,
+  chatId,
+  onClearChat,
+  onSearch,
+  onGoToPinned,
+  setBlockedStatus,
+}) {
+  const navigate = useNavigate();
   const [friendInfo, setFriendInfo] = useState(null);
-  const [messages, setMessages] = useState([]);
-  const [loadingMsgs, setLoadingMsgs] = useState(true);
-  const [text, setText] = useState("");
-  const [selectedFiles, setSelectedFiles] = useState([]);
-  const [replyTo, setReplyTo] = useState(null);
-  const [pinnedMessage, setPinnedMessage] = useState(null);
-  const [isAtBottom, setIsAtBottom] = useState(true);
-  const [showPreview, setShowPreview] = useState(false);
-  const [isBlocked, setIsBlocked] = useState(false);
+  const [chatInfo, setChatInfo] = useState(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef(null);
 
-  // -------------------- Load chat & friend info --------------------
+  // -------------------- Load Friend Info --------------------
   useEffect(() => {
-    if (!chatId) return;
-    let unsubChat = null;
-    let unsubUser = null;
-
-    const loadMeta = async () => {
-      const cRef = doc(db, "chats", chatId);
-      unsubChat = onSnapshot(cRef, (snap) => {
-        if (!snap.exists()) return;
-        const data = snap.data();
-        setChatInfo({ id: snap.id, ...data });
-        setIsBlocked(data.blocked || false);
-
-        const friendId = data.participants?.find((p) => p !== myUid);
-        if (friendId) {
-          const userRef = doc(db, "users", friendId);
-          unsubUser = onSnapshot(userRef, (s) => {
-            if (s.exists()) setFriendInfo({ id: s.id, ...s.data() });
-          });
-        }
-
-        // Handle pinned message
-        if (data.pinnedMessageId) {
-          const pinnedMsgRef = doc(db, "chats", chatId, "messages", data.pinnedMessageId);
-          onSnapshot(pinnedMsgRef, (s) => {
-            if (s.exists()) setPinnedMessage({ id: s.id, ...s.data() });
-          });
-        }
-      });
-    };
-
-    loadMeta();
-
-    return () => {
-      if (unsubChat) unsubChat();
-      if (unsubUser) unsubUser();
-    };
-  }, [chatId, myUid]);
-
-  // -------------------- Real-time messages --------------------
-  useEffect(() => {
-    if (!chatId) return;
-    setLoadingMsgs(true);
-
-    const messagesRef = collection(db, "chats", chatId, "messages");
-    const q = query(messagesRef, orderBy("createdAt", "asc"));
-
-    const unsub = onSnapshot(q, (snap) => {
-      const docs = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-      setMessages(docs);
-
-      if (isAtBottom) endRef.current?.scrollIntoView({ behavior: "smooth" });
-      setLoadingMsgs(false);
+    if (!friendId) return;
+    const unsub = onSnapshot(doc(db, "users", friendId), (snap) => {
+      if (snap.exists()) setFriendInfo(snap.data());
     });
-
     return () => unsub();
-  }, [chatId, isAtBottom]);
+  }, [friendId]);
 
-  // -------------------- Scroll detection --------------------
+  // -------------------- Load Chat Info --------------------
   useEffect(() => {
-    const el = messagesRefEl.current;
-    if (!el) return;
-    const onScroll = () =>
-      setIsAtBottom(el.scrollHeight - el.scrollTop - el.clientHeight < 80);
-    el.addEventListener("scroll", onScroll);
-    return () => el.removeEventListener("scroll", onScroll);
+    if (!chatId) return;
+    const unsub = onSnapshot(doc(db, "chats", chatId), (snap) => {
+      if (snap.exists()) {
+        const data = snap.data();
+        setChatInfo(data);
+        setBlockedStatus && setBlockedStatus(data.blocked);
+      }
+    });
+    return () => unsub();
+  }, [chatId, setBlockedStatus]);
+
+  // -------------------- Close Menu on Outside Click --------------------
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (menuRef.current && !menuRef.current.contains(e.target)) setMenuOpen(false);
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // -------------------- Date helpers --------------------
-  const formatDateSeparator = (date) => {
-    if (!date) return "";
-    const msgDate = new Date(date.toDate?.() || date);
+  // -------------------- Toggle Block & Mute --------------------
+  const toggleBlock = async () => {
+    if (!chatInfo) return;
+    const newBlocked = !chatInfo.blocked;
+    await updateDoc(doc(db, "chats", chatId), { blocked: newBlocked });
+    setChatInfo((prev) => ({ ...prev, blocked: newBlocked }));
+    setBlockedStatus && setBlockedStatus(newBlocked);
+    setMenuOpen(false);
+  };
+
+  const toggleMute = async () => {
+    if (!chatInfo) return;
+    const isMuted = chatInfo.mutedUntil && chatInfo.mutedUntil > Date.now();
+    const newMutedUntil = isMuted ? 0 : Date.now() + 24 * 60 * 60 * 1000; // 24 hours
+    await updateDoc(doc(db, "chats", chatId), { mutedUntil: newMutedUntil });
+    setChatInfo((prev) => ({ ...prev, mutedUntil: newMutedUntil }));
+    setMenuOpen(false);
+  };
+
+  // -------------------- Utilities --------------------
+  const getInitials = (name) => {
+    if (!name) return "U";
+    const parts = name.trim().split(" ");
+    return parts.length > 1
+      ? (parts[0][0] + parts[1][0]).toUpperCase()
+      : parts[0][0].toUpperCase();
+  };
+
+  const formatLastSeen = (timestamp) => {
+    if (!timestamp) return "";
+    const lastSeenDate = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
     const now = new Date();
+
+    // Online if last seen within 1 minute
+    if (now - lastSeenDate <= 60 * 1000) return "Online";
+
+    const hours = lastSeenDate.getHours();
+    const minutes = lastSeenDate.getMinutes();
+    const ampm = hours >= 12 ? "pm" : "am";
+    const formattedHour = hours % 12 || 12;
+    const formattedMinutes = minutes.toString().padStart(2, "0");
+    const timeString = `${formattedHour}:${formattedMinutes} ${ampm}`;
+
+    const today = new Date();
+    if (lastSeenDate.toDateString() === today.toDateString()) return `Today at ${timeString}`;
+
     const yesterday = new Date();
-    yesterday.setDate(now.getDate() - 1);
+    yesterday.setDate(today.getDate() - 1);
+    if (lastSeenDate.toDateString() === yesterday.toDateString()) return `Yesterday at ${timeString}`;
 
-    if (msgDate.toDateString() === now.toDateString()) return "Today";
-    if (msgDate.toDateString() === yesterday.toDateString()) return "Yesterday";
-
-    const options = { month: "short", day: "numeric" };
-    if (msgDate.getFullYear() !== now.getFullYear()) options.year = "numeric";
-    return msgDate.toLocaleDateString(undefined, options);
-  };
-
-  const groupMessagesByDay = (msgs) => {
-    const grouped = [];
-    let lastDate = null;
-    msgs.forEach((msg) => {
-      const timestamp = msg.createdAt || new Date();
-      const dateStr = formatDateSeparator(timestamp);
-      if (dateStr !== lastDate) {
-        grouped.push({ type: "date-separator", date: dateStr });
-        lastDate = dateStr;
-      }
-      grouped.push({ type: "message", data: msg });
-    });
-    return grouped;
-  };
-
-  const groupedMessages = groupMessagesByDay(messages);
-
-  const scrollToMessage = (id) => {
-    const el = messageRefs.current[id];
-    if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
-  };
-
-  // -------------------- Send message helpers --------------------
-  const updateParentChat = async (lastMsgText) => {
-    const chatRef = doc(db, "chats", chatId);
-    await updateDoc(chatRef, {
-      lastMessage: lastMsgText,
-      lastMessageSender: myUid,
-      lastMessageAt: serverTimestamp(),
-      lastMessageStatus: "delivered",
-    });
-  };
-
-  const sendTextMessage = async () => {
-    if (isBlocked) return toast.error("You cannot send messages to this user");
-    if (!text.trim() && selectedFiles.length === 0) return;
-
-    if (selectedFiles.length > 0) {
-      setShowPreview(true);
-      return;
+    if (lastSeenDate.getFullYear() === now.getFullYear()) {
+      return `${lastSeenDate.toLocaleDateString([], { month: "short", day: "numeric" })} at ${timeString}`;
     }
 
-    const payload = {
-      senderId: myUid,
-      text: text.trim(),
-      mediaUrl: "",
-      mediaType: null,
-      createdAt: serverTimestamp(),
-      reactions: {},
-      delivered: false,
-      seen: false,
-      replyTo: replyTo ? { id: replyTo.id, text: replyTo.text, senderId: replyTo.senderId } : null,
-    };
-
-    setReplyTo(null);
-    await addDoc(collection(db, "chats", chatId, "messages"), payload);
-    await updateParentChat(payload.text);
-
-    setText("");
-    endRef.current?.scrollIntoView({ behavior: "smooth" });
+    return `${lastSeenDate.toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" })} at ${timeString}`;
   };
 
-  const sendMediaMessage = async (files, rTo = replyTo) => {
-    if (isBlocked) return toast.error("You cannot send messages to this user");
-    if (!files || files.length === 0) return;
-    setShowPreview(false);
+  const startVoiceCall = () => navigate(`/call/voice/${chatId}`);
+  const startVideoCall = () => navigate(`/call/video/${chatId}`);
+  const pinned = chatInfo?.pinnedMessage || null;
 
-    for (let f of files) {
-      const type = f.type.startsWith("image/")
-        ? "image"
-        : f.type.startsWith("video/")
-          ? "video"
-          : f.type.startsWith("audio/")
-            ? "audio"
-            : "file";
-
-      let mediaUrl = "";
-      if (type !== "file") {
-        try {
-          const formData = new FormData();
-          formData.append("file", f);
-          formData.append("upload_preset", import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET);
-          const res = await axios.post(
-            `https://api.cloudinary.com/v1_1/${import.meta.env.VITE_CLOUDINARY_CLOUD_NAME}/auto/upload`,
-            formData
-          );
-          mediaUrl = res.data.secure_url;
-        } catch (err) {
-          toast.error(`Failed to upload ${f.name}`);
-          continue;
-        }
-      }
-
-      const payload = {
-        senderId: myUid,
-        text: f.name,
-        mediaUrl,
-        mediaType: type,
-        createdAt: serverTimestamp(),
-        reactions: {},
-        delivered: false,
-        seen: false,
-        replyTo: rTo ? { id: rTo.id, text: rTo.text, senderId: rTo.senderId } : null,
-      };
-
-      setReplyTo(null);
-      await addDoc(collection(db, "chats", chatId, "messages"), payload);
-      await updateParentChat(payload.text);
-    }
-
-    setSelectedFiles([]);
-    endRef.current?.scrollIntoView({ behavior: "smooth" });
-  };
-
-  // -------------------- Search / Clear --------------------
-  const handleSearch = () => {
-    const q = prompt("Search text:");
-    if (!q) return;
-    const results = messages.filter((m) => m.text?.toLowerCase().includes(q.toLowerCase()));
-    if (!results.length) return toast.info("No messages found");
-    scrollToMessage(results[0].id);
-  };
-
-  const clearChat = async () => {
-    if (!window.confirm("Clear this chat?")) return;
-    try {
-      const snap = await getDocs(collection(db, "chats", chatId, "messages"));
-      await Promise.all(snap.docs.map((d) => updateDoc(d.ref, { deleted: true })));
-      toast.success("Chat cleared");
-    } catch (err) {
-      toast.error("Failed to clear chat");
-    }
-  };
-
+  // -------------------- Render --------------------
   return (
-    <div style={{
-      display: "flex",
-      flexDirection: "column",
-      height: "100vh",
-      backgroundColor: wallpaper || (isDark ? "#0b0b0b" : "#f5f5f5"),
-      color: isDark ? "#fff" : "#000",
-      position: "relative"
-    }}>
-      <ChatHeader
-        friendId={friendInfo?.id}
-        chatId={chatId}
-        pinnedMessage={pinnedMessage}
-        setBlockedStatus={setIsBlocked}
-        onClearChat={clearChat}
-        onSearch={handleSearch}
-      />
+    <>
+      <div className="chat-header">
+        {/* Back Button */}
+        <div className="chat-back" onClick={() => navigate("/chat")}>←</div>
 
-      <div ref={messagesRefEl} style={{
-        flex: 1,
-        overflowY: "auto",
-        padding: 8,
-        display: "flex",
-        flexDirection: "column",
-        justifyContent: "flex-start",
-      }}>
-        {loadingMsgs && <div style={{ textAlign: "center", marginTop: 12 }}>Loading...</div>}
-
-        {groupedMessages.map((item, idx) =>
-          item.type === "date-separator" ? (
-            <div key={idx} style={{ textAlign: "center", margin: "10px 0", fontSize: 12, color: isDark ? "#aaa" : "#555" }}>{item.date}</div>
+        {/* Avatar */}
+        <div className="chat-avatar" onClick={() => navigate(`/friend/${friendId}`)}>
+          {friendInfo?.profilePic ? (
+            <img src={friendInfo.profilePic} alt="" />
           ) : (
-            <MessageItem
-              key={item.data.id}
-              message={item.data}
-              myUid={myUid}
-              isDark={isDark}
-              chatId={chatId}
-              setReplyTo={setReplyTo}
-              pinnedMessage={pinnedMessage}
-              setPinnedMessage={setPinnedMessage}
-              onReplyClick={(id) => {
-                const el = messageRefs.current[id];
-                if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
-              }}
-            />
-          )
-        )}
+            getInitials(friendInfo?.name)
+          )}
+        </div>
 
-        <div ref={endRef} />
+        {/* Name + Last Seen */}
+        <div className="chat-info" onClick={() => navigate(`/friend/${friendId}`)}>
+          <span className="chat-name">{friendInfo?.name || "Loading..."}</span>
+          <span className="chat-lastseen">{formatLastSeen(friendInfo?.lastSeen)}</span>
+        </div>
+
+        {/* Call Buttons */}
+        <div className="chat-actions">
+          <FiPhone size={22} className="action-btn" onClick={startVoiceCall} />
+          <FiVideo size={22} className="action-btn" onClick={startVideoCall} />
+        </div>
+
+        {/* Menu */}
+        <div ref={menuRef} className="chat-menu">
+          <FiMoreVertical size={24} onClick={() => setMenuOpen(!menuOpen)} className="action-btn" />
+          {menuOpen && (
+            <div className="menu-dropdown">
+              <div onClick={() => { setMenuOpen(false); onSearch(); }}>Search</div>
+              <div onClick={() => { setMenuOpen(false); onClearChat(); }}>Clear Chat</div>
+              <div onClick={toggleMute}>
+                {chatInfo?.mutedUntil > Date.now() ? "Unmute" : "Mute"}
+              </div>
+              <div onClick={toggleBlock} className="danger">
+                {chatInfo?.blocked ? "Unblock" : "Block"}
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
-      <ChatInput
-        text={text}
-        setText={setText}
-        sendTextMessage={sendTextMessage}
-        sendMediaMessage={sendMediaMessage}
-        selectedFiles={selectedFiles}
-        setSelectedFiles={setSelectedFiles}
-        isDark={isDark}
-        setShowPreview={setShowPreview}
-        replyTo={replyTo}
-        setReplyTo={setReplyTo}
-        disabled={isBlocked}
-      />
-
-      {showPreview && selectedFiles.length > 0 && (
-        <ImagePreviewModal
-          files={selectedFiles}
-          onRemove={(i) => setSelectedFiles((prev) => prev.filter((_, idx) => idx !== i))}
-          onSend={async () => { await sendMediaMessage(selectedFiles, replyTo); setReplyTo(null); }}
-          onCancel={() => setShowPreview(false)}
-          onAddFiles={() => document.getElementById("file-input")?.click()}
-          isDark={isDark}
-          chatId={chatId}
-          replyTo={replyTo}
-          setReplyTo={setReplyTo}
-        />
+      {/* Pinned Message */}
+      {pinned && (
+        <div className="pinned-message" onClick={() => onGoToPinned(pinned.messageId)}>
+          📌 <span>{pinned.text || "Pinned message"}</span>
+        </div>
       )}
 
-      <ToastContainer position="top-center" autoClose={1500} hideProgressBar />
-    </div>
+      {/* -------------------- Styles -------------------- */}
+      <style jsx>{`
+        .chat-header {
+          display: flex;
+          align-items: center;
+          padding: 8px 12px;
+          background-color: #075e54;
+          position: sticky;
+          top: 0;
+          z-index: 999;
+          gap: 10px;
+        }
+        .chat-back {
+          width: 40px;
+          height: 40px;
+          border-radius: 50%;
+          background: rgba(255,255,255,0.15);
+          display: flex;
+          justify-content: center;
+          align-items: center;
+          cursor: pointer;
+          color: white;
+          font-size: 22px;
+          font-weight: 600;
+          transition: background 0.2s;
+        }
+        .chat-back:hover {
+          background: rgba(255,255,255,0.25);
+        }
+        .chat-avatar {
+          width: 50px;
+          height: 50px;
+          border-radius: 50%;
+          overflow: hidden;
+          cursor: pointer;
+          display: flex;
+          justify-content: center;
+          align-items: center;
+          font-weight: 600;
+          font-size: 18px;
+          color: #333;
+          background-color: #e0e0e0;
+        }
+        .chat-avatar img {
+          width: 100%;
+          height: 100%;
+          object-fit: cover;
+        }
+        .chat-info {
+          flex: 1;
+          display: flex;
+          flex-direction: column;
+          overflow: hidden;
+          cursor: pointer;
+          color: #fff;
+        }
+        .chat-name {
+          font-size: 16px;
+          font-weight: 600;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+        .chat-lastseen {
+          font-size: 13px;
+          opacity: 0.9;
+        }
+        .chat-actions {
+          display: flex;
+          gap: 10px;
+        }
+        .action-btn {
+          cursor: pointer;
+          transition: opacity 0.2s;
+        }
+        .action-btn:hover {
+          opacity: 0.7;
+        }
+        .chat-menu {
+          position: relative;
+          margin-left: 8px;
+        }
+        .menu-dropdown {
+          position: absolute;
+          top: 36px;
+          right: 0;
+          background: #fff;
+          color: #000;
+          border-radius: 10px;
+          padding: 8px 0;
+          width: 170px;
+          box-shadow: 0 4px 14px rgba(0,0,0,0.3);
+          z-index: 999;
+        }
+        .menu-dropdown div {
+          padding: 12px 16px;
+          cursor: pointer;
+          font-size: 15px;
+          white-space: nowrap;
+          transition: background 0.2s;
+        }
+        .menu-dropdown div:hover {
+          background: #f0f0f0;
+        }
+        .menu-dropdown .danger {
+          color: red;
+          font-weight: 600;
+        }
+        .pinned-message {
+          position: sticky;
+          top: 56px;
+          width: 100%;
+          background: #f7f7f7;
+          padding: 6px 12px;
+          border-bottom: 1px solid #ddd;
+          font-size: 14px;
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          cursor: pointer;
+          color: #444;
+          z-index: 998;
+        }
+      `}</style>
+    </>
   );
 }
