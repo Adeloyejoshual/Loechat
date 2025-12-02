@@ -1,27 +1,26 @@
 // src/components/Chat/ImagePreviewModal.jsx
-import React from "react";
-
-const SPACING = { xs: 4, sm: 8, md: 12, lg: 14, xl: 20, borderRadius: 12 };
-const COLORS = {
-  lightCard: "#fff",
-  darkCard: "#1b1b1b",
-  darkText: "#fff",
-  lightText: "#000",
-  grayBorder: "rgba(0,0,0,0.06)",
-};
+import React, { useState, useEffect } from "react";
 
 export default function ImagePreviewModal({
-  previews = [],
+  previews = [],          // [{ file, url }]
   currentIndex = 0,
-  onClose = () => {},
-  onNext = () => {},
-  onPrev = () => {},
   onRemove = () => {},
+  onClose = () => {},
+  onSend = () => {},
   isDark = false,
 }) {
+  const [index, setIndex] = useState(currentIndex);
+
+  useEffect(() => {
+    setIndex(currentIndex);
+  }, [currentIndex]);
+
   if (!previews.length) return null;
 
-  const current = previews[currentIndex];
+  const handleNext = () => setIndex((prev) => (prev + 1 < previews.length ? prev + 1 : prev));
+  const handlePrev = () => setIndex((prev) => (prev - 1 >= 0 ? prev - 1 : prev));
+
+  const current = previews[index];
 
   return (
     <div
@@ -31,119 +30,117 @@ export default function ImagePreviewModal({
         left: 0,
         width: "100vw",
         height: "100vh",
-        backgroundColor: "rgba(0,0,0,0.8)",
+        backgroundColor: isDark ? "rgba(0,0,0,0.9)" : "rgba(255,255,255,0.9)",
         display: "flex",
+        flexDirection: "column",
         justifyContent: "center",
         alignItems: "center",
-        zIndex: 1000,
+        zIndex: 9999,
       }}
-      onClick={onClose}
     >
-      <div
-        onClick={(e) => e.stopPropagation()}
+      {/* Close Button */}
+      <button
+        onClick={onClose}
         style={{
-          position: "relative",
-          maxWidth: "90%",
-          maxHeight: "90%",
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
+          position: "absolute",
+          top: 16,
+          right: 16,
+          background: "transparent",
+          border: "none",
+          color: isDark ? "#fff" : "#000",
+          fontSize: 24,
+          cursor: "pointer",
         }}
       >
-        {/* Media */}
-        {current?.type === "image" && (
-          <img
-            src={current.url}
-            alt={current.name}
-            style={{ maxHeight: "80vh", maxWidth: "80vw", borderRadius: SPACING.borderRadius }}
-          />
-        )}
-        {current?.type === "video" && (
+        ×
+      </button>
+
+      {/* Media Preview */}
+      <div style={{ display: "flex", alignItems: "center", maxWidth: "90%", maxHeight: "80%" }}>
+        {/* Prev */}
+        <button
+          onClick={handlePrev}
+          disabled={index === 0}
+          style={{
+            background: "transparent",
+            border: "none",
+            fontSize: 32,
+            color: isDark ? "#fff" : "#000",
+            cursor: index === 0 ? "not-allowed" : "pointer",
+            marginRight: 8,
+          }}
+        >
+          ‹
+        </button>
+
+        {/* Image or Video */}
+        {current.file.type.startsWith("video/") ? (
           <video
             src={current.url}
             controls
-            style={{ maxHeight: "80vh", maxWidth: "80vw", borderRadius: SPACING.borderRadius }}
+            style={{ maxHeight: "80vh", maxWidth: "80vw", borderRadius: 8 }}
+          />
+        ) : (
+          <img
+            src={current.url}
+            alt="preview"
+            style={{ maxHeight: "80vh", maxWidth: "80vw", borderRadius: 8 }}
           />
         )}
 
-        {/* Navigation */}
-        {previews.length > 1 && (
-          <>
-            <button
-              onClick={onPrev}
-              style={{
-                position: "absolute",
-                left: 0,
-                top: "50%",
-                transform: "translateY(-50%)",
-                background: "rgba(0,0,0,0.5)",
-                border: "none",
-                color: "#fff",
-                fontSize: 24,
-                padding: "8px",
-                cursor: "pointer",
-              }}
-            >
-              ‹
-            </button>
-            <button
-              onClick={onNext}
-              style={{
-                position: "absolute",
-                right: 0,
-                top: "50%",
-                transform: "translateY(-50%)",
-                background: "rgba(0,0,0,0.5)",
-                border: "none",
-                color: "#fff",
-                fontSize: 24,
-                padding: "8px",
-                cursor: "pointer",
-              }}
-            >
-              ›
-            </button>
-          </>
-        )}
-
-        {/* Footer actions */}
-        <div
+        {/* Next */}
+        <button
+          onClick={handleNext}
+          disabled={index === previews.length - 1}
           style={{
-            marginTop: 12,
-            display: "flex",
-            gap: 12,
-            justifyContent: "center",
-            width: "100%",
+            background: "transparent",
+            border: "none",
+            fontSize: 32,
+            color: isDark ? "#fff" : "#000",
+            cursor: index === previews.length - 1 ? "not-allowed" : "pointer",
+            marginLeft: 8,
           }}
         >
-          <button
-            onClick={onRemove}
-            style={{
-              padding: SPACING.sm,
-              borderRadius: SPACING.borderRadius,
-              border: `1px solid ${COLORS.grayBorder}`,
-              background: isDark ? COLORS.darkCard : COLORS.lightCard,
-              color: isDark ? COLORS.darkText : COLORS.lightText,
-              cursor: "pointer",
-            }}
-          >
-            Remove
-          </button>
-          <button
-            onClick={onClose}
-            style={{
-              padding: SPACING.sm,
-              borderRadius: SPACING.borderRadius,
-              border: `1px solid ${COLORS.grayBorder}`,
-              background: isDark ? COLORS.darkCard : COLORS.lightCard,
-              color: isDark ? COLORS.darkText : COLORS.lightText,
-              cursor: "pointer",
-            }}
-          >
-            Close
-          </button>
-        </div>
+          ›
+        </button>
       </div>
+
+      {/* Controls */}
+      <div style={{ marginTop: 16, display: "flex", gap: 12 }}>
+        <button
+          onClick={() => onRemove(index)}
+          style={{
+            padding: "8px 16px",
+            backgroundColor: "red",
+            color: "#fff",
+            border: "none",
+            borderRadius: 4,
+            cursor: "pointer",
+          }}
+        >
+          Remove
+        </button>
+        <button
+          onClick={onSend}
+          style={{
+            padding: "8px 16px",
+            backgroundColor: isDark ? "#4caf50" : "#1976d2",
+            color: "#fff",
+            border: "none",
+            borderRadius: 4,
+            cursor: "pointer",
+          }}
+        >
+          Send
+        </button>
+      </div>
+
+      {/* Pagination */}
+      {previews.length > 1 && (
+        <div style={{ marginTop: 12, color: isDark ? "#fff" : "#000", fontSize: 14 }}>
+          {index + 1} / {previews.length}
+        </div>
+      )}
     </div>
   );
 }
