@@ -1,3 +1,4 @@
+// MessageItem.jsx (updated)
 import React, { useState, useRef, useContext, useEffect } from "react";
 import { doc, updateDoc, onSnapshot } from "firebase/firestore";
 import { db } from "../../firebaseConfig";
@@ -42,7 +43,7 @@ export default function MessageItem({
   const [fadeOut, setFadeOut] = useState(false);
   const [showMediaViewer, setShowMediaViewer] = useState(false);
   const [translateX, setTranslateX] = useState(0);
-  const [status, setStatus] = useState("Sent");
+  const [status, setStatus] = useState(message.status || "Sent"); // "sending" support
   const [showFullText, setShowFullText] = useState(false);
   const [textHeight, setTextHeight] = useState("auto");
   const [fadeIn, setFadeIn] = useState(false);
@@ -61,11 +62,11 @@ export default function MessageItem({
     const unsub = onSnapshot(doc(db, "users", friendId), (snap) => {
       if (!snap.exists()) return;
       const data = snap.data();
-      if (data.isOnline && isMine) setStatus("Delivered");
+      if (data.isOnline && isMine && status !== "sent") setStatus("Delivered");
       if (message.seenBy?.includes(friendId)) setStatus("Seen");
     });
     return () => unsub();
-  }, [friendId, message, isMine]);
+  }, [friendId, message, isMine, status]);
 
   // ---------------- Firestore actions ----------------
   const togglePin = async () => {
@@ -78,7 +79,7 @@ export default function MessageItem({
 
   const deleteMessage = async () => {
     if (!window.confirm(`Delete this message for ${isMine ? "everyone" : "them"}?`)) return;
-    
+
     setFadeOut(true);
     setTimeout(async () => {
       setDeleted(true);
@@ -92,7 +93,7 @@ export default function MessageItem({
     toast.success("Copied!");
   };
 
-  // ---------------- Reactions with pop-up ----------------
+  // ---------------- Reactions ----------------
   const applyReaction = async (emoji) => {
     const msgRef = doc(db, "chats", chatId, "messages", message.id);
     const newEmoji = reactedEmoji === emoji ? "" : emoji;
@@ -119,10 +120,7 @@ export default function MessageItem({
     }
   };
 
-  // ---------------- Long press modal ----------------
-  const handleLongPress = () => setShowModal(true);
-
-  // ---------------- Swipe-to-reply (both sides) ----------------
+  // ---------------- Swipe-to-reply ----------------
   const handleTouchStart = (e) => (startX.current = e.touches[0].clientX);
   const handleTouchMove = (e) => {
     const deltaX = e.touches[0].clientX - startX.current;
@@ -160,10 +158,7 @@ export default function MessageItem({
       >
         {message.text.slice(0, READ_MORE_LIMIT)}
         {!showFullText && (
-          <span
-            style={{ color: "#34B7F1", cursor: "pointer", fontWeight: 500, marginLeft: 4 }}
-            onClick={() => setShowFullText(true)}
-          >
+          <span style={{ color: COLORS.primary, cursor: "pointer", fontWeight: 500, marginLeft: 4 }} onClick={() => setShowFullText(true)}>
             Read More
           </span>
         )}
@@ -188,7 +183,7 @@ export default function MessageItem({
           opacity: fadeOut ? 0 : fadeIn ? 0 : 1,
         }}
         onClick={handleTap}
-        onContextMenu={(e) => { e.preventDefault(); handleLongPress(); }}
+        onContextMenu={(e) => { e.preventDefault(); setShowModal(true); }}
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
@@ -217,9 +212,7 @@ export default function MessageItem({
               height: 0,
               borderStyle: "solid",
               borderWidth: "6px 6px 0 0",
-              borderColor: isMine
-                ? `${COLORS.primary} transparent transparent transparent`
-                : `${isDark ? COLORS.darkCard : COLORS.lightCard} transparent transparent transparent`,
+              borderColor: isMine ? `${COLORS.primary} transparent transparent transparent` : `${isDark ? COLORS.darkCard : COLORS.lightCard} transparent transparent transparent`,
               right: isMine ? -6 : "auto",
               left: isMine ? "auto" : -6,
             }}
@@ -246,29 +239,13 @@ export default function MessageItem({
           {message.mediaUrl ? (
             <div style={{ display: "flex", flexDirection: "column" }}>
               {message.mediaType === "image" && (
-                <img
-                  src={message.mediaUrl}
-                  alt="media"
-                  style={{ maxWidth: "100%", borderRadius: 12, cursor: "pointer" }}
-                  onClick={() => setShowMediaViewer(true)}
-                />
+                <img src={message.mediaUrl} alt="media" style={{ maxWidth: "100%", borderRadius: 12, cursor: "pointer" }} onClick={() => setShowMediaViewer(true)} />
               )}
               {message.mediaType === "video" && (
-                <video
-                  src={message.mediaUrl}
-                  controls
-                  style={{ maxWidth: "100%", borderRadius: 12, cursor: "pointer" }}
-                  onClick={() => setShowMediaViewer(true)}
-                />
+                <video src={message.mediaUrl} controls style={{ maxWidth: "100%", borderRadius: 12, cursor: "pointer" }} onClick={() => setShowMediaViewer(true)} />
               )}
-              {message.mediaType === "audio" && (
-                <audio src={message.mediaUrl} controls style={{ marginTop: 4 }} />
-              )}
-              {message.text && (
-                <div style={{ marginTop: 4, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
-                  {message.text}
-                </div>
-              )}
+              {message.mediaType === "audio" && <audio src={message.mediaUrl} controls style={{ marginTop: 4 }} />}
+              {message.text && <div style={{ marginTop: 4, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{message.text}</div>}
             </div>
           ) : (
             renderMessageText()
@@ -280,17 +257,7 @@ export default function MessageItem({
               Object.values(message.reactions)
                 .filter(Boolean)
                 .map((emoji, i) => (
-                  <span
-                    key={i}
-                    style={{
-                      background: COLORS.reactionBg,
-                      color: "#fff",
-                      padding: "0 6px",
-                      borderRadius: 12,
-                      fontSize: 12,
-                      marginRight: 4,
-                    }}
-                  >
+                  <span key={i} style={{ background: COLORS.reactionBg, color: "#fff", padding: "0 6px", borderRadius: 12, fontSize: 12, marginRight: 4 }}>
                     {emoji}
                   </span>
                 ))}
@@ -314,19 +281,14 @@ export default function MessageItem({
 
           {/* Timestamp + Status */}
           {message.createdAt && (
-            <div
-              style={{
-                fontSize: 10,
-                opacity: 0.6,
-                marginTop: 4,
-                textAlign: isMine ? "right" : "left",
-              }}
-            >
-              {new Date(message.createdAt.toDate ? message.createdAt.toDate() : message.createdAt).toLocaleTimeString([], {
-                hour: "2-digit",
-                minute: "2-digit",
-              })}{" "}
-              {isMine && `• ${status}`}
+            <div style={{ fontSize: 10, opacity: 0.6, marginTop: 4, textAlign: isMine ? "right" : "left", display: "flex", alignItems: "center", gap: 4 }}>
+              {new Date(message.createdAt.toDate ? message.createdAt.toDate() : message.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+              {isMine && status && (
+                <>
+                  •{" "}
+                  {status === "sending" ? <span className="rolling-dot">●●●</span> : status}
+                </>
+              )}
             </div>
           )}
 
@@ -339,7 +301,7 @@ export default function MessageItem({
                 right: translateX < 0 ? -50 : "auto",
                 top: "50%",
                 transform: "translateY(-50%)",
-                color: "#34B7F1",
+                color: COLORS.primary,
                 fontWeight: 500,
                 fontSize: 12,
                 opacity: 0.7,
@@ -370,16 +332,24 @@ export default function MessageItem({
       )}
 
       {/* Media Viewer */}
-      {showMediaViewer && (
-        <MediaViewer url={message.mediaUrl} type={message.mediaType || "image"} onClose={() => setShowMediaViewer(false)} />
-      )}
+      {showMediaViewer && <MediaViewer url={message.mediaUrl} type={message.mediaType || "image"} onClose={() => setShowMediaViewer(false)} />}
 
-      {/* Reaction bubble keyframes */}
+      {/* Keyframes */}
       <style>{`
         @keyframes popUp {
           0% { transform: translate(-50%, 0) scale(1); opacity: 1; }
           50% { transform: translate(-50%, -20px) scale(1.3); opacity: 1; }
           100% { transform: translate(-50%, -40px) scale(1); opacity: 0; }
+        }
+        .rolling-dot {
+          display: inline-block;
+          animation: rolling 1s linear infinite;
+        }
+        @keyframes rolling {
+          0% { content:'●'; }
+          33% { content:'● ●'; }
+          66% { content:'● ● ●'; }
+          100% { content:'●'; }
         }
       `}</style>
     </>
