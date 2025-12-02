@@ -15,6 +15,8 @@ const COLORS = {
   reactionBg: "rgba(0,0,0,0.7)",
 };
 
+const READ_MORE_LIMIT = 150;
+
 export default function MessageItem({
   message,
   myUid,
@@ -30,26 +32,36 @@ export default function MessageItem({
   const { theme } = useContext(ThemeContext);
 
   const containerRef = useRef(null);
+  const textRef = useRef(null);
   const lastTap = useRef(0);
   const startX = useRef(0);
 
   const [showModal, setShowModal] = useState(false);
   const [reactedEmoji, setReactedEmoji] = useState(message.reactions?.[myUid] || "");
   const [deleted, setDeleted] = useState(false);
+  const [fadeOut, setFadeOut] = useState(false);
   const [showMediaViewer, setShowMediaViewer] = useState(false);
   const [translateX, setTranslateX] = useState(0);
-  const [status, setStatus] = useState("Sent"); // Sent / Delivered / Seen
+  const [status, setStatus] = useState("Sent");
+  const [showFullText, setShowFullText] = useState(false);
+  const [textHeight, setTextHeight] = useState("auto");
+  const [fadeIn, setFadeIn] = useState(false);
+  const [reactionBubbles, setReactionBubbles] = useState([]);
 
-  // ---------------- Firestore: friend online detection ----------------
+  // ---------------- Animate new messages ----------------
   useEffect(() => {
-    if (!friendId || !isMine) return;
+    setFadeIn(true);
+    const timer = setTimeout(() => setFadeIn(false), 500);
+    return () => clearTimeout(timer);
+  }, []);
+
+  // ---------------- Firestore: friend online & seen detection ----------------
+  useEffect(() => {
+    if (!friendId) return;
     const unsub = onSnapshot(doc(db, "users", friendId), (snap) => {
       if (!snap.exists()) return;
       const data = snap.data();
-      if (data.isOnline) {
-        setStatus("Delivered");
-      }
-      // Check if message is seen
+      if (data.isOnline && isMine) setStatus("Delivered");
       if (message.seenBy?.includes(friendId)) setStatus("Seen");
     });
     return () => unsub();
@@ -66,9 +78,15 @@ export default function MessageItem({
 
   const deleteMessage = async () => {
     if (!window.confirm(`Delete this message for ${isMine ? "everyone" : "them"}?`)) return;
-    setDeleted(true);
-    await updateDoc(doc(db, "chats", chatId, "messages", message.id), { deleted: true });
-    toast.success("Message deleted for everyone");
+    
+    // Start fade-out animation
+    setFadeOut(true);
+
+    setTimeout(async () => {
+      setDeleted(true);
+      await updateDoc(doc(db, "chats", chatId, "messages", message.id), { deleted: true });
+      toast.success("Message deleted for everyone");
+    }, 300); // duration matches CSS transition
   };
 
   const copyMessage = async () => {
@@ -76,11 +94,21 @@ export default function MessageItem({
     toast.success("Copied!");
   };
 
+  // ---------------- Reactions with pop-up ----------------
   const applyReaction = async (emoji) => {
     const msgRef = doc(db, "chats", chatId, "messages", message.id);
     const newEmoji = reactedEmoji === emoji ? "" : emoji;
     await updateDoc(msgRef, { [`reactions.${myUid}`]: newEmoji });
     setReactedEmoji(newEmoji);
+
+    if (newEmoji) {
+      const bubbleId = Date.now();
+      setReactionBubbles((prev) => [...prev, { id: bubbleId, emoji: newEmoji }]);
+      setTimeout(() => {
+        setReactionBubbles((prev) => prev.filter((b) => b.id !== bubbleId));
+      }, 800);
+    }
+
     toast.success(newEmoji ? `Reacted ${newEmoji}` : "Reaction removed");
   };
 
@@ -98,14 +126,14 @@ export default function MessageItem({
   // ---------------- Long press modal ----------------
   const handleLongPress = () => setShowModal(true);
 
-  // ---------------- Swipe-to-reply ----------------
+  // ---------------- Swipe-to-reply (both sides) ----------------
   const handleTouchStart = (e) => (startX.current = e.touches[0].clientX);
   const handleTouchMove = (e) => {
     const deltaX = e.touches[0].clientX - startX.current;
-    if (!isMine && deltaX > 0) setTranslateX(Math.min(deltaX, 100));
+    setTranslateX(Math.min(Math.abs(deltaX), 100) * Math.sign(deltaX));
   };
   const handleTouchEnd = () => {
-    if (translateX > 50) {
+    if (Math.abs(translateX) > 50) {
       setReplyTo(message);
       toast.info("Replying…");
     }
@@ -113,6 +141,40 @@ export default function MessageItem({
   };
 
   if (deleted) return null;
+
+  // ---------------- Smooth Read More ----------------
+  useEffect(() => {
+    if (textRef.current) {
+      setTextHeight(showFullText ? `${textRef.current.scrollHeight}px` : `${Math.min(textRef.current.scrollHeight, 80)}px`);
+    }
+  }, [showFullText]);
+
+  const renderMessageText = () => {
+    if (!message.text) return null;
+    if (message.text.length <= READ_MORE_LIMIT) return <div>{message.text}</div>;
+
+    return (
+      <div
+        ref={textRef}
+        style={{
+          maxHeight: textHeight,
+          overflow: "hidden",
+          transition: "max-height 0.3s ease",
+        }}
+      >
+        {message.text.slice(0, READ_MORE_LIMIT)}
+        {!showFullText && (
+          <span
+            style={{ color: "#34B7F1", cursor: "pointer", fontWeight: 500, marginLeft: 4 }}
+            onClick={() => setShowFullText(true)}
+          >
+            Read More
+          </span>
+        )}
+        {showFullText && message.text.slice(READ_MORE_LIMIT)}
+      </div>
+    );
+  };
 
   return (
     <>
@@ -125,8 +187,9 @@ export default function MessageItem({
           alignItems: isMine ? "flex-end" : "flex-start",
           marginBottom: 8,
           position: "relative",
-          transform: `translateX(${translateX}px)`,
-          transition: translateX === 0 ? "transform 0.2s ease" : "none",
+          transform: `translateX(${translateX}px) ${fadeOut ? `translateX(${isMine ? 100 : -100}px)` : ""}`,
+          transition: "transform 0.3s ease, opacity 0.3s ease",
+          opacity: fadeOut ? 0 : fadeIn ? 0 : 1,
         }}
         onClick={handleTap}
         onContextMenu={(e) => {
@@ -149,6 +212,7 @@ export default function MessageItem({
             display: "inline-block",
             position: "relative",
             boxShadow: "0 1px 3px rgba(0,0,0,0.15)",
+            transition: "background 0.2s ease",
           }}
         >
           {/* Tail */}
@@ -185,8 +249,8 @@ export default function MessageItem({
             </div>
           )}
 
-          {/* Text */}
-          {message.text && <div>{message.text}</div>}
+          {/* Message Text */}
+          {renderMessageText()}
 
           {/* Media */}
           {message.mediaUrl && (
@@ -199,11 +263,11 @@ export default function MessageItem({
           )}
 
           {/* Reactions */}
-          {message.reactions && Object.values(message.reactions).filter(Boolean).length > 0 && (
-            <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
-              {Object.entries(message.reactions)
-                .filter(([_, v]) => v)
-                .map(([uid, emoji], i) => (
+          <div style={{ position: "relative" }}>
+            {message.reactions &&
+              Object.values(message.reactions)
+                .filter(Boolean)
+                .map((emoji, i) => (
                   <span
                     key={i}
                     style={{
@@ -212,13 +276,30 @@ export default function MessageItem({
                       padding: "0 6px",
                       borderRadius: 12,
                       fontSize: 12,
+                      marginRight: 4,
                     }}
                   >
                     {emoji}
                   </span>
                 ))}
-            </div>
-          )}
+            {/* Reaction bubbles animation */}
+            {reactionBubbles.map((b) => (
+              <div
+                key={b.id}
+                style={{
+                  position: "absolute",
+                  bottom: 0,
+                  left: "50%",
+                  transform: "translateX(-50%)",
+                  animation: "popUp 0.8s forwards",
+                  pointerEvents: "none",
+                  fontSize: 18,
+                }}
+              >
+                {b.emoji}
+              </div>
+            ))}
+          </div>
 
           {/* Timestamp + Status */}
           {message.createdAt && (
@@ -235,6 +316,25 @@ export default function MessageItem({
                 minute: "2-digit",
               })}{" "}
               {isMine && `• ${status}`}
+            </div>
+          )}
+
+          {/* Reply Hint while swiping */}
+          {Math.abs(translateX) > 10 && (
+            <div
+              style={{
+                position: "absolute",
+                left: translateX > 0 ? -50 : "auto",
+                right: translateX < 0 ? -50 : "auto",
+                top: "50%",
+                transform: "translateY(-50%)",
+                color: "#34B7F1",
+                fontWeight: 500,
+                fontSize: 12,
+                opacity: 0.7,
+              }}
+            >
+              Reply
             </div>
           )}
         </div>
@@ -262,6 +362,15 @@ export default function MessageItem({
       {showMediaViewer && (
         <MediaViewer url={message.mediaUrl} type={message.mediaType || "image"} onClose={() => setShowMediaViewer(false)} />
       )}
+
+      {/* Reaction bubble keyframes */}
+      <style>{`
+        @keyframes popUp {
+          0% { transform: translate(-50%, 0) scale(1); opacity: 1; }
+          50% { transform: translate(-50%, -20px) scale(1.3); opacity: 1; }
+          100% { transform: translate(-50%, -40px) scale(1); opacity: 0; }
+        }
+      `}</style>
     </>
   );
 }
