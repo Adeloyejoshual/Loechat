@@ -1,4 +1,4 @@
-import React, { useState, useRef, useContext, useEffect } from "react";
+import React, { useState, useRef, useEffect, useContext } from "react";
 import { doc, updateDoc, onSnapshot } from "firebase/firestore";
 import { db } from "../../firebaseConfig";
 import { ThemeContext } from "../../context/ThemeContext";
@@ -27,16 +27,14 @@ export default function MessageItem({
   setPinnedMessage,
   onReplyClick,
   friendId,
-  messages = [],
   onOpenMediaViewer,
-  typing = false, // NEW PROP
-  friendInfo = null, // optional for name in typing
+  typing = false,
+  friendInfo = null,
 }) {
   const isMine = message.senderId === myUid;
   const { theme } = useContext(ThemeContext);
 
   const containerRef = useRef(null);
-  const textRef = useRef(null);
   const lastTap = useRef(0);
   const startX = useRef(0);
 
@@ -46,15 +44,17 @@ export default function MessageItem({
   const [fadeOut, setFadeOut] = useState(false);
   const [translateX, setTranslateX] = useState(0);
   const [status, setStatus] = useState(message.status || "Sent");
-  const [showFullText, setShowFullText] = useState(false);
-  const [textHeight, setTextHeight] = useState("auto");
-  const [fadeIn, setFadeIn] = useState(false);
   const [reactionBubbles, setReactionBubbles] = useState([]);
+  const [showFullText, setShowFullText] = useState(false);
 
-  // Fade in animation
+  // Fade-in animation on mount
   useEffect(() => {
-    setFadeIn(true);
-    const timer = setTimeout(() => setFadeIn(false), 500);
+    const el = containerRef.current;
+    if (el) el.style.opacity = 0;
+    const timer = setTimeout(() => {
+      if (el) el.style.transition = "opacity 0.3s ease";
+      if (el) el.style.opacity = 1;
+    }, 50);
     return () => clearTimeout(timer);
   }, []);
 
@@ -68,9 +68,8 @@ export default function MessageItem({
       if (message.seenBy?.includes(friendId)) setStatus("Seen");
     });
     return () => unsub();
-  }, [friendId, message, isMine, status]);
+  }, [friendId, message, isMine]);
 
-  // Pin / Unpin
   const togglePin = async () => {
     const chatRef = doc(db, "chats", chatId);
     const newPin = pinnedMessage?.id !== message.id;
@@ -79,7 +78,6 @@ export default function MessageItem({
     toast.success(newPin ? "Message pinned" : "Message unpinned");
   };
 
-  // Delete message
   const deleteMessage = async () => {
     if (!window.confirm(`Delete this message for ${isMine ? "everyone" : "them"}?`)) return;
     setFadeOut(true);
@@ -129,23 +127,23 @@ export default function MessageItem({
 
   if (deleted) return null;
 
-  // Read More handling
-  useEffect(() => {
-    if (textRef.current) {
-      setTextHeight(
-        showFullText
-          ? `${textRef.current.scrollHeight}px`
-          : `${Math.min(textRef.current.scrollHeight, 80)}px`
-      );
-    }
-  }, [showFullText]);
-
   const renderMessageText = () => {
     if (!message.text) return null;
     if (message.text.length <= READ_MORE_LIMIT) return <div>{message.text}</div>;
     return (
-      <div ref={textRef} style={{ maxHeight: textHeight, overflow: "hidden", transition: "max-height 0.3s ease" }}>
-        {message.text.slice(0, READ_MORE_LIMIT)}
+      <div>
+        <div
+          className="message-text"
+          style={{
+            display: "-webkit-box",
+            WebkitLineClamp: showFullText ? "none" : 4,
+            WebkitBoxOrient: "vertical",
+            overflow: "hidden",
+            wordBreak: "break-word",
+          }}
+        >
+          {message.text}
+        </div>
         {!showFullText && (
           <span
             style={{ color: COLORS.primary, cursor: "pointer", fontWeight: 500, marginLeft: 4 }}
@@ -154,7 +152,6 @@ export default function MessageItem({
             Read More
           </span>
         )}
-        {showFullText && message.text.slice(READ_MORE_LIMIT)}
       </div>
     );
   };
@@ -177,10 +174,12 @@ export default function MessageItem({
           position: "relative",
           transform: `translateX(${translateX}px) ${fadeOut ? `translateX(${isMine ? 100 : -100}px)` : ""}`,
           transition: "transform 0.3s ease, opacity 0.3s ease",
-          opacity: fadeOut ? 0 : fadeIn ? 0 : 1,
         }}
         onClick={handleTap}
-        onContextMenu={(e) => { e.preventDefault(); setShowModal(true); }}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          setShowModal(true);
+        }}
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
@@ -253,11 +252,7 @@ export default function MessageItem({
                   onClick={handleMediaClick}
                 />
               )}
-              {message.text && (
-                <div style={{ marginTop: 4, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
-                  {message.text}
-                </div>
-              )}
+              {message.text && <div style={{ marginTop: 4, whiteSpace: "pre-wrap" }}>{message.text}</div>}
             </div>
           ) : (
             renderMessageText()
@@ -323,7 +318,7 @@ export default function MessageItem({
           )}
         </div>
 
-        {/* Typing Indicator for friend */}
+        {/* Typing Indicator */}
         {!isMine && typing && <TypingIndicator userName={friendInfo?.name || "Someone"} isDark={isDark} />}
       </div>
 
