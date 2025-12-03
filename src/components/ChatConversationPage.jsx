@@ -45,8 +45,7 @@ export default function ChatConversationPage() {
   const [isBlocked, setIsBlocked] = useState(false);
   const [uploadProgress, setUploadProgress] = useState({});
   const [mediaViewerData, setMediaViewerData] = useState({ isOpen: false, items: [], startIndex: 0 });
-  const [typingUsers, setTypingUsers] = useState([]);
-  const [unreadCount, setUnreadCount] = useState(0);
+  const [typing, setTyping] = useState(false);
 
   // -------------------- Load chat & friend info --------------------
   useEffect(() => {
@@ -82,19 +81,8 @@ export default function ChatConversationPage() {
 
     const unsub = onSnapshot(q, (snap) => {
       const docs = snap.docs.map((d) => ({ id: d.id, ...d.data(), status: "sent" }));
-      setMessages((prev) => {
-        const newMessages = docs;
-        if (!isAtBottom) {
-          // Count unread messages
-          const lastSeenId = prev[prev.length - 1]?.id;
-          const unread = newMessages.filter((m) => m.id !== lastSeenId).length;
-          setUnreadCount(unread);
-        } else {
-          setUnreadCount(0);
-        }
-        return newMessages;
-      });
-      if (isAtBottom) scrollToBottom();
+      setMessages(docs);
+      if (isAtBottom) endRef.current?.scrollIntoView({ behavior: "smooth" });
     });
 
     return () => unsub();
@@ -108,11 +96,6 @@ export default function ChatConversationPage() {
     el.addEventListener("scroll", onScroll);
     return () => el.removeEventListener("scroll", onScroll);
   }, []);
-
-  const scrollToBottom = () => {
-    endRef.current?.scrollIntoView({ behavior: "smooth" });
-    setUnreadCount(0);
-  };
 
   // -------------------- Date helpers --------------------
   const formatDateSeparator = (date) => {
@@ -130,13 +113,17 @@ export default function ChatConversationPage() {
     return msgDate.toLocaleDateString(undefined, options);
   };
 
-  const groupedMessages = messages.reduce((acc, msg) => {
+  // -------------------- Group messages by date --------------------
+  const groupedMessages = [];
+  let lastDateStr = null;
+  messages.forEach((msg) => {
     const dateStr = formatDateSeparator(msg.createdAt);
-    const lastDate = acc.length ? acc[acc.length - 1].date : null;
-    if (dateStr !== lastDate) acc.push({ type: "date-separator", date: dateStr });
-    acc.push({ type: "message", data: msg });
-    return acc;
-  }, []);
+    if (dateStr !== lastDateStr) {
+      groupedMessages.push({ type: "date-separator", date: dateStr });
+      lastDateStr = dateStr;
+    }
+    groupedMessages.push({ type: "message", data: msg });
+  });
 
   const scrollToMessage = useCallback((id) => {
     const el = document.getElementById(id);
@@ -159,7 +146,6 @@ export default function ChatConversationPage() {
 
     const messagesCol = collection(db, "chats", chatId, "messages");
 
-    // Handle media + text messages
     for (let i = 0; i < files.length; i++) {
       const f = files[i];
       const type = f.type.startsWith("image/") ? "image" : f.type.startsWith("video/") ? "video" : "file";
@@ -178,7 +164,7 @@ export default function ChatConversationPage() {
         replyTo: replyTo ? { id: replyTo.id, text: replyTo.text, senderId: replyTo.senderId } : null,
       };
       setMessages((prev) => [...prev, tempMessage]);
-      scrollToBottom();
+      endRef.current?.scrollIntoView({ behavior: "smooth" });
 
       try {
         let mediaUrl = "";
@@ -233,7 +219,6 @@ export default function ChatConversationPage() {
       }
     }
 
-    // Text only message
     if (textMsg.trim() && files.length === 0) {
       const tempId = `temp-${Date.now()}-${Math.random()}`;
       const tempMessage = {
@@ -249,7 +234,7 @@ export default function ChatConversationPage() {
         replyTo: replyTo ? { id: replyTo.id, text: replyTo.text, senderId: replyTo.senderId } : null,
       };
       setMessages((prev) => [...prev, tempMessage]);
-      scrollToBottom();
+      endRef.current?.scrollIntoView({ behavior: "smooth" });
 
       try {
         const payload = { ...tempMessage, createdAt: serverTimestamp(), status: "sent" };
@@ -281,7 +266,7 @@ export default function ChatConversationPage() {
     setReplyTo(null);
   };
 
-  // -------------------- Media Viewer --------------------
+  // -------------------- Open MediaViewer dynamically --------------------
   const handleOpenMediaViewer = (clickedMediaUrl) => {
     const mediaItems = messages
       .filter((m) => m.mediaUrl)
@@ -349,52 +334,15 @@ export default function ChatConversationPage() {
               pinnedMessage={pinnedMessage}
               setPinnedMessage={setPinnedMessage}
               friendId={friendInfo?.id}
-              messages={messages}
               onReplyClick={(id) => scrollToMessage(id)}
               onOpenMediaViewer={(mediaUrl) => handleOpenMediaViewer(mediaUrl)}
+              messages={messages}
             />
           )
         )}
         <div ref={endRef} />
       </div>
 
-      {/* Typing Indicator */}
-      {typingUsers.length > 0 && (
-        <div style={{ fontSize: 12, color: isDark ? "#ccc" : "#555", margin: 4, paddingLeft: 8 }}>
-          {typingUsers.join(", ")} typing...
-        </div>
-      )}
-
-      {/* Scroll-to-Bottom / Unread Messages Badge */}
-      {!isAtBottom && unreadCount > 0 && (
-        <div
-          onClick={scrollToBottom}
-          style={{
-            position: "fixed",
-            bottom: 80,
-            right: 16,
-            minWidth: 50,
-            padding: "8px 12px",
-            borderRadius: 25,
-            background: "#34B7F1",
-            color: "#fff",
-            display: "flex",
-            justifyContent: "center",
-            alignItems: "center",
-            cursor: "pointer",
-            boxShadow: "0 2px 6px rgba(0,0,0,0.3)",
-            zIndex: 1000,
-            fontSize: 12,
-            fontWeight: 500,
-            animation: "bounce 1s infinite",
-          }}
-        >
-          <span style={{ marginRight: 6 }}>⬇️</span>
-          {unreadCount} unread {unreadCount === 1 ? "message" : "messages"}
-        </div>
-      )}
-
-      {/* Chat Input */}
       <ChatInput
         text={text}
         setText={setText}
@@ -405,7 +353,6 @@ export default function ChatConversationPage() {
         isDark={isDark}
         replyTo={replyTo}
         setReplyTo={setReplyTo}
-        disabled={isBlocked}
       />
 
       {/* Fullscreen MediaViewer */}
@@ -418,14 +365,6 @@ export default function ChatConversationPage() {
       )}
 
       <ToastContainer position="top-center" autoClose={1500} hideProgressBar />
-
-      <style>{`
-        @keyframes bounce {
-          0%, 20%, 50%, 80%, 100% { transform: translateY(0); }
-          40% { transform: translateY(-6px); }
-          60% { transform: translateY(-3px); }
-        }
-      `}</style>
     </div>
   );
 }
