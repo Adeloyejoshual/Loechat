@@ -83,7 +83,6 @@ export default function ChatHeader({
     const lastSeenDate = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
     const now = new Date();
 
-    // Online if last seen within 1 minute
     if (now - lastSeenDate <= 60 * 1000) return "Online";
 
     const hours = lastSeenDate.getHours();
@@ -119,16 +118,22 @@ export default function ChatHeader({
         <div className="chat-back" onClick={() => navigate("/chat")}>←</div>
 
         {/* Avatar */}
-        <div className="chat-avatar" onClick={() => navigate(`/friend/${friendId}`)}>
+        <div
+          className="chat-avatar"
+          onClick={() => navigate(`/edit-profile/${friendId}`)}
+        >
           {friendInfo?.profilePic ? (
-            <img src={friendInfo.profilePic} alt="" />
+            <img
+              src={friendInfo.profilePic}
+              alt={friendInfo.name || "User"}
+            />
           ) : (
-            getInitials(friendInfo?.name)
+            <span>{getInitials(friendInfo?.name)}</span>
           )}
         </div>
 
         {/* Name + Last Seen */}
-        <div className="chat-info" onClick={() => navigate(`/friend/${friendId}`)}>
+        <div className="chat-info" onClick={() => navigate(`/edit-profile/${friendId}`)}>
           <span className="chat-name">{friendInfo?.name || "Loading..."}</span>
           <span className="chat-lastseen">{formatLastSeen(friendInfo?.lastSeen)}</span>
         </div>
