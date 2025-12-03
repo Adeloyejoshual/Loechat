@@ -1,12 +1,18 @@
 // src/components/VideoCallPage.jsx
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState, useContext } from "react";
 import Video from "twilio-video";
 import { useParams, useNavigate } from "react-router-dom";
-import { auth } from "../firebaseConfig";
+import { ThemeContext } from "../context/ThemeContext";
+import { UserContext } from "../context/UserContext";
+import { usePopup } from "../context/PopupContext";
 
-export default function VideoCallPage({ setBalance, setTransactions, backend }) {
+export default function VideoCallPage({ backend, setBalance, setTransactions }) {
   const { uid: calleeId } = useParams();
   const navigate = useNavigate();
+  const { theme } = useContext(ThemeContext);
+  const { currentUser } = useContext(UserContext);
+  const { showPopup } = usePopup();
+  const isDark = theme === "dark";
 
   const [connected, setConnected] = useState(false);
   const [roomName, setRoomName] = useState(calleeId || `room-${Date.now()}`);
@@ -15,76 +21,83 @@ export default function VideoCallPage({ setBalance, setTransactions, backend }) 
   const ratePerMinute = 0.12;
 
   const localRef = useRef();
-  const remoteRef = useRef();
   const roomRef = useRef();
   const timerRef = useRef();
 
+  // ----------------- Join Room -----------------
   useEffect(() => {
-    const joinRoom = async () => {
-      const user = auth.currentUser;
-      if (!user) return navigate("/");
+    if (!currentUser) return navigate("/");
 
+    const joinRoom = async () => {
       try {
-        // 1. Get Twilio token
-        const identity = user.uid;
-        const tokenResp = await fetch(`${import.meta.env.VITE_TWILIO_TOKEN_SERVER}/token?identity=${encodeURIComponent(identity)}&room=${encodeURIComponent(roomName)}`);
+        const identity = currentUser.uid;
+        const tokenResp = await fetch(
+          `${backend}/api/twilio/token?identity=${encodeURIComponent(identity)}&room=${encodeURIComponent(roomName)}`
+        );
         const tokenData = await tokenResp.json();
         if (!tokenResp.ok) throw new Error(tokenData.message || "Failed to get Twilio token");
 
-        // 2. Connect to room
-        const room = await Video.connect(tokenData.token, { name: roomName, audio: true, video: { width: 640 } });
+        const room = await Video.connect(tokenData.token, { name: roomName, audio: true, video: { width: 1280 } });
         roomRef.current = room;
         setConnected(true);
 
-        // Start call timer
+        // Timer
         timerRef.current = setInterval(() => setSeconds(prev => prev + 1), 1000);
 
-        // Attach local tracks
+        // Attach local video
         const localTracks = Array.from(room.localParticipant.videoTracks).map(pub => pub.track);
         if (localTracks.length === 0) {
-          const tracks = await Video.createLocalTracks({ audio: true, video: { width: 640 } });
-          tracks.forEach(track => localRef.current?.appendChild(track.attach()));
+          const tracks = await Video.createLocalTracks({ audio: true, video: { width: 1280 } });
+          tracks.forEach(track => attachTrack(localRef.current, track, true));
         } else {
-          localTracks.forEach(track => localRef.current?.appendChild(track.attach()));
+          localTracks.forEach(track => attachTrack(localRef.current, track, true));
         }
 
         // Existing participants
         Array.from(room.participants.values()).forEach(handleParticipantConnected);
+
         room.on("participantConnected", participant => {
           handleParticipantConnected(participant);
           setParticipants(prev => [...prev, participant]);
         });
+
         room.on("participantDisconnected", participant => {
           handleParticipantDisconnected(participant);
           setParticipants(prev => prev.filter(p => p.sid !== participant.sid));
         });
-        room.on("disconnected", cleanupRoom);
 
+        room.on("disconnected", cleanupRoom);
       } catch (err) {
-        console.error("Join room failed", err);
-        alert("Failed to join room: " + err.message);
+        console.error(err);
+        showPopup(`Failed to join call: ${err.message}`);
         navigate(-1);
       }
     };
 
     joinRoom();
     return () => cleanupRoom();
-  }, [roomName]);
+  }, [roomName, currentUser]);
 
+  // ----------------- Handle Participants -----------------
   const handleParticipantConnected = participant => {
     const container = document.createElement("div");
     container.id = participant.sid;
-    container.style.marginBottom = "8px";
+    container.className = "remote-participant";
+    container.style.position = "relative";
     participant.tracks.forEach(pub => pub.isSubscribed && attachTrack(container, pub.track));
     participant.on("trackSubscribed", track => attachTrack(container, track));
     participant.on("trackUnsubscribed", track => detachTrack(container, track));
-    remoteRef.current?.appendChild(container);
+    document.getElementById("remoteContainer")?.appendChild(container);
   };
 
-  const attachTrack = (container, track) => {
+  const attachTrack = (container, track, isLocal = false) => {
     if (!container.querySelector(`video[data-track="${track.sid}"]`)) {
       const el = track.attach();
       el.dataset.track = track.sid;
+      el.style.width = "100%";
+      el.style.height = "100%";
+      el.style.objectFit = "cover";
+      el.style.borderRadius = isLocal ? "12px" : "6px";
       container.appendChild(el);
     }
   };
@@ -97,49 +110,42 @@ export default function VideoCallPage({ setBalance, setTransactions, backend }) 
     document.getElementById(participant.sid)?.remove();
   };
 
-  // ------------------- Billing -------------------
+  // ----------------- Billing -----------------
   const chargeWallet = async () => {
-    const user = auth.currentUser;
-    if (!user) return { amount: 0, status: "failed" };
-
+    if (!currentUser) return { amount: 0, status: "failed" };
     const cost = ((seconds / 60) * ratePerMinute).toFixed(2);
     const payload = { amount: parseFloat(cost), type: "video_call", roomName, durationSeconds: seconds, calleeId };
 
     try {
-      const token = await user.getIdToken(true);
+      const token = await currentUser.getIdToken(true);
       const res = await fetch(`${backend}/api/wallet/charge`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify(payload),
       });
       const data = await res.json();
-
       if (res.ok) {
         setBalance?.(data.newBalance);
         setTransactions?.(prev => [data.transaction, ...prev]);
         return { amount: cost, transaction: data.transaction };
       } else {
-        console.error("Charge failed", data.error);
         return { amount: cost, status: "failed" };
       }
     } catch (err) {
-      console.error("Wallet charge error", err);
+      console.error(err);
       return { amount: cost, status: "failed" };
     }
   };
 
-  // ------------------- Save call history -------------------
   const saveCallHistory = async (billingInfo) => {
-    const user = auth.currentUser;
-    if (!user) return;
-
+    if (!currentUser) return;
     try {
-      const token = await user.getIdToken(true);
-      const res = await fetch(`${backend}/api/callHistory`, {
+      const token = await currentUser.getIdToken(true);
+      await fetch(`${backend}/api/callHistory`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({
-          userId: user.uid,
+          userId: currentUser.uid,
           calleeId,
           roomName,
           durationSeconds: seconds,
@@ -149,23 +155,17 @@ export default function VideoCallPage({ setBalance, setTransactions, backend }) 
           status: "completed",
         }),
       });
-      if (!res.ok) throw new Error("Failed to save call history");
     } catch (err) {
       console.error("Save call history error", err);
     }
   };
 
-  // ------------------- Cleanup -------------------
+  // ----------------- Cleanup -----------------
   const cleanupRoom = async () => {
     clearInterval(timerRef.current);
-
-    // 1. Charge wallet
     const billingInfo = await chargeWallet();
-
-    // 2. Save call history
     await saveCallHistory(billingInfo);
 
-    // 3. Disconnect room
     const room = roomRef.current;
     if (room) {
       room.localParticipant.tracks.forEach(pub => { pub.track.stop?.(); pub.track.detach?.().forEach(n => n.remove()); });
@@ -176,34 +176,51 @@ export default function VideoCallPage({ setBalance, setTransactions, backend }) 
     setConnected(false);
     setParticipants([]);
     setSeconds(0);
-    localRef.current && (localRef.current.innerHTML = "");
-    remoteRef.current && (remoteRef.current.innerHTML = "");
-
-    // 4. Navigate to CallHistoryPage
-    navigate("/call-history");
+    navigate("/history");
   };
 
+  const formatTime = s => `${Math.floor(s/60)}:${String(s%60).padStart(2,"0")}`;
+
   return (
-    <div style={{ padding: 12 }}>
-      <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-        <div style={{ flex: 1, minWidth: 300 }}>
-          <h3>Local</h3>
-          <div ref={localRef} style={{ width: "100%", height: 280, background: "#000" }} />
-        </div>
-        <div style={{ flex: 1, minWidth: 300 }}>
-          <h3>Remote ({participants.length})</h3>
-          <div ref={remoteRef} style={{ width: "100%", height: 280, background: "#111", overflowY: "auto" }} />
-        </div>
+    <div style={{
+      width: "100%",
+      height: "100vh",
+      background: isDark ? "#000" : "#eef6ff",
+      color: isDark ? "#fff" : "#000",
+      position: "relative",
+      overflow: "hidden"
+    }}>
+      <button onClick={cleanupRoom} style={{ position: "absolute", top: 12, left: 12, zIndex: 10, padding: 8 }}>← Leave</button>
+
+      {/* Call Duration & Bill */}
+      <div style={{ position: "absolute", top: 12, right: 12, zIndex: 10 }}>
+        Duration: {formatTime(seconds)} | Bill: ${((seconds/60)*ratePerMinute).toFixed(2)}
       </div>
 
-      <div style={{ marginTop: 12 }}>
-        <div><strong>Duration:</strong> {Math.floor(seconds / 60)}:{String(seconds % 60).padStart(2,"0")} min</div>
-        <div><strong>Estimated Cost:</strong> ${((seconds/60)*ratePerMinute).toFixed(2)}</div>
-      </div>
+      {/* Local Video */}
+      <div id="localContainer" ref={localRef} style={{
+        position: "absolute",
+        bottom: 12,
+        right: 12,
+        width: 200,
+        height: 150,
+        borderRadius: 12,
+        overflow: "hidden",
+        zIndex: 5,
+        background: "#000",
+      }} />
 
-      <div style={{ marginTop: 12 }}>
-        <button onClick={cleanupRoom} style={{ padding: 8 }}>Leave Call</button>
-      </div>
+      {/* Remote Participants Grid */}
+      <div id="remoteContainer" style={{
+        display: "grid",
+        gridTemplateColumns: `repeat(auto-fit, minmax(240px, 1fr))`,
+        gridAutoRows: "200px",
+        gap: "8px",
+        width: "100%",
+        height: "100%",
+        padding: "12px",
+        boxSizing: "border-box",
+      }} />
     </div>
   );
 }
