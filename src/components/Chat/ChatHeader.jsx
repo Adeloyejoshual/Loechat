@@ -63,7 +63,7 @@ export default function ChatHeader({
   const toggleMute = async () => {
     if (!chatInfo) return;
     const isMuted = chatInfo.mutedUntil && chatInfo.mutedUntil > Date.now();
-    const newMutedUntil = isMuted ? 0 : Date.now() + 24 * 60 * 60 * 1000; // 24 hours
+    const newMutedUntil = isMuted ? 0 : Date.now() + 24 * 60 * 60 * 1000;
     await updateDoc(doc(db, "chats", chatId), { mutedUntil: newMutedUntil });
     setChatInfo((prev) => ({ ...prev, mutedUntil: newMutedUntil }));
     setMenuOpen(false);
@@ -117,10 +117,7 @@ export default function ChatHeader({
         <div className="chat-back" onClick={() => navigate("/chat")}>←</div>
 
         {/* Avatar */}
-        <div
-          className="chat-avatar"
-          onClick={() => navigate(`/friend/${friendId}`)}
-        >
+        <div className="chat-avatar" onClick={() => navigate(`/friend/${friendId}`)}>
           {friendInfo?.profilePic ? (
             <img src={friendInfo.profilePic} alt={friendInfo.name || "User"} />
           ) : (
@@ -136,8 +133,12 @@ export default function ChatHeader({
 
         {/* Call Buttons */}
         <div className="chat-actions">
-          <FiPhone size={22} className="action-btn" onClick={startVoiceCall} />
-          <FiVideo size={22} className="action-btn" onClick={startVideoCall} />
+          {!chatInfo?.blocked && (
+            <>
+              <FiPhone size={22} className="action-btn" onClick={startVoiceCall} />
+              <FiVideo size={22} className="action-btn" onClick={startVideoCall} />
+            </>
+          )}
         </div>
 
         {/* Menu */}
@@ -160,131 +161,6 @@ export default function ChatHeader({
           📌 <span>{pinned.text || "Pinned message"}</span>
         </div>
       )}
-
-      {/* -------------------- Styles -------------------- */}
-      <style jsx>{`
-        .chat-header {
-          display: flex;
-          align-items: center;
-          padding: 8px 12px;
-          background-color: #075e54;
-          position: sticky;
-          top: 0;
-          z-index: 999;
-          gap: 10px;
-        }
-        .chat-back {
-          width: 40px;
-          height: 40px;
-          border-radius: 50%;
-          background: rgba(255,255,255,0.15);
-          display: flex;
-          justify-content: center;
-          align-items: center;
-          cursor: pointer;
-          color: white;
-          font-size: 22px;
-          font-weight: 600;
-          transition: background 0.2s;
-        }
-        .chat-back:hover {
-          background: rgba(255,255,255,0.25);
-        }
-        .chat-avatar {
-          width: 50px;
-          height: 50px;
-          border-radius: 50%;
-          overflow: hidden;
-          cursor: pointer;
-          display: flex;
-          justify-content: center;
-          align-items: center;
-          font-weight: 600;
-          font-size: 18px;
-          color: #333;
-          background-color: #e0e0e0;
-        }
-        .chat-avatar img {
-          width: 100%;
-          height: 100%;
-          object-fit: cover;
-        }
-        .chat-info {
-          flex: 1;
-          display: flex;
-          flex-direction: column;
-          overflow: hidden;
-          cursor: pointer;
-          color: #fff;
-        }
-        .chat-name {
-          font-size: 16px;
-          font-weight: 600;
-          white-space: nowrap;
-          overflow: hidden;
-          text-overflow: ellipsis;
-        }
-        .chat-lastseen {
-          font-size: 13px;
-          opacity: 0.9;
-        }
-        .chat-actions {
-          display: flex;
-          gap: 10px;
-        }
-        .action-btn {
-          cursor: pointer;
-          transition: opacity 0.2s;
-        }
-        .action-btn:hover {
-          opacity: 0.7;
-        }
-        .chat-menu {
-          position: relative;
-          margin-left: 8px;
-        }
-        .menu-dropdown {
-          position: absolute;
-          top: 36px;
-          right: 0;
-          background: #fff;
-          color: #000;
-          border-radius: 10px;
-          padding: 8px 0;
-          width: 170px;
-          box-shadow: 0 4px 14px rgba(0,0,0,0.3);
-          z-index: 999;
-        }
-        .menu-dropdown div {
-          padding: 12px 16px;
-          cursor: pointer;
-          font-size: 15px;
-          white-space: nowrap;
-          transition: background 0.2s;
-        }
-        .menu-dropdown div:hover {
-          background: #f0f0f0;
-        }
-        .menu-dropdown .danger {
-          color: red;
-          font-weight: 600;
-        }
-        .pinned-message {
-          position: sticky;
-          top: 56px;
-          width: 100%;
-          background: #f7f7f7;
-          padding: 6px 12px;
-          border-bottom: 1px solid #ddd;
-          font-size: 14px;
-          display: flex;
-          align-items: center;
-          gap: 6px;
-          cursor: pointer;
-          color: #444;
-          z-index: 998;
-        }
-      `}</style>
     </>
   );
 }
