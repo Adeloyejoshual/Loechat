@@ -1,137 +1,121 @@
 // src/components/FriendProfilePage.jsx
 import React, { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { doc, onSnapshot, updateDoc, collection, query, where, getDocs } from "firebase/firestore";
-import { db, auth } from "../firebaseConfig";
-import { FiPhone, FiVideo } from "react-icons/fi";
-import { toast } from "react-toastify";
+import { doc, getDoc } from "firebase/firestore";
+import { db } from "../firebaseConfig";
+import { FiArrowLeft, FiMessageSquare, FiPhone, FiVideo } from "react-icons/fi";
 
-export default function FriendProfilePage() {
-  const { friendId } = useParams();
+export default function FriendProfilePage({ currentUser }) {
+  const { uid } = useParams(); // <-- IMPORTANT
   const navigate = useNavigate();
-  const [friendInfo, setFriendInfo] = useState(null);
-  const [chatId, setChatId] = useState(null);
-  const [isBlocked, setIsBlocked] = useState(false);
 
-  const myUid = auth.currentUser?.uid;
+  const [friend, setFriend] = useState(null);
+  const [loading, setLoading] = useState(true);
 
-  // -------------------- Load friend info --------------------
+  // Fetch friend data
   useEffect(() => {
-    if (!friendId) return;
-    const unsub = onSnapshot(doc(db, "users", friendId), (snap) => {
-      if (snap.exists()) setFriendInfo({ id: snap.id, ...snap.data() });
-    });
-    return () => unsub();
-  }, [friendId]);
+    const loadUser = async () => {
+      try {
+        const ref = doc(db, "users", uid);
+        const snap = await getDoc(ref);
 
-  // -------------------- Load chat between user and friend --------------------
-  useEffect(() => {
-    if (!friendId || !myUid) return;
-    const q = query(
-      collection(db, "chats"),
-      where("participants", "in", [[myUid, friendId], [friendId, myUid]])
-    );
-    getDocs(q).then((snap) => {
-      if (!snap.empty) {
-        const chatDoc = snap.docs[0];
-        setChatId(chatDoc.id);
-        setIsBlocked(chatDoc.data().blocked || false);
+        if (snap.exists()) {
+          setFriend(snap.data());
+        } else {
+          setFriend("NOT_FOUND");
+        }
+      } catch (err) {
+        console.error(err);
+        setFriend("ERROR");
       }
-    });
-  }, [friendId, myUid]);
 
-  // -------------------- Actions --------------------
-  const toggleBlock = async () => {
-    if (!chatId) {
-      toast.error("No chat found with this user");
-      return;
-    }
-    const newBlocked = !isBlocked;
-    await updateDoc(doc(db, "chats", chatId), { blocked: newBlocked });
-    setIsBlocked(newBlocked);
-    toast.success(newBlocked ? "User blocked" : "User unblocked");
-  };
+      setLoading(false);
+    };
 
-  const startChat = () => {
-    if (!chatId) {
-      toast.error("No chat available");
-      return;
-    }
-    navigate(`/chat/${chatId}`);
-  };
+    loadUser();
+  }, [uid]);
 
-  const startVoiceCall = () => {
-    if (!chatId) return;
-    navigate(`/call/voice/${chatId}`);
-  };
+  // Loading UI
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-screen bg-black text-white">
+        Loading profile…
+      </div>
+    );
+  }
 
-  const startVideoCall = () => {
-    if (!chatId) return;
-    navigate(`/call/video/${chatId}`);
-  };
+  if (friend === "NOT_FOUND") {
+    return (
+      <div className="flex flex-col items-center justify-center h-screen bg-black text-white">
+        <p>User not found.</p>
+        <button
+          className="mt-3 px-4 py-2 bg-blue-500 rounded"
+          onClick={() => navigate(-1)}
+        >
+          Go Back
+        </button>
+      </div>
+    );
+  }
 
-  if (!friendInfo) return <div>Loading...</div>;
+  if (friend === "ERROR") {
+    return (
+      <div className="flex flex-col items-center justify-center h-screen bg-black text-white">
+        <p>Failed to load profile.</p>
+        <button
+          className="mt-3 px-4 py-2 bg-blue-500 rounded"
+          onClick={() => navigate(-1)}
+        >
+          Go Back
+        </button>
+      </div>
+    );
+  }
 
   return (
-    <div style={{ padding: 20, display: "flex", flexDirection: "column", alignItems: "center" }}>
-      {/* Avatar */}
-      <div
-        style={{
-          width: 120,
-          height: 120,
-          borderRadius: "50%",
-          overflow: "hidden",
-          marginBottom: 20,
-        }}
-      >
-        {friendInfo.profilePic ? (
-          <img src={friendInfo.profilePic} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-        ) : (
-          <div
-            style={{
-              width: "100%",
-              height: "100%",
-              display: "flex",
-              justifyContent: "center",
-              alignItems: "center",
-              background: "#ccc",
-              fontSize: 36,
-              fontWeight: "bold",
-            }}
-          >
-            {friendInfo.name?.charAt(0).toUpperCase() || "U"}
-          </div>
-        )}
+    <div className="min-h-screen bg-black text-white">
+      {/* Header */}
+      <div className="flex items-center px-4 py-4 border-b border-white/10">
+        <FiArrowLeft
+          size={26}
+          className="mr-4"
+          onClick={() => navigate(-1)}
+        />
+        <h1 className="text-xl font-semibold">Profile</h1>
       </div>
 
-      {/* Name & Status */}
-      <h2>{friendInfo.name || "Unknown"}</h2>
-      <p style={{ color: "#666" }}>{friendInfo.lastSeen ? `Last seen: ${new Date(friendInfo.lastSeen.toDate()).toLocaleString()}` : "Offline"}</p>
+      {/* Profile Picture */}
+      <div className="flex flex-col items-center mt-8">
+        <img
+          src={friend.profilePic || "/default-avatar.png"}
+          alt="profile"
+          className="w-32 h-32 rounded-full object-cover border border-white/20"
+        />
+        <h2 className="text-2xl font-bold mt-4">{friend.name}</h2>
+
+        <p className="text-gray-400 mt-1">
+          {friend.online ? "Online" : `Last seen: ${friend.lastSeen}`}
+        </p>
+      </div>
 
       {/* Actions */}
-      <div style={{ display: "flex", gap: 20, marginTop: 20 }}>
-        <button onClick={startChat} style={{ padding: "10px 20px" }}>
-          Chat
+      <div className="flex justify-around mt-8 px-6">
+        <button
+          onClick={() => navigate(`/chat/${uid}`)}
+          className="flex flex-col items-center"
+        >
+          <FiMessageSquare size={28} />
+          <span className="text-sm mt-1">Message</span>
         </button>
-        <button onClick={startVoiceCall} style={{ padding: "10px 20px" }}>
-          <FiPhone />
+
+        <button onClick={() => navigate(`/voicecall/${uid}`)}>
+          <FiPhone size={28} />
         </button>
-        <button onClick={startVideoCall} style={{ padding: "10px 20px" }}>
-          <FiVideo />
+
+        <button onClick={() => navigate(`/videocall/${uid}`)}>
+          <FiVideo size={28} />
         </button>
       </div>
-
-      <button
-        onClick={toggleBlock}
-        style={{
-          marginTop: 20,
-          padding: "10px 20px",
-          background: isBlocked ? "red" : "#ddd",
-          color: isBlocked ? "#fff" : "#000",
-        }}
-      >
-        {isBlocked ? "Unblock" : "Block"}
-      </button>
     </div>
   );
 }
