@@ -22,6 +22,7 @@ import MediaViewer from "./Chat/MediaViewer";
 import { toast, ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import axios from "axios";
+import { FiChevronDown } from "react-icons/fi";
 
 export default function ChatConversationPage() {
   const { chatId } = useParams();
@@ -45,6 +46,9 @@ export default function ChatConversationPage() {
   const [isBlocked, setIsBlocked] = useState(false);
   const [uploadProgress, setUploadProgress] = useState({});
   const [mediaViewerData, setMediaViewerData] = useState({ isOpen: false, items: [], startIndex: 0 });
+  const [typing, setTyping] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [showScrollArrow, setShowScrollArrow] = useState(false);
 
   // -------------------- Load chat & friend info --------------------
   useEffect(() => {
@@ -81,7 +85,14 @@ export default function ChatConversationPage() {
     const unsub = onSnapshot(q, (snap) => {
       const docs = snap.docs.map((d) => ({ id: d.id, ...d.data(), status: "sent" }));
       setMessages(docs);
-      if (isAtBottom) endRef.current?.scrollIntoView({ behavior: "smooth" });
+
+      if (!isAtBottom) {
+        const newUnread = docs.filter((m) => m.senderId !== myUid && !m.seenBy?.includes(myUid));
+        setUnreadCount(newUnread.length);
+        setShowScrollArrow(true);
+      } else {
+        scrollToBottom();
+      }
     });
 
     return () => unsub();
@@ -91,10 +102,51 @@ export default function ChatConversationPage() {
   useEffect(() => {
     const el = messagesRefEl.current;
     if (!el) return;
-    const onScroll = () => setIsAtBottom(el.scrollHeight - el.scrollTop - el.clientHeight < 80);
+    const onScroll = () => {
+      const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+      setIsAtBottom(atBottom);
+
+      if (atBottom) {
+        setUnreadCount(0);
+        setShowScrollArrow(false);
+      } else {
+        if (unreadCount > 0) setShowScrollArrow(true);
+      }
+    };
     el.addEventListener("scroll", onScroll);
     return () => el.removeEventListener("scroll", onScroll);
-  }, []);
+  }, [unreadCount]);
+
+  const scrollToBottom = () => {
+    endRef.current?.scrollIntoView({ behavior: "smooth" });
+    setUnreadCount(0);
+    setShowScrollArrow(false);
+  };
+
+  // -------------------- Typing indicator --------------------
+  useEffect(() => {
+    if (!chatId || !friendInfo?.id) return;
+    const typingRef = doc(db, "chats", chatId, "typingStatus", friendInfo.id);
+    const unsubscribe = onSnapshot(typingRef, (snap) => {
+      if (snap.exists()) {
+        setTyping(snap.data()?.isTyping || false);
+      } else {
+        setTyping(false);
+      }
+    });
+    return () => unsubscribe();
+  }, [chatId, friendInfo?.id]);
+
+  const handleTyping = async (value) => {
+    setText(value);
+    const typingRef = doc(db, "chats", chatId, "typingStatus", myUid);
+    await updateDoc(typingRef, { isTyping: value.length > 0 });
+  };
+
+  const clearTyping = async () => {
+    const typingRef = doc(db, "chats", chatId, "typingStatus", myUid);
+    await updateDoc(typingRef, { isTyping: false });
+  };
 
   // -------------------- Date helpers --------------------
   const formatDateSeparator = (date) => {
@@ -125,7 +177,7 @@ export default function ChatConversationPage() {
     if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
   }, []);
 
-  // -------------------- File Input Handlers --------------------
+  // -------------------- File Input --------------------
   const handleAddFiles = () => fileInputRef.current?.click();
   const handleFilesSelected = (e) => {
     const files = Array.from(e.target.files);
@@ -138,6 +190,8 @@ export default function ChatConversationPage() {
   const sendMessage = async (textMsg = "", files = []) => {
     if (isBlocked) return toast.error("You cannot send messages to this user");
     if (!textMsg && files.length === 0) return;
+
+    clearTyping();
 
     const messagesCol = collection(db, "chats", chatId, "messages");
 
@@ -159,7 +213,7 @@ export default function ChatConversationPage() {
         replyTo: replyTo ? { id: replyTo.id, text: replyTo.text, senderId: replyTo.senderId } : null,
       };
       setMessages((prev) => [...prev, tempMessage]);
-      endRef.current?.scrollIntoView({ behavior: "smooth" });
+      scrollToBottom();
 
       try {
         let mediaUrl = "";
@@ -229,7 +283,7 @@ export default function ChatConversationPage() {
         replyTo: replyTo ? { id: replyTo.id, text: replyTo.text, senderId: replyTo.senderId } : null,
       };
       setMessages((prev) => [...prev, tempMessage]);
-      endRef.current?.scrollIntoView({ behavior: "smooth" });
+      scrollToBottom();
 
       try {
         const payload = { ...tempMessage, createdAt: serverTimestamp(), status: "sent" };
@@ -261,7 +315,7 @@ export default function ChatConversationPage() {
     setReplyTo(null);
   };
 
-  // -------------------- Open MediaViewer dynamically --------------------
+  // -------------------- Media Viewer --------------------
   const handleOpenMediaViewer = (clickedMediaUrl) => {
     const mediaItems = messages
       .filter((m) => m.mediaUrl)
@@ -308,7 +362,7 @@ export default function ChatConversationPage() {
       {/* Messages */}
       <div
         ref={messagesRefEl}
-        style={{ flex: 1, overflowY: "auto", padding: 8, display: "flex", flexDirection: "column" }}
+        style={{ flex: 1, overflowY: "auto", padding: 8, display: "flex", flexDirection: "column", position: "relative" }}
       >
         {groupedMessages.map((item, idx) =>
           item.type === "date-separator" ? (
@@ -334,12 +388,67 @@ export default function ChatConversationPage() {
             />
           )
         )}
+
+        {/* Unread message badge with fade */}
+        <div
+          style={{
+            position: "absolute",
+            top: 10,
+            left: "50%",
+            transform: "translateX(-50%)",
+            backgroundColor: "#34B7F1",
+            color: "#fff",
+            padding: "6px 12px",
+            borderRadius: 20,
+            fontSize: 12,
+            cursor: "pointer",
+            zIndex: 10,
+            transition: "opacity 0.3s, transform 0.3s",
+            opacity: unreadCount > 0 ? 1 : 0,
+            pointerEvents: unreadCount > 0 ? "auto" : "none",
+            transform: unreadCount > 0 ? "translateX(-50%) translateY(0)" : "translateX(-50%) translateY(-20px)",
+          }}
+          onClick={scrollToBottom}
+        >
+          {unreadCount} unread message{unreadCount > 1 ? "s" : ""}
+        </div>
+
+        {/* Scroll-to-bottom arrow */}
+        {showScrollArrow && (
+          <div
+            onClick={scrollToBottom}
+            style={{
+              position: "fixed",
+              bottom: 80,
+              right: 20,
+              backgroundColor: "#34B7F1",
+              borderRadius: "50%",
+              padding: 8,
+              cursor: "pointer",
+              zIndex: 10,
+              boxShadow: "0 2px 6px rgba(0,0,0,0.3)",
+              transition: "opacity 0.3s",
+              opacity: showScrollArrow ? 1 : 0,
+            }}
+          >
+            <FiChevronDown color="#fff" size={20} />
+          </div>
+        )}
+
+        {/* Typing indicator */}
+        {typing && (
+          <div style={{ fontSize: 12, opacity: 0.7, margin: "4px 0", textAlign: "left" }}>
+            {friendInfo?.displayName || "Friend"} is typing...
+          </div>
+        )}
+
         <div ref={endRef} />
       </div>
 
+      {/* Chat Input */}
       <ChatInput
         text={text}
-        setText={setText}
+        setText={handleTyping}
         sendTextMessage={() => sendMessage(text, selectedFiles)}
         sendMediaMessage={(files) => setSelectedFiles(files)}
         selectedFiles={selectedFiles}
@@ -350,7 +459,7 @@ export default function ChatConversationPage() {
         disabled={isBlocked}
       />
 
-      {/* Fullscreen MediaViewer */}
+      {/* Media Viewer */}
       {mediaViewerData.isOpen && (
         <MediaViewer
           items={mediaViewerData.items}
@@ -359,6 +468,7 @@ export default function ChatConversationPage() {
         />
       )}
 
+      {/* Toast */}
       <ToastContainer position="top-center" autoClose={1500} hideProgressBar />
     </div>
   );
