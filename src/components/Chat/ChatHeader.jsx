@@ -1,3 +1,4 @@
+
 // src/components/Chat/ChatHeader.jsx
 import React, { useEffect, useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
@@ -50,7 +51,7 @@ export default function ChatHeader({
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // -------------------- Toggle Block & Mute --------------------
+  // -------------------- Block & Mute --------------------
   const toggleBlock = async () => {
     if (!chatInfo) return;
     const newBlocked = !chatInfo.blocked;
@@ -82,7 +83,6 @@ export default function ChatHeader({
     if (!timestamp) return "";
     const lastSeenDate = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
     const now = new Date();
-
     if (now - lastSeenDate <= 60 * 1000) return "Online";
 
     const hours = lastSeenDate.getHours();
@@ -120,20 +120,17 @@ export default function ChatHeader({
         {/* Avatar */}
         <div
           className="chat-avatar"
-          onClick={() => navigate(`/edit-profile/${friendId}`)}
+          onClick={() => navigate(`/friend/${friendId}`)}
         >
           {friendInfo?.profilePic ? (
-            <img
-              src={friendInfo.profilePic}
-              alt={friendInfo.name || "User"}
-            />
+            <img src={friendInfo.profilePic} alt={friendInfo.name || "User"} />
           ) : (
             <span>{getInitials(friendInfo?.name)}</span>
           )}
         </div>
 
         {/* Name + Last Seen */}
-        <div className="chat-info" onClick={() => navigate(`/edit-profile/${friendId}`)}>
+        <div className="chat-info" onClick={() => navigate(`/friend/${friendId}`)}>
           <span className="chat-name">{friendInfo?.name || "Loading..."}</span>
           <span className="chat-lastseen">{formatLastSeen(friendInfo?.lastSeen)}</span>
         </div>
@@ -151,12 +148,8 @@ export default function ChatHeader({
             <div className="menu-dropdown">
               <div onClick={() => { setMenuOpen(false); onSearch(); }}>Search</div>
               <div onClick={() => { setMenuOpen(false); onClearChat(); }}>Clear Chat</div>
-              <div onClick={toggleMute}>
-                {chatInfo?.mutedUntil > Date.now() ? "Unmute" : "Mute"}
-              </div>
-              <div onClick={toggleBlock} className="danger">
-                {chatInfo?.blocked ? "Unblock" : "Block"}
-              </div>
+              <div onClick={toggleMute}>{chatInfo?.mutedUntil > Date.now() ? "Unmute" : "Mute"}</div>
+              <div onClick={toggleBlock} className="danger">{chatInfo?.blocked ? "Unblock" : "Block"}</div>
             </div>
           )}
         </div>
