@@ -46,7 +46,7 @@ export default function ChatConversationPage() {
   const [isBlocked, setIsBlocked] = useState(false);
   const [uploadProgress, setUploadProgress] = useState({});
   const [mediaViewerData, setMediaViewerData] = useState({ isOpen: false, items: [], startIndex: 0 });
-  const [typingUsers, setTypingUsers] = useState({}); // <--- track typing users
+  const [typingUsers, setTypingUsers] = useState({});
 
   // -------------------- Load chat & friend info --------------------
   useEffect(() => {
@@ -70,7 +70,6 @@ export default function ChatConversationPage() {
         onSnapshot(pinnedRef, (s) => s.exists() && setPinnedMessage({ id: s.id, ...s.data() }));
       }
 
-      // TYPING
       setTypingUsers(data.typing || {});
     });
 
@@ -86,7 +85,7 @@ export default function ChatConversationPage() {
     const unsub = onSnapshot(q, (snap) => {
       const docs = snap.docs.map((d) => ({ id: d.id, ...d.data(), status: "sent" }));
       setMessages(docs);
-      if (isAtBottom) endRef.current?.scrollIntoView({ behavior: "smooth" });
+      if (isAtBottom) scrollToBottom();
     });
 
     return () => unsub();
@@ -99,6 +98,10 @@ export default function ChatConversationPage() {
     const onScroll = () => setIsAtBottom(el.scrollHeight - el.scrollTop - el.clientHeight < 80);
     el.addEventListener("scroll", onScroll);
     return () => el.removeEventListener("scroll", onScroll);
+  }, []);
+
+  const scrollToBottom = useCallback(() => {
+    endRef.current?.scrollIntoView({ behavior: "smooth" });
   }, []);
 
   // -------------------- Date helpers --------------------
@@ -150,12 +153,10 @@ export default function ChatConversationPage() {
 
     const messagesCol = collection(db, "chats", chatId, "messages");
 
-    // --- Media files ---
-    for (let i = 0; i < files.length; i++) {
-      const f = files[i];
+    // --- Media messages ---
+    for (const f of files) {
       const type = f.type.startsWith("image/") ? "image" : f.type.startsWith("video/") ? "video" : "file";
       const tempId = `temp-${Date.now()}-${Math.random()}`;
-
       const tempMessage = {
         id: tempId,
         senderId: myUid,
@@ -169,7 +170,7 @@ export default function ChatConversationPage() {
         replyTo: replyTo ? { id: replyTo.id, text: replyTo.text, senderId: replyTo.senderId } : null,
       };
       setMessages((prev) => [...prev, tempMessage]);
-      endRef.current?.scrollIntoView({ behavior: "smooth" });
+      scrollToBottom();
 
       try {
         let mediaUrl = "";
@@ -203,7 +204,6 @@ export default function ChatConversationPage() {
         };
 
         const docRef = await addDoc(messagesCol, payload);
-
         setMessages((prev) =>
           prev.map((m) =>
             m.id === tempId ? { ...payload, id: docRef.id, status: "sent", createdAt: new Date() } : m
@@ -212,9 +212,7 @@ export default function ChatConversationPage() {
       } catch (err) {
         console.error(err);
         toast.error("Failed to send media");
-        setMessages((prev) =>
-          prev.map((m) => (m.id === tempId ? { ...m, status: "failed" } : m))
-        );
+        setMessages((prev) => prev.map((m) => (m.id === tempId ? { ...m, status: "failed" } : m)));
       } finally {
         setUploadProgress((prev) => {
           const copy = { ...prev };
@@ -224,7 +222,7 @@ export default function ChatConversationPage() {
       }
     }
 
-    // --- Text only message ---
+    // --- Text-only message ---
     if (textMsg.trim() && files.length === 0) {
       const tempId = `temp-${Date.now()}-${Math.random()}`;
       const tempMessage = {
@@ -240,22 +238,18 @@ export default function ChatConversationPage() {
         replyTo: replyTo ? { id: replyTo.id, text: replyTo.text, senderId: replyTo.senderId } : null,
       };
       setMessages((prev) => [...prev, tempMessage]);
-      endRef.current?.scrollIntoView({ behavior: "smooth" });
+      scrollToBottom();
 
       try {
         const payload = { ...tempMessage, createdAt: serverTimestamp(), status: "sent" };
         const docRef = await addDoc(messagesCol, payload);
         setMessages((prev) =>
-          prev.map((m) =>
-            m.id === tempId ? { ...payload, id: docRef.id, createdAt: new Date() } : m
-          )
+          prev.map((m) => (m.id === tempId ? { ...payload, id: docRef.id, createdAt: new Date() } : m))
         );
       } catch (err) {
         console.error(err);
         toast.error("Failed to send message");
-        setMessages((prev) =>
-          prev.map((m) => (m.id === tempId ? { ...m, status: "failed" } : m))
-        );
+        setMessages((prev) => prev.map((m) => (m.id === tempId ? { ...m, status: "failed" } : m)));
       }
     }
 
@@ -272,11 +266,8 @@ export default function ChatConversationPage() {
     setReplyTo(null);
   };
 
-  // -------------------- Open MediaViewer dynamically --------------------
   const handleOpenMediaViewer = (clickedMediaUrl) => {
-    const mediaItems = messages
-      .filter((m) => m.mediaUrl)
-      .map((m) => ({ url: m.mediaUrl, type: m.mediaType || "image" }));
+    const mediaItems = messages.filter((m) => m.mediaUrl).map((m) => ({ url: m.mediaUrl, type: m.mediaType || "image" }));
     const startIndex = mediaItems.findIndex((m) => m.url === clickedMediaUrl);
     setMediaViewerData({ isOpen: true, items: mediaItems, startIndex: startIndex >= 0 ? startIndex : 0 });
   };
@@ -292,14 +283,7 @@ export default function ChatConversationPage() {
         position: "relative",
       }}
     >
-      <input
-        type="file"
-        ref={fileInputRef}
-        style={{ display: "none" }}
-        multiple
-        accept="image/,video/"
-        onChange={handleFilesSelected}
-      />
+      <input type="file" ref={fileInputRef} style={{ display: "none" }} multiple accept="image/,video/" onChange={handleFilesSelected} />
 
       <ChatHeader
         friendId={friendInfo?.id}
@@ -317,16 +301,10 @@ export default function ChatConversationPage() {
       />
 
       {/* Messages */}
-      <div
-        ref={messagesRefEl}
-        style={{ flex: 1, overflowY: "auto", padding: 8, display: "flex", flexDirection: "column" }}
-      >
+      <div ref={messagesRefEl} style={{ flex: 1, overflowY: "auto", padding: 8, display: "flex", flexDirection: "column" }}>
         {groupedMessages.map((item, idx) =>
           item.type === "date-separator" ? (
-            <div
-              key={idx}
-              style={{ textAlign: "center", margin: "10px 0", fontSize: 12, color: isDark ? "#aaa" : "#555" }}
-            >
+            <div key={idx} style={{ textAlign: "center", margin: "10px 0", fontSize: 12, color: isDark ? "#aaa" : "#555" }}>
               {item.date}
             </div>
           ) : (
@@ -340,13 +318,14 @@ export default function ChatConversationPage() {
               pinnedMessage={pinnedMessage}
               setPinnedMessage={setPinnedMessage}
               friendId={friendInfo?.id}
-              onReplyClick={(id) => scrollToMessage(id)}
-              onOpenMediaViewer={(mediaUrl) => handleOpenMediaViewer(mediaUrl)}
+              onReplyClick={scrollToMessage}
+              onOpenMediaViewer={handleOpenMediaViewer}
               messages={messages}
-              typingUsers={typingUsers} // <-- pass typing users to MessageItem
+              typingUsers={typingUsers}
             />
           )
         )}
+        <TypingIndicator typingUsers={typingUsers} myUid={myUid} />
         <div ref={endRef} />
       </div>
 
@@ -354,7 +333,7 @@ export default function ChatConversationPage() {
         text={text}
         setText={setText}
         sendTextMessage={() => sendMessage(text, selectedFiles)}
-        sendMediaMessage={(files) => setSelectedFiles(files)}
+        sendMediaMessage={setSelectedFiles}
         selectedFiles={selectedFiles}
         setSelectedFiles={setSelectedFiles}
         isDark={isDark}
@@ -362,13 +341,8 @@ export default function ChatConversationPage() {
         setReplyTo={setReplyTo}
       />
 
-      {/* Fullscreen MediaViewer */}
       {mediaViewerData.isOpen && (
-        <MediaViewer
-          items={mediaViewerData.items}
-          startIndex={mediaViewerData.startIndex}
-          onClose={() => setMediaViewerData({ ...mediaViewerData, isOpen: false })}
-        />
+        <MediaViewer items={mediaViewerData.items} startIndex={mediaViewerData.startIndex} onClose={() => setMediaViewerData({ ...mediaViewerData, isOpen: false })} />
       )}
 
       <ToastContainer position="top-center" autoClose={1500} hideProgressBar />
