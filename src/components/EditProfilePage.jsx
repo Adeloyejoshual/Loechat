@@ -1,119 +1,152 @@
 // src/components/FriendProfilePage.jsx
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useContext } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { doc, getDoc } from "firebase/firestore";
-import { db } from "../firebaseConfig";
-import { FiArrowLeft, FiMessageSquare, FiPhone, FiVideo } from "react-icons/fi";
+import { auth, db } from "../firebaseConfig";
+import { doc, onSnapshot, updateDoc } from "firebase/firestore";
+import { ThemeContext } from "../context/ThemeContext";
+import { UserContext } from "../context/UserContext";
 
-export default function FriendProfilePage({ currentUser }) {
-  const { uid } = useParams(); // <-- IMPORTANT
+// ---------------- UTILITY ----------------
+const stringToColor = (str) => {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) hash = str.charCodeAt(i) + ((hash << 5) - hash);
+  const c = (hash & 0x00ffffff).toString(16).toUpperCase();
+  return "#" + "00000".substring(0, 6 - c.length) + c;
+};
+
+const getInitials = (name) => {
+  if (!name) return "NA";
+  const parts = name.trim().split(" ");
+  return parts.length === 1 ? parts[0][0].toUpperCase() : (parts[0][0] + parts[1][0]).toUpperCase();
+};
+
+const formatLastSeen = (ts) => {
+  if (!ts) return "Last seen unavailable";
+  const d = ts.toDate ? ts.toDate() : new Date(ts);
+  const now = new Date();
+  if (d.toDateString() === now.toDateString()) return "Online";
+
+  const yesterday = new Date();
+  yesterday.setDate(now.getDate() - 1);
+  if (d.toDateString() === yesterday.toDateString())
+    return `Last seen: Yesterday at ${d.toLocaleTimeString([], { hour: "numeric", minute: "numeric", hour12: true })}`;
+
+  const options = d.getFullYear() !== now.getFullYear() 
+    ? { month: "long", day: "numeric", year: "numeric" } 
+    : { month: "long", day: "numeric" };
+
+  return `Last seen: ${d.toLocaleDateString(undefined, options)} at ${d.toLocaleTimeString([], { hour: "numeric", minute: "numeric", hour12: true })}`;
+};
+
+const getCloudinaryUrl = (path) => path ? `https://res.cloudinary.com/<your-cloud-name>/image/upload/w_300,h_300,c_thumb/${path}.jpg` : null;
+
+// ---------------- COMPONENT ----------------
+export default function FriendProfilePage() {
+  const { uid } = useParams();
   const navigate = useNavigate();
+  const { theme } = useContext(ThemeContext);
+  const { currentUser } = useContext(UserContext);
+  const isDark = theme === "dark";
 
   const [friend, setFriend] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [actionLoading, setActionLoading] = useState(false);
 
-  // Fetch friend data
+  // ---------------- REAL-TIME FRIEND DATA ----------------
   useEffect(() => {
-    const loadUser = async () => {
-      try {
-        const ref = doc(db, "users", uid);
-        const snap = await getDoc(ref);
-
-        if (snap.exists()) {
-          setFriend(snap.data());
-        } else {
-          setFriend("NOT_FOUND");
-        }
-      } catch (err) {
-        console.error(err);
-        setFriend("ERROR");
-      }
-
+    if (!uid) return;
+    const ref = doc(db, "users", uid);
+    const unsub = onSnapshot(ref, (snap) => {
+      if (snap.exists()) setFriend({ id: snap.id, ...snap.data() });
       setLoading(false);
-    };
-
-    loadUser();
+    });
+    return () => unsub();
   }, [uid]);
 
-  // Loading UI
-  if (loading) {
+  // ---------------- ACTIONS ----------------
+  const toggleBlock = async () => {
+    if (!currentUser || !friend) return;
+    setActionLoading(true);
+    try {
+      const ref = doc(db, "users", uid);
+      const isBlocked = friend.blockedBy?.includes(currentUser.uid);
+      await updateDoc(ref, {
+        blockedBy: isBlocked
+          ? friend.blockedBy.filter((id) => id !== currentUser.uid)
+          : [...(friend.blockedBy || []), currentUser.uid],
+      });
+    } catch (err) {
+      console.error(err);
+      alert("Failed to update block status.");
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const sendMessage = () => {
+    if (!currentUser || !uid) return;
+    navigate(`/chat/${[currentUser.uid, uid].sort().join("_")}`);
+  };
+
+  const reportUser = () => {
+    alert(`You reported ${friend?.displayName || "this user"}.`);
+  };
+
+  if (loading || !friend) {
     return (
-      <div className="flex items-center justify-center h-screen bg-black text-white">
+      <div className={`flex h-screen items-center justify-center ${isDark ? "bg-black text-white" : "bg-white text-black"}`}>
         Loading profile…
       </div>
     );
   }
 
-  if (friend === "NOT_FOUND") {
-    return (
-      <div className="flex flex-col items-center justify-center h-screen bg-black text-white">
-        <p>User not found.</p>
-        <button
-          className="mt-3 px-4 py-2 bg-blue-500 rounded"
-          onClick={() => navigate(-1)}
-        >
-          Go Back
-        </button>
-      </div>
-    );
-  }
-
-  if (friend === "ERROR") {
-    return (
-      <div className="flex flex-col items-center justify-center h-screen bg-black text-white">
-        <p>Failed to load profile.</p>
-        <button
-          className="mt-3 px-4 py-2 bg-blue-500 rounded"
-          onClick={() => navigate(-1)}
-        >
-          Go Back
-        </button>
-      </div>
-    );
-  }
+  const isBlocked = friend.blockedBy?.includes(currentUser?.uid);
+  const profileUrl = getCloudinaryUrl(friend.photoPath);
 
   return (
-    <div className="min-h-screen bg-black text-white">
-      {/* Header */}
-      <div className="flex items-center px-4 py-4 border-b border-white/10">
-        <FiArrowLeft
-          size={26}
-          className="mr-4"
-          onClick={() => navigate(-1)}
-        />
-        <h1 className="text-xl font-semibold">Profile</h1>
+    <div className={`${isDark ? "bg-black text-white" : "bg-white text-black"} min-h-screen p-4`}>
+      {/* BACK BUTTON HEADER */}
+      <div className="flex items-center gap-3 mb-6">
+        <button onClick={() => navigate(-1)} className="text-2xl font-bold">←</button>
+        <h2 className="text-xl font-semibold">Profile</h2>
       </div>
 
-      {/* Profile Picture */}
-      <div className="flex flex-col items-center mt-8">
-        <img
-          src={friend.profilePic || "/default-avatar.png"}
-          alt="profile"
-          className="w-32 h-32 rounded-full object-cover border border-white/20"
-        />
-        <h2 className="text-2xl font-bold mt-4">{friend.name}</h2>
+      {/* PROFILE PICTURE */}
+      <div className="w-32 h-32 rounded-full mb-4 relative flex items-center justify-center border border-gray-700 overflow-hidden mx-auto">
+        {profileUrl ? (
+          <img src={profileUrl} alt="Profile" className="w-full h-full object-cover" />
+        ) : (
+          <span className="text-white font-bold text-3xl" style={{ backgroundColor: stringToColor(friend.displayName), width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            {getInitials(friend.displayName)}
+          </span>
+        )}
 
-        <p className="text-gray-400 mt-1">
-          {friend.online ? "Online" : `Last seen: ${friend.lastSeen}`}
-        </p>
+        {/* ONLINE DOT */}
+        <span
+          className={`absolute bottom-2 right-2 w-4 h-4 rounded-full border-2 border-white ${friend.isOnline ? "bg-green-400" : "bg-gray-400"}`}
+          title={friend.isOnline ? "Online" : formatLastSeen(friend.lastSeen)}
+        />
       </div>
 
-      {/* Actions */}
-      <div className="flex justify-around mt-8 px-6">
-        <button
-          onClick={() => navigate(`/chat/${uid}`)}
-          className="flex flex-col items-center"
-        >
-          <FiMessageSquare size={28} />
-          <span className="text-sm mt-1">Message</span>
+      {/* NAME / ABOUT / LAST SEEN */}
+      <div className="text-center mb-4">
+        <h2 className="text-2xl font-semibold">{friend.displayName || "Unknown User"}</h2>
+        <p className="text-gray-400 text-sm mt-1">{friend.about || "No bio added."}</p>
+        {!friend.isOnline && <p className="text-gray-500 text-xs mt-2">{formatLastSeen(friend.lastSeen)}</p>}
+      </div>
+
+      {/* ACTION BUTTONS */}
+      <div className="flex flex-col gap-3 max-w-sm mx-auto mt-4">
+        <button onClick={sendMessage} className="bg-blue-600 text-white py-2 rounded-lg font-semibold hover:bg-blue-700 transition">
+          Send Message
         </button>
 
-        <button onClick={() => navigate(`/voicecall/${uid}`)}>
-          <FiPhone size={28} />
+        <button onClick={toggleBlock} disabled={actionLoading} className={`py-2 rounded-lg font-semibold transition ${isBlocked ? "bg-green-600 text-white hover:bg-green-700" : "bg-red-600 text-white hover:bg-red-700"}`}>
+          {isBlocked ? "Unblock User" : "Block User"}
         </button>
 
-        <button onClick={() => navigate(`/videocall/${uid}`)}>
-          <FiVideo size={28} />
+        <button onClick={reportUser} className="bg-gray-600 text-white py-2 rounded-lg font-semibold hover:bg-gray-700 transition">
+          Report User
         </button>
       </div>
     </div>
