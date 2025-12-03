@@ -1,308 +1,127 @@
-// src/components/EditProfilePage.jsx
-import React, { useState, useEffect, useRef } from "react";
-import { useNavigate } from "react-router-dom";
+// src/components/FriendProfilePage.jsx
+import React, { useEffect, useState, useContext } from "react";
+import { useParams, useNavigate } from "react-router-dom";
 import { auth, db } from "../firebaseConfig";
-import { doc, getDoc, updateDoc, serverTimestamp } from "firebase/firestore";
-
-const NAME_LIMIT = 25;
-const BIO_LIMIT = 80;
-
-const EditProfilePage = () => {
-  const navigate = useNavigate();
-  const user = auth.currentUser;
-
-  const [name, setName] = useState("");
-  const [bio, setBio] = useState("");
-  const [email, setEmail] = useState("");
-  const [profilePic, setProfilePic] = useState("");
-  const [selectedFile, setSelectedFile] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
-
-  const profileInputRef = useRef(null);
-
-  // Load user data
-  useEffect(() => {
-    if (!user) return;
-
-    const loadUser = async () => {
-      try {
-        const ref = doc(db, "users", user.uid);
-        const snap = await getDoc(ref);
-        if (snap.exists()) {
-          const data = snap.data();
-          setName(data.name || "");
-          setBio(data.bio || "");
-          setEmail(data.email || user.email);
-          setProfilePic(data.profilePic || "");
-        }
-      } catch (err) {
-        console.error("Failed to load user data:", err);
-        setError("Failed to load profile. Try again later.");
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    loadUser();
-  }, [user]);
-
-  // Clean up object URL to avoid memory leaks
-  useEffect(() => {
-    return () => {
-      if (profilePic && selectedFile) URL.revokeObjectURL(profilePic);
-    };
-  }, [profilePic, selectedFile]);
-
-  // Cloudinary uploader
-  const uploadToCloudinary = async (file) => {
-    try {
-      const cloudName = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME;
-      const uploadPreset = import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET;
-
-      if (!cloudName || !uploadPreset) throw new Error("Cloudinary keys missing.");
-
-      const formData = new FormData();
-      formData.append("file", file);
-      formData.append("upload_preset", uploadPreset);
-
-      const res = await fetch(
-        `https://api.cloudinary.com/v1_1/${cloudName}/image/upload`,
-        { method: "POST", body: formData }
-      );
-      const data = await res.json();
-      return data.secure_url;
-    } catch (err) {
-      console.error("Upload failed:", err);
-      throw new Error("Image upload failed");
-    }
-  };
-
-  // File selection
-  const onProfileFileChange = (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    setSelectedFile(file);
-    setProfilePic(URL.createObjectURL(file));
-  };
-
-  const removeProfilePhoto = () => {
-    setSelectedFile(null);
-    setProfilePic("");
-  };
-
-  // Save updates
-  const handleSave = async () => {
-    if (!user) return;
-    setSaving(true);
-    setError("");
-
-    try {
-      let uploadedUrl = profilePic;
-      if (selectedFile) uploadedUrl = await uploadToCloudinary(selectedFile);
-
-      const userRef = doc(db, "users", user.uid);
-      await updateDoc(userRef, {
-        name,
-        bio,
-        email,
-        profilePic: uploadedUrl,
-        updatedAt: serverTimestamp(),
-      });
-
-      navigate("/settings");
-    } catch (err) {
-      console.error(err);
-      setError("Failed to save profile. Try again.");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  // Generate initials if no profile picture
-  const getInitials = (fullName) => {
-    if (!fullName) return "NA";
-    const names = fullName.trim().split(" ");
-    if (names.length === 1) return names[0][0].toUpperCase();
-    return (names[0][0] + names[1][0]).toUpperCase();
-  };
-
-  if (loading) return <div style={{ textAlign: "center", padding: 50 }}>Loading...</div>;
-
-  return (
-    <div style={{ padding: 20, maxWidth: 500, margin: "0 auto" }}>
-      {/* Back button */}
-      <button
-        onClick={() => navigate(-1)}
-        style={{
-          background: "transparent",
-          border: "none",
-          fontSize: 18,
-          marginBottom: 15,
-          cursor: "pointer",
-        }}
-      >
-        ← Back
-      </button>
-
-      {error && (
-        <div style={{ color: "red", marginBottom: 15, textAlign: "center" }}>{error}</div>
-      )}
-
-      {/* Profile Photo */}
-      <div style={{ textAlign: "center", marginBottom: 25 }}>
-        {profilePic ? (
-          <img
-            src={profilePic}
-            alt="Profile"
-            style={{
-              width: 110,
-              height: 110,
-              borderRadius: "50%",
-              objectFit: "cover",
-            }}
-          />
-        ) : (
-          <div
-            style={{
-              width: 110,
-              height: 110,
-              borderRadius: "50%",
-              background: "#007bff",
-              color: "#fff",
-              display: "flex",
-              justifyContent: "center",
-              alignItems: "center",
-              fontSize: 36,
-              fontWeight: "bold",
-              margin: "0 auto",
-            }}
-          >
-            {getInitials(name)}
-          </div>
-        )}
-
-        <div style={{ marginTop: 10 }}>
-          <button
-            onClick={() => profileInputRef.current.click()}
-            style={{
-              padding: "8px 15px",
-              borderRadius: 10,
-              border: "none",
-              background: "#007bff",
-              color: "#fff",
-              cursor: "pointer",
-              marginRight: 10,
-            }}
-            onMouseEnter={(e) => (e.target.style.opacity = 0.8)}
-            onMouseLeave={(e) => (e.target.style.opacity = 1)}
-          >
-            Choose Photo
-          </button>
-
-          {profilePic && (
-            <button
-              onClick={removeProfilePhoto}
-              style={{
-                padding: "8px 15px",
-                borderRadius: 10,
-                border: "1px solid #999",
-                background: "#f5f5f5",
-                cursor: "pointer",
-              }}
-              onMouseEnter={(e) => (e.target.style.opacity = 0.8)}
-              onMouseLeave={(e) => (e.target.style.opacity = 1)}
-            >
-              Remove
-            </button>
-          )}
-          <input
-            type="file"
-            ref={profileInputRef}
-            style={{ display: "none" }}
-            accept="image/*"
-            onChange={onProfileFileChange}
-          />
-        </div>
-      </div>
-
-      {/* Name */}
-      <label style={{ fontWeight: 600 }}>Name</label>
-      <input
-        value={name}
-        onChange={(e) => setName(e.target.value.slice(0, NAME_LIMIT))}
-        maxLength={NAME_LIMIT}
-        placeholder="Full name"
-        style={{
-          width: "100%",
-          padding: 12,
-          borderRadius: 8,
-          border: "1px solid #ccc",
-          marginBottom: 5,
-        }}
-      />
-      <div style={{ textAlign: "right", fontSize: 12, color: "#555" }}>
-        {NAME_LIMIT - name.length} characters remaining
-      </div>
-
-      {/* Bio */}
-      <label style={{ fontWeight: 600 }}>Bio</label>
-      <textarea
-        value={bio}
-        onChange={(e) => setBio(e.target.value.slice(0, BIO_LIMIT))}
-        maxLength={BIO_LIMIT}
-        placeholder="Your bio"
-        rows={3}
-        style={{
-          width: "100%",
-          padding: 12,
-          borderRadius: 8,
-          border: "1px solid #ccc",
-          marginBottom: 5,
-        }}
-      />
-      <div style={{ textAlign: "right", fontSize: 12, color: "#555" }}>
-        {BIO_LIMIT - bio.length} characters remaining
-      </div>
-
-      {/* Email */}
-      <label style={{ fontWeight: 600 }}>Email</label>
-      <input
-        value={email}
-        readOnly
-        style={{
-          width: "100%",
-          padding: 12,
-          borderRadius: 8,
-          border: "1px solid #ccc",
-          background: "#eee",
-          marginBottom: 20,
-        }}
-      />
-
-      {/* Save */}
-      <button
-        onClick={handleSave}
-        disabled={saving}
-        style={{
-          width: "100%",
-          padding: 14,
-          borderRadius: 20,
-          border: "none",
-          fontSize: 16,
-          background: "#28a745",
-          color: "white",
-          fontWeight: 600,
-          cursor: "pointer",
-        }}
-        onMouseEnter={(e) => (e.target.style.opacity = 0.9)}
-        onMouseLeave={(e) => (e.target.style.opacity = 1)}
-      >
-        {saving ? "Saving..." : "Save"}
-      </button>
-    </div>
-  );
+import { doc, getDoc } from "firebase/firestore";
+import { ThemeContext } from "../context/ThemeContext";
+// -----------------------------
+// UTILITY FUNCTIONS
+// -----------------------------
+const stringToColor = (str) => {
+let hash = 0;
+for (let i = 0; i < str.length; i++) {
+hash = str.charCodeAt(i) + ((hash << 5) - hash);
+}
+const c = (hash & 0x00ffffff).toString(16).toUpperCase();
+return "#" + "00000".substring(0, 6 - c.length) + c;
 };
+const getInitials = (name) => {
+if (!name) return "NA";
+const parts = name.trim().split(" ");
+if (parts.length === 1) return parts[0][0].toUpperCase();
+return (parts[0][0] + parts[1][0]).toUpperCase();
+};
+const formatLastSeen = (ts) => {
+if (!ts) return "Last seen unavailable";
+const d = ts.toDate ? ts.toDate() : new Date(ts);
+const now = new Date();
+const options = { hour: "numeric", minute: "numeric", hour12: true };
+const time = d.toLocaleTimeString(undefined, options);
+if (d.toDateString() === now.toDateString()) return Online;
+const yesterday = new Date();
+yesterday.setDate(now.getDate() - 1);
+if (d.toDateString() === yesterday.toDateString())
+return Last seen: Yesterday at ${time};
+const dateOptions =
+d.getFullYear() !== now.getFullYear()
+? { month: "long", day: "numeric", year: "numeric" }
+: { month: "long", day: "numeric" };
+return Last seen: ${d.toLocaleDateString(undefined, dateOptions)} at ${time};
+};
+// -----------------------------
+// COMPONENT
+// -----------------------------
+export default function FriendProfilePage() {
+const { uid } = useParams();
+const navigate = useNavigate();
+const { theme } = useContext(ThemeContext);
+const isDark = theme === "dark";
+const currentUser = auth.currentUser;
+const [loading, setLoading] = useState(true);
+const [friend, setFriend] = useState({
+displayName: "",
+email: "",
+about: "",
+photoPath: "", // store Cloudinary public_id or URL
+lastSeen: null,
+blockedBy: [],
+isOnline: false,
+});
+const [actionLoading, setActionLoading] = useState(false);
+// -----------------------------
+// LOAD FRIEND DATA
+// -----------------------------
+useEffect(() => {
+async function loadFriend() {
+try {
+const ref = doc(db, "users", uid);
+const snap = await getDoc(ref);
+if (snap.exists()) setFriend(snap.data());
+} catch (err) {
+console.error("Error loading friend profile:", err);
+} finally {
+setLoading(false);
+}
+}
+loadFriend();
+}, [uid]);
+// -----------------------------
+// ACTIONS
+// -----------------------------
+const toggleBlock = async () => {
+if (!currentUser) return;
+setActionLoading(true);
+try {
+const ref = doc(db, "users", uid);
+const isBlocked = friend.blockedBy?.includes(currentUser.uid);
+await updateDoc(ref, { blockedBy: isBlocked ? friend.blockedBy.filter((id) => id !== currentUser.uid) : [...(friend.blockedBy || []), currentUser.uid], }); setFriend((f) => ({ ...f, blockedBy: isBlocked ? f.blockedBy.filter((id) => id !== currentUser.uid) : [...(f.blockedBy || []), currentUser.uid], })); } catch (err) { console.error(err); alert("Failed to update block status."); } finally { setActionLoading(false); } 
+};
+const sendMessage = () => {
+navigate(/chat/${[currentUser.uid, uid].sort().join("_")});
+};
+const reportUser = () => {
+alert(You reported ${friend.displayName || "this user"}.);
+};
+// -----------------------------
+// CLOUDINARY URL
+// -----------------------------
+const getCloudinaryUrl = (path) => {
+if (!path) return null;
+// Use your Cloudinary base URL
+return https://res.cloudinary.com/<your-cloud-name>/image/upload/w_300,h_300,c_thumb/${path}.jpg;
+};
+if (loading) {
+return (
+<div
+className={flex h-screen items-center justify-center ${ isDark ? "bg-black text-white" : "bg-white text-black" }}
+>
+Loading profile…
 
-export default EditProfilePage;
+);
+}
+const isBlocked = friend.blockedBy?.includes(currentUser.uid);
+const profileUrl = getCloudinaryUrl(friend.photoPath);
+return (
+<div
+className={${isDark ? "bg-black text-white" : "bg-white text-black"} min-h-screen p-4}
+>
+{/* BACK */}
+
+<button onClick={() => navigate(-1)} className="text-2xl font-bold">
+←
+
+Profile
+
+{/* PROFILE PICTURE + ONLINE STATUS */} <div className="w-32 h-32 rounded-full mb-4 relative flex items-center justify-center border border-gray-700 overflow-hidden mx-auto"> {profileUrl ? ( <img src={profileUrl} alt="Profile" className="w-full h-full object-cover" /> ) : ( <span className="text-white font-bold text-3xl"> {getInitials(friend.displayName)} </span> )} {/* ONLINE DOT */} <span className={`absolute bottom-2 right-2 w-4 h-4 rounded-full border-2 border-white ${ friend.isOnline ? "bg-green-400" : "bg-gray-400" }`} title={friend.isOnline ? "Online" : formatLastSeen(friend.lastSeen)} /> </div> {/* NAME / ABOUT / LAST SEEN */} <div className="text-center mb-4"> <h2 className="text-2xl font-semibold">{friend.displayName || "Unknown User"}</h2> <p className="text-gray-400 text-sm mt-1">{friend.about || "No bio added."}</p> {!friend.isOnline && ( <p className="text-gray-500 text-xs mt-2">{formatLastSeen(friend.lastSeen)}</p> )} </div> {/* ACTION BUTTONS */} <div className="flex flex-col gap-3 max-w-sm mx-auto mt-4"> <button onClick={sendMessage} className="bg-blue-600 text-white py-2 rounded-lg font-semibold hover:bg-blue-700 transition" > Send Message </button> <button onClick={toggleBlock} className={`py-2 rounded-lg font-semibold transition ${ isBlocked ? "bg-green-600 text-white hover:bg-green-700" : "bg-red-600 text-white hover:bg-red-700" }`} disabled={actionLoading} > {isBlocked ? "Unblock User" : "Block User"} </button> <button onClick={reportUser} className="bg-gray-600 text-white py-2 rounded-lg font-semibold hover:bg-gray-700 transition" > Report User </button> </div> </div> 
+);
+}
