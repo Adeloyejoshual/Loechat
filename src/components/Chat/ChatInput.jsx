@@ -51,8 +51,9 @@ export default function ChatInput({
   const handleAddMoreFiles = () => fileInputRef.current.click();
 
   const handleSend = () => {
+    if (text.trim() === "" && selectedFiles.length === 0) return;
     sendTextMessage();
-    setReplyTo(null); // <-- clear after sending
+    setReplyTo(null);
   };
 
   return (
@@ -90,11 +91,7 @@ export default function ChatInput({
 
           <button
             onClick={() => setReplyTo(null)}
-            style={{
-              background: "transparent",
-              border: "none",
-              cursor: "pointer",
-            }}
+            style={{ background: "transparent", border: "none", cursor: "pointer" }}
           >
             <X size={16} />
           </button>
@@ -127,12 +124,7 @@ export default function ChatInput({
 
         <button
           onClick={() => fileInputRef.current.click()}
-          style={{
-            background: "transparent",
-            border: "none",
-            cursor: "pointer",
-            padding: 4,
-          }}
+          style={{ background: "transparent", border: "none", cursor: "pointer", padding: 4 }}
         >
           <Paperclip size={22} />
         </button>
@@ -152,18 +144,18 @@ export default function ChatInput({
             color: isDark ? "#fff" : "#000",
             fontSize: 15,
           }}
-          onKeyDown={(e) => e.key === "Enter" && handleSend()}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              handleSend();
+            }
+          }}
         />
 
         {/* Send */}
         <button
           onClick={handleSend}
-          style={{
-            background: "transparent",
-            border: "none",
-            cursor: "pointer",
-            padding: 4,
-          }}
+          style={{ background: "transparent", border: "none", cursor: "pointer", padding: 4 }}
         >
           <Send size={22} />
         </button>
@@ -177,7 +169,7 @@ export default function ChatInput({
           onCancel={handleCancelPreview}
           onAddFiles={handleAddMoreFiles}
           chatId={chatId}
-          replyTo={replyTo} // optional
+          replyTo={replyTo}
           clearReply={() => setReplyTo(null)}
         />
       )}
