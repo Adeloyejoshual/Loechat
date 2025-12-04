@@ -152,9 +152,9 @@ export default function App() {
                     }
                   />
 
-                  {/* Voice / Video Calls */}
+                  {/* Voice / Video Calls (both chatId and friendId required) */}
                   <Route
-                    path="/voicecall/:friendId"
+                    path="/voicecall/:chatId/:friendId"
                     element={
                       <ProtectedRoute>
                         <VoiceCall />
@@ -162,7 +162,7 @@ export default function App() {
                     }
                   />
                   <Route
-                    path="/videocall/:friendId"
+                    path="/videocall/:chatId/:friendId"
                     element={
                       <ProtectedRoute>
                         <VideoCall />
