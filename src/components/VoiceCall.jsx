@@ -1,24 +1,20 @@
+// src/components/VoiceCall.jsx
 import React, { useEffect, useRef, useState } from "react";
-import { auth, db } from "../firebaseConfig"; // ✅ FIXED
-import { useNavigate } from "react-router-dom";
-import {
-  collection,
-  doc,
-  setDoc,
-  onSnapshot,
-  addDoc,
-} from "firebase/firestore";
+import { useNavigate, useParams } from "react-router-dom";
+import { auth, db } from "../firebaseConfig"; // <- updated
+import { doc, collection, setDoc, addDoc, onSnapshot } from "firebase/firestore";
 
-// ================= CONFIG =================
-const backend = "https://smart-talk-zlxe.onrender.com";
+// ---------------- CONFIG ----------------
+const BACKEND = "https://smart-talk-zlxe.onrender.com";
 const RATE_PER_SECOND = 0.0021;
 const FREE_SECONDS = 10;
 
 function pad(n) {
-  return n < 10 ? `0${n}` : `${n}`;
+  return n < 10 ? `0${n}` : n;
 }
 
-export default function VoiceCall({ receiverId }) {
+export default function VoiceCall() {
+  const { chatId, friendId } = useParams();
   const navigate = useNavigate();
 
   const pcRef = useRef(null);
@@ -27,20 +23,34 @@ export default function VoiceCall({ receiverId }) {
   const callDocRef = useRef(null);
 
   const [user, setUser] = useState(null);
-  const [callId, setCallId] = useState(null);
   const [connected, setConnected] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [duration, setDuration] = useState(0);
   const [cost, setCost] = useState(0);
   const [freeRemaining, setFreeRemaining] = useState(FREE_SECONDS);
   const [liveBalance, setLiveBalance] = useState(null);
-  const [status, setStatus] = useState("Ready");
-  const [starting, setStarting] = useState(false);
+  const [statusMessage, setStatusMessage] = useState("Ready");
+  const [isStarting, setIsStarting] = useState(false);
 
-  // ================= AUTH =================
-  const getToken = async () =>
-    auth.currentUser && (await auth.currentUser.getIdToken(true));
+  // ---------------- HELPERS ----------------
+  const getToken = async () => auth.currentUser && (await auth.currentUser.getIdToken(true));
 
+  const updateLiveBalance = async () => {
+    if (!user) return;
+    try {
+      const token = await getToken();
+      const res = await fetch(`${BACKEND}/api/wallet/live/${user.uid}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setLiveBalance(data.balance ?? null);
+        if (data.activeCall?.status === "ended") handleRemoteEnd();
+      }
+    } catch {}
+  };
+
+  // ---------------- AUTH ----------------
   useEffect(() => {
     const unsub = auth.onAuthStateChanged((u) => {
       if (!u) navigate("/");
@@ -49,208 +59,180 @@ export default function VoiceCall({ receiverId }) {
     return () => unsub();
   }, []);
 
-  // ================= LIVE WALLET POLL =================
+  // ---------------- LIVE WALLET POLLING ----------------
   useEffect(() => {
-    if (!user) return;
-
-    const iv = setInterval(async () => {
-      try {
-        const token = await getToken();
-        const res = await fetch(`${backend}/api/wallet/live/${user.uid}`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-
-        if (res.ok) {
-          const data = await res.json();
-          setLiveBalance(data.balance);
-
-          if (data.activeCall?.status === "ended") {
-            handleRemoteEnd();
-          }
-        }
-      } catch {}
-    }, 1000);
-
+    const iv = setInterval(updateLiveBalance, 1000);
     return () => clearInterval(iv);
   }, [user]);
 
-  // ================= TIMER =================
+  // ---------------- TIMER ----------------
   useEffect(() => {
     if (!connected) return;
-
     const iv = setInterval(() => {
       setDuration((d) => {
         const next = d + 1;
-
-        if (next > FREE_SECONDS) {
-          const billed = next - FREE_SECONDS;
-          setCost(+(billed * RATE_PER_SECOND).toFixed(8));
-        }
-
+        if (next > FREE_SECONDS) setCost(((next - FREE_SECONDS) * RATE_PER_SECOND).toFixed(8));
         setFreeRemaining(Math.max(0, FREE_SECONDS - next));
         return next;
       });
     }, 1000);
-
     return () => clearInterval(iv);
   }, [connected]);
 
-  // ================= PEER SETUP =================
-  const preparePeerConnection = async (id) => {
-    const pc = new RTCPeerConnection({
+  // ---------------- PEER CONNECTION ----------------
+  const preparePeerConnection = async () => {
+    pcRef.current = new RTCPeerConnection({
       iceServers: [{ urls: ["stun:stun.l.google.com:19302"] }],
     });
 
-    pcRef.current = pc;
-
     const remoteStream = new MediaStream();
     remoteStreamRef.current = remoteStream;
-
-    pc.ontrack = (e) => {
+    pcRef.current.ontrack = (e) => {
       e.streams[0].getTracks().forEach((t) => remoteStream.addTrack(t));
     };
 
-    const callerCandidates = collection(db, `calls/${id}/callerCandidates`);
-    pc.onicecandidate = (e) => {
-      e.candidate && addDoc(callerCandidates, e.candidate.toJSON());
+    callDocRef.current = doc(db, "calls", chatId);
+    const callerCandidatesRef = collection(db, `calls/${chatId}/callerCandidates`);
+
+    pcRef.current.onicecandidate = (event) => {
+      if (!event.candidate) return;
+      addDoc(callerCandidatesRef, event.candidate.toJSON()).catch(console.error);
     };
 
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
     localStreamRef.current = stream;
-    stream.getTracks().forEach((t) => pc.addTrack(t, stream));
+    stream.getTracks().forEach((t) => pcRef.current.addTrack(t, stream));
 
-    document.getElementById("remoteAudio").srcObject = remoteStream;
+    return { pc: pcRef.current, localStream: stream, remoteStream };
   };
 
-  // ================= START CALL =================
+  // ---------------- START CALL ----------------
   const startCall = async () => {
     if (!user) return alert("Not signed in");
-
-    setStarting(true);
-    setStatus("Starting call...");
+    setIsStarting(true);
+    setStatusMessage("Starting call...");
 
     try {
       const token = await getToken();
-
-      const res = await fetch(`${backend}/api/call/start`, {
+      const res = await fetch(`${BACKEND}/api/call/start`, {
         method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ receiverId }),
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ receiverId: friendId }),
       });
+      if (!res.ok) throw new Error("Failed to start call");
 
       const data = await res.json();
-      if (!res.ok) return setStatus(data.error || "Call failed");
+      setConnected(true);
 
-      const id = data.callId;
-      setCallId(id);
-
-      callDocRef.current = doc(db, "calls", id);
-
-      await preparePeerConnection(id);
-
+      await preparePeerConnection();
       const offer = await pcRef.current.createOffer();
       await pcRef.current.setLocalDescription(offer);
+      await setDoc(callDocRef.current, { offer: { type: offer.type, sdp: offer.sdp }, status: "offer" });
 
-      await setDoc(callDocRef.current, {
-        offer,
-        status: "offer",
-        createdAt: Date.now(),
+      const unsubscribeAnswer = onSnapshot(callDocRef.current, (snap) => {
+        const callData = snap.data();
+        if (callData?.answer && !pcRef.current.currentRemoteDescription) {
+          pcRef.current.setRemoteDescription(callData.answer).catch(console.error);
+          setStatusMessage("Connected");
+        }
+        if (callData?.status === "ended") handleRemoteEnd();
       });
 
-      onSnapshot(callDocRef.current, (snap) => {
-        const d = snap.data();
-
-        if (d?.answer && !pcRef.current.currentRemoteDescription) {
-          pcRef.current.setRemoteDescription(d.answer);
-          setConnected(true);
-          setStatus("Connected");
-        }
-
-        if (d?.status === "ended") {
-          handleRemoteEnd();
-        }
+      const calleeCandidatesRef = collection(db, `calls/${chatId}/calleeCandidates`);
+      const unsubscribeCallee = onSnapshot(calleeCandidatesRef, (snap) => {
+        snap.docChanges().forEach((change) => {
+          if (change.type === "added") pcRef.current.addIceCandidate(change.doc.data()).catch(console.error);
+        });
       });
 
-      setStarting(false);
+      const audioEl = document.getElementById("remoteAudio");
+      if (audioEl) audioEl.srcObject = remoteStreamRef.current;
+
+      pcRef.current._cleanup = () => {
+        unsubscribeAnswer();
+        unsubscribeCallee();
+      };
     } catch (err) {
       console.error(err);
-      setStatus("Call failed");
-      setStarting(false);
+      setStatusMessage("Failed to start call");
+    } finally {
+      setIsStarting(false);
     }
   };
 
-  // ================= END CALL =================
+  // ---------------- END CALL ----------------
   const endCall = async () => {
     try {
       const token = await getToken();
-      await fetch(`${backend}/api/call/end`, {
+      await fetch(`${BACKEND}/api/call/end`, {
         method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ callId }),
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ callId: chatId }),
       });
     } catch {}
-
-    cleanUp();
-    navigate("/");
+    cleanResources();
+    navigate("/chat");
   };
 
-  // ================= CLEANUP =================
-  const cleanUp = () => {
+  const cleanResources = () => {
+    pcRef.current?._cleanup?.();
     pcRef.current?.getSenders().forEach((s) => s.track?.stop());
     pcRef.current?.close();
+    pcRef.current = null;
+
     localStreamRef.current?.getTracks().forEach((t) => t.stop());
+    localStreamRef.current = null;
+
+    remoteStreamRef.current?.getTracks().forEach((t) => t.stop());
+    remoteStreamRef.current = null;
   };
 
   const handleRemoteEnd = () => {
-    setStatus("Call ended");
-    cleanUp();
-    setTimeout(() => navigate("/"), 2000);
+    setStatusMessage("Call ended");
+    setConnected(false);
+    cleanResources();
+    setTimeout(() => navigate("/chat"), 2000);
   };
 
   const toggleMute = () => {
-    localStreamRef.current
-      ?.getAudioTracks()
-      .forEach((t) => (t.enabled = !t.enabled));
+    localStreamRef.current?.getAudioTracks().forEach((t) => (t.enabled = !t.enabled));
     setIsMuted((m) => !m);
   };
 
   return (
     <div style={{ padding: 20 }}>
-      <h2>Calling {receiverId}</h2>
+      <h2>Voice Call {friendId ? `→ ${friendId}` : ""}</h2>
 
-      <button onClick={startCall} disabled={starting || connected}>
-        {starting ? "Starting..." : "Start"}
-      </button>
-
-      <button onClick={endCall} disabled={!connected}>
-        End
-      </button>
-
-      <button onClick={toggleMute} disabled={!connected}>
-        {isMuted ? "Unmute" : "Mute"}
-      </button>
-
-      <div>Status: {status}</div>
-
-      <div>
-        Time: {pad(Math.floor(duration / 60))}:{pad(duration % 60)}
+      <div style={{ marginBottom: 10 }}>
+        <button onClick={startCall} disabled={isStarting || connected}>
+          {isStarting ? "Starting..." : connected ? "In Call" : "Start Call"}
+        </button>
+        <button onClick={endCall} disabled={!connected}>
+          End Call
+        </button>
+        <button onClick={toggleMute} disabled={!connected}>
+          {isMuted ? "Unmute" : "Mute"}
+        </button>
       </div>
 
-      {freeRemaining > 0 ? (
-        <div>🎁 Free time left: {freeRemaining}s</div>
-      ) : (
-        <div>💵 Cost: ${cost.toFixed(4)}</div>
-      )}
+      <div>
+        <strong>Status:</strong> {statusMessage}
+      </div>
+      <div>
+        <strong>Duration:</strong> {pad(Math.floor(duration / 60))}:{pad(duration % 60)}
+      </div>
 
-      {liveBalance !== null && <div>Wallet: ${liveBalance.toFixed(2)}</div>}
+      <div>
+        {freeRemaining > 0 ? (
+          <div>🎁 Free time remaining: {freeRemaining}s</div>
+        ) : (
+          <div>💵 Live cost: ${cost}</div>
+        )}
+      </div>
 
-      <audio id="remoteAudio" autoPlay />
+      {liveBalance !== null && <div>Wallet balance: ${liveBalance.toFixed(2)}</div>}
+
+      <audio id="remoteAudio" autoPlay playsInline />
     </div>
   );
 }
