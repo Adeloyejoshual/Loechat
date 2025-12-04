@@ -1,4 +1,4 @@
-// src/components/Chat/ChatConversationPage.jsx
+// src/components/ChatConversationPage.jsx
 import React, { useEffect, useState, useRef, useContext, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import {
@@ -10,6 +10,7 @@ import {
   serverTimestamp,
   doc,
   updateDoc,
+  getDoc,
 } from "firebase/firestore";
 import { db, auth } from "../firebaseConfig";
 import { ThemeContext } from "../context/ThemeContext";
@@ -250,7 +251,7 @@ export default function ChatConversationPage() {
       } catch (err) {
         console.error(err);
         toast.error("Failed to send message");
-        setMessages((prev) => prev.map((m) => (m.id === tempId ? { ...m, status: "failed" } : m)));
+        setMessages((prev) => (prev.map((m) => (m.id === tempId ? { ...m, status: "failed" } : m))));
       }
     }
 
@@ -268,34 +269,27 @@ export default function ChatConversationPage() {
   };
 
   const handleOpenMediaViewer = (clickedMediaUrl) => {
-    const mediaItems = messages.filter((m) => m.mediaUrl).map((m) => ({ url: m.mediaUrl, type: m.mediaType || "image" }));
+    const mediaItems = messages
+      .filter((m) => m.mediaUrl)
+      .map((m) => ({ url: m.mediaUrl, type: m.mediaType || "image" }));
     const startIndex = mediaItems.findIndex((m) => m.url === clickedMediaUrl);
     setMediaViewerData({ isOpen: true, items: mediaItems, startIndex: startIndex >= 0 ? startIndex : 0 });
   };
 
-  // -------------------- Call Navigation / header helpers --------------------
+  // -------------------- Call Navigation --------------------
   const friendId = friendInfo?.id || null;
 
   const startVoiceCall = () => {
-    if (!friendId) {
-      toast.error("Cannot start call — user not loaded yet.");
-      return;
-    }
+    if (!friendId) return toast.error("Cannot start call — user not loaded yet.");
     navigate(`/voicecall/${friendId}`);
   };
 
   const startVideoCall = () => {
-    if (!friendId) {
-      toast.error("Cannot start call — user not loaded yet.");
-      return;
-    }
+    if (!friendId) return toast.error("Cannot start call — user not loaded yet.");
     navigate(`/videocall/${friendId}`);
   };
 
-  const onSearch = () => {
-    toast.info("Search is not implemented in this view yet.");
-  };
-
+  const onSearch = () => toast.info("Search is not implemented in this view yet.");
   const onGoToPinned = (messageId) => {
     const id = messageId || pinnedMessage?.id;
     if (id) scrollToMessage(id);
@@ -315,7 +309,14 @@ export default function ChatConversationPage() {
         position: "relative",
       }}
     >
-      <input type="file" ref={fileInputRef} style={{ display: "none" }} multiple accept="image/,video/" onChange={handleFilesSelected} />
+      <input
+        type="file"
+        ref={fileInputRef}
+        style={{ display: "none" }}
+        multiple
+        accept="image/*,video/*"
+        onChange={handleFilesSelected}
+      />
 
       <ChatHeader
         friendId={friendInfo?.id}
@@ -332,13 +333,27 @@ export default function ChatConversationPage() {
         }}
         onSearch={onSearch}
         onGoToPinned={onGoToPinned}
+        extraActions={
+          <>
+            <button onClick={startVoiceCall} style={{ marginRight: 8 }}>
+              🎤 Voice Call
+            </button>
+            <button onClick={startVideoCall}>📹 Video Call</button>
+          </>
+        }
       />
 
       {/* Messages */}
-      <div ref={messagesRefEl} style={{ flex: 1, overflowY: "auto", padding: 8, display: "flex", flexDirection: "column" }}>
+      <div
+        ref={messagesRefEl}
+        style={{ flex: 1, overflowY: "auto", padding: 8, display: "flex", flexDirection: "column" }}
+      >
         {groupedMessages.map((item, idx) =>
           item.type === "date-separator" ? (
-            <div key={idx} style={{ textAlign: "center", margin: "10px 0", fontSize: 12, color: isDark ? "#aaa" : "#555" }}>
+            <div
+              key={idx}
+              style={{ textAlign: "center", margin: "10px 0", fontSize: 12, color: isDark ? "#aaa" : "#555" }}
+            >
               {item.date}
             </div>
           ) : (
@@ -376,7 +391,11 @@ export default function ChatConversationPage() {
       />
 
       {mediaViewerData.isOpen && (
-        <MediaViewer items={mediaViewerData.items} startIndex={mediaViewerData.startIndex} onClose={() => setMediaViewerData({ ...mediaViewerData, isOpen: false })} />
+        <MediaViewer
+          items={mediaViewerData.items}
+          startIndex={mediaViewerData.startIndex}
+          onClose={() => setMediaViewerData({ ...mediaViewerData, isOpen: false })}
+        />
       )}
 
       <ToastContainer position="top-center" autoClose={1500} hideProgressBar />
