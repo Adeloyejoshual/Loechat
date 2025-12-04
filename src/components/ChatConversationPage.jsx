@@ -10,7 +10,6 @@ import {
   serverTimestamp,
   doc,
   updateDoc,
-  getDoc,
 } from "firebase/firestore";
 import { db, auth } from "../firebaseConfig";
 import { ThemeContext } from "../context/ThemeContext";
@@ -207,9 +206,7 @@ export default function ChatConversationPage() {
 
         const docRef = await addDoc(messagesCol, payload);
         setMessages((prev) =>
-          prev.map((m) =>
-            m.id === tempId ? { ...payload, id: docRef.id, status: "sent", createdAt: new Date() } : m
-          )
+          prev.map((m) => (m.id === tempId ? { ...payload, id: docRef.id, status: "sent", createdAt: new Date() } : m))
         );
       } catch (err) {
         console.error(err);
@@ -245,13 +242,11 @@ export default function ChatConversationPage() {
       try {
         const payload = { ...tempMessage, createdAt: serverTimestamp(), status: "sent" };
         const docRef = await addDoc(messagesCol, payload);
-        setMessages((prev) =>
-          prev.map((m) => (m.id === tempId ? { ...payload, id: docRef.id, createdAt: new Date() } : m))
-        );
+        setMessages((prev) => prev.map((m) => (m.id === tempId ? { ...payload, id: docRef.id, createdAt: new Date() } : m)));
       } catch (err) {
         console.error(err);
         toast.error("Failed to send message");
-        setMessages((prev) => (prev.map((m) => (m.id === tempId ? { ...m, status: "failed" } : m))));
+        setMessages((prev) => prev.map((m) => (m.id === tempId ? { ...m, status: "failed" } : m)));
       }
     }
 
@@ -281,12 +276,12 @@ export default function ChatConversationPage() {
 
   const startVoiceCall = () => {
     if (!friendId) return toast.error("Cannot start call — user not loaded yet.");
-    navigate(`/voicecall/${friendId}`);
+    navigate(`/voicecall/${chatId}/${friendId}`);
   };
 
   const startVideoCall = () => {
     if (!friendId) return toast.error("Cannot start call — user not loaded yet.");
-    navigate(`/videocall/${friendId}`);
+    navigate(`/videocall/${chatId}/${friendId}`);
   };
 
   const onSearch = () => toast.info("Search is not implemented in this view yet.");
