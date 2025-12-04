@@ -43,7 +43,7 @@ export default function App() {
     const unsubscribe = auth.onAuthStateChanged((u) => {
       setUser(u);
 
-      // artificial delay for loading animation
+      // Artificial delay for loading animation
       setTimeout(() => setCheckingAuth(false), 800);
 
       if (u) {
@@ -56,7 +56,7 @@ export default function App() {
   }, []);
 
   // -----------------------------
-  // Reward Helper (Firestore Coins)
+  // Reward Coins Helper
   // -----------------------------
   const rewardCoins = async (uid, amount) => {
     if (!uid) return;
@@ -105,7 +105,6 @@ export default function App() {
             LC
           </span>
         </div>
-
         <p style={{ marginTop: 16, opacity: 0.8, fontSize: 15 }}>
           loechat is starting…
         </p>
@@ -114,7 +113,7 @@ export default function App() {
   }
 
   // -----------------------------
-  // Router
+  // App Routes
   // -----------------------------
   return (
     <ThemeProvider>
@@ -125,12 +124,9 @@ export default function App() {
               <Router>
                 <Routes>
                   {/* Public Route */}
-                  <Route
-                    path="/"
-                    element={user ? <ChatPage /> : <HomePage />}
-                  />
+                  <Route path="/" element={user ? <ChatPage /> : <HomePage />} />
 
-                  {/* Protected Routes */}
+                  {/* Chat Routes */}
                   <Route
                     path="/chat"
                     element={
@@ -139,7 +135,14 @@ export default function App() {
                       </ProtectedRoute>
                     }
                   />
-
+                  <Route
+                    path="/chat/:chatId"
+                    element={
+                      <ProtectedRoute>
+                        <ChatConversationPage />
+                      </ProtectedRoute>
+                    }
+                  />
                   <Route
                     path="/archive"
                     element={
@@ -149,16 +152,7 @@ export default function App() {
                     }
                   />
 
-                  <Route
-                    path="/chat/:chatId"
-                    element={
-                      <ProtectedRoute>
-                        <ChatConversationPage />
-                      </ProtectedRoute>
-                    }
-                  />
-
-                  {/* Voice / Video Calls (WebRTC) */}
+                  {/* Voice / Video Calls */}
                   <Route
                     path="/voicecall/:friendId"
                     element={
@@ -176,7 +170,7 @@ export default function App() {
                     }
                   />
 
-                  {/* Settings */}
+                  {/* Profile & Settings */}
                   <Route
                     path="/settings"
                     element={
@@ -185,36 +179,6 @@ export default function App() {
                       </ProtectedRoute>
                     }
                   />
-
-                  {/* Wallet */}
-                  <Route
-                    path="/wallet"
-                    element={
-                      <ProtectedRoute>
-                        <WalletPage rewardCoins={rewardCoins} />
-                      </ProtectedRoute>
-                    }
-                  />
-
-                  <Route
-                    path="/daily-bonus"
-                    element={
-                      <ProtectedRoute>
-                        <HomePage rewardCoins={rewardCoins} />
-                      </ProtectedRoute>
-                    }
-                  />
-
-                  <Route
-                    path="/withdraw"
-                    element={
-                      <ProtectedRoute>
-                        <WithdrawPage rewardCoins={rewardCoins} />
-                      </ProtectedRoute>
-                    }
-                  />
-
-                  {/* Profile */}
                   <Route
                     path="/edit-profile"
                     element={
@@ -223,7 +187,6 @@ export default function App() {
                       </ProtectedRoute>
                     }
                   />
-
                   <Route
                     path="/profile/:uid"
                     element={
@@ -232,12 +195,45 @@ export default function App() {
                       </ProtectedRoute>
                     }
                   />
-
                   <Route
                     path="/friend/:uid"
                     element={
                       <ProtectedRoute>
                         <FriendProfilePage />
+                      </ProtectedRoute>
+                    }
+                  />
+
+                  {/* Wallet / Payments */}
+                  <Route
+                    path="/wallet"
+                    element={
+                      <ProtectedRoute>
+                        <WalletPage rewardCoins={rewardCoins} />
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route
+                    path="/daily-bonus"
+                    element={
+                      <ProtectedRoute>
+                        <HomePage rewardCoins={rewardCoins} />
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route
+                    path="/withdraw"
+                    element={
+                      <ProtectedRoute>
+                        <WithdrawPage rewardCoins={rewardCoins} />
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route
+                    path="/topup"
+                    element={
+                      <ProtectedRoute>
+                        <TopUpPage />
                       </ProtectedRoute>
                     }
                   />
@@ -248,16 +244,6 @@ export default function App() {
                     element={
                       <ProtectedRoute>
                         <CallHistoryPage />
-                      </ProtectedRoute>
-                    }
-                  />
-
-                  {/* Payments */}
-                  <Route
-                    path="/topup"
-                    element={
-                      <ProtectedRoute>
-                        <TopUpPage />
                       </ProtectedRoute>
                     }
                   />
