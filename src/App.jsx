@@ -1,44 +1,50 @@
 // App.jsx
 import React, { useEffect, useState } from "react";
 import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
+
+// Context Providers
 import { ThemeProvider } from "./context/ThemeContext";
 import { WalletProvider } from "./context/WalletContext";
 import { UserProvider } from "./context/UserContext";
+import { PopupProvider } from "./context/PopupContext";
+
+// Firebase
 import { auth, setUserPresence, db } from "./firebaseConfig";
 import { doc, updateDoc, increment } from "firebase/firestore";
 
-// Global Popup
-import { PopupProvider } from "./context/PopupContext";
+// Protected Route
+import ProtectedRoute from "./components/ProtectedRoute";
 
 // Pages
 import HomePage from "./components/HomePage";
 import ChatPage from "./components/ChatPage";
 import ChatConversationPage from "./components/ChatConversationPage";
 import ArchivePage from "./components/ChatPage/ArchivePage";
-import CallPage from "./components/CallPage";
-import SettingsPage from "./components/SettingsPage";
-import CallHistoryPage from "./components/CallHistoryPage";
-import WithdrawPage from "./components/WithdrawPage";
-import TopUpPage from "./components/TopUpPage";
-import UserProfile from "./components/UserProfile";
 import VoiceCallPage from "./components/VoiceCallPage";
 import VideoCallPage from "./components/VideoCallPage";
-import EditProfilePage from "./components/EditProfilePage";
+import SettingsPage from "./components/SettingsPage";
 import WalletPage from "./components/WalletPage";
-import FriendProfilePage from "./components/FriendProfilePage"; // <-- Added
-
-// Components
-import ProtectedRoute from "./components/ProtectedRoute";
+import WithdrawPage from "./components/WithdrawPage";
+import TopUpPage from "./components/TopUpPage";
+import CallPage from "./components/CallPage";
+import CallHistoryPage from "./components/CallHistoryPage";
+import EditProfilePage from "./components/EditProfilePage";
+import UserProfile from "./components/UserProfile";
+import FriendProfilePage from "./components/FriendProfilePage";
 import AdGateway from "./components/AdGateway";
 
 export default function App() {
   const [checkingAuth, setCheckingAuth] = useState(true);
   const [user, setUser] = useState(null);
 
+  // -----------------------------
   // Firebase Auth + Presence
+  // -----------------------------
   useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged((u) => {
       setUser(u);
+
+      // artificial delay for loading animation
       setTimeout(() => setCheckingAuth(false), 800);
 
       if (u) {
@@ -50,27 +56,29 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  // Reward Coins Helper
+  // -----------------------------
+  // Reward Helper (Firestore Coins)
+  // -----------------------------
   const rewardCoins = async (uid, amount) => {
     if (!uid) return;
     const userRef = doc(db, "users", uid);
-    await updateDoc(userRef, {
-      coins: increment(amount),
-    });
+    await updateDoc(userRef, { coins: increment(amount) });
   };
 
+  // -----------------------------
   // Loading Screen
+  // -----------------------------
   if (checkingAuth) {
     return (
       <div
         style={{
           height: "100vh",
-          display: "flex",
-          justifyContent: "center",
-          alignItems: "center",
           background: "#000",
-          flexDirection: "column",
           color: "#fff",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
         }}
       >
         <div
@@ -92,21 +100,23 @@ export default function App() {
             style={{
               fontSize: 36,
               fontWeight: "bold",
-              color: "#fff",
               textShadow: "0 0 12px rgba(255,255,255,0.8)",
             }}
           >
             LC
           </span>
         </div>
-        <p style={{ marginTop: 16, fontSize: 15, opacity: 0.8 }}>
+
+        <p style={{ marginTop: 16, opacity: 0.8, fontSize: 15 }}>
           loechat is starting…
         </p>
       </div>
     );
   }
 
-  // App Routes
+  // -----------------------------
+  // Router
+  // -----------------------------
   return (
     <ThemeProvider>
       <WalletProvider>
@@ -121,7 +131,7 @@ export default function App() {
                     element={user ? <ChatPage user={user} /> : <HomePage />}
                   />
 
-                  {/* Protected Pages */}
+                  {/* Protected Routes */}
                   <Route
                     path="/chat"
                     element={
@@ -130,6 +140,7 @@ export default function App() {
                       </ProtectedRoute>
                     }
                   />
+
                   <Route
                     path="/archive"
                     element={
@@ -138,6 +149,7 @@ export default function App() {
                       </ProtectedRoute>
                     }
                   />
+
                   <Route
                     path="/chat/:chatId"
                     element={
@@ -146,6 +158,8 @@ export default function App() {
                       </ProtectedRoute>
                     }
                   />
+
+                  {/* Voice / Video Calls */}
                   <Route
                     path="/voicecall/:uid"
                     element={
@@ -154,6 +168,7 @@ export default function App() {
                       </ProtectedRoute>
                     }
                   />
+
                   <Route
                     path="/videocall/:uid"
                     element={
@@ -162,6 +177,8 @@ export default function App() {
                       </ProtectedRoute>
                     }
                   />
+
+                  {/* Settings */}
                   <Route
                     path="/settings"
                     element={
@@ -170,6 +187,8 @@ export default function App() {
                       </ProtectedRoute>
                     }
                   />
+
+                  {/* Wallet */}
                   <Route
                     path="/wallet"
                     element={
@@ -178,6 +197,7 @@ export default function App() {
                       </ProtectedRoute>
                     }
                   />
+
                   <Route
                     path="/daily-bonus"
                     element={
@@ -186,6 +206,7 @@ export default function App() {
                       </ProtectedRoute>
                     }
                   />
+
                   <Route
                     path="/withdraw"
                     element={
@@ -195,7 +216,7 @@ export default function App() {
                     }
                   />
 
-                  {/* Other Pages */}
+                  {/* Profile */}
                   <Route
                     path="/edit-profile"
                     element={
@@ -204,22 +225,7 @@ export default function App() {
                       </ProtectedRoute>
                     }
                   />
-                  <Route
-                    path="/history"
-                    element={
-                      <ProtectedRoute>
-                        <CallHistoryPage user={user} />
-                      </ProtectedRoute>
-                    }
-                  />
-                  <Route
-                    path="/topup"
-                    element={
-                      <ProtectedRoute>
-                        <TopUpPage user={user} />
-                      </ProtectedRoute>
-                    }
-                  />
+
                   <Route
                     path="/profile/:uid"
                     element={
@@ -228,12 +234,32 @@ export default function App() {
                       </ProtectedRoute>
                     }
                   />
-                  {/* Friend Profile Page */}
+
                   <Route
                     path="/friend/:uid"
                     element={
                       <ProtectedRoute>
                         <FriendProfilePage currentUser={user} />
+                      </ProtectedRoute>
+                    }
+                  />
+
+                  {/* Call History */}
+                  <Route
+                    path="/history"
+                    element={
+                      <ProtectedRoute>
+                        <CallHistoryPage user={user} />
+                      </ProtectedRoute>
+                    }
+                  />
+
+                  {/* Payments */}
+                  <Route
+                    path="/topup"
+                    element={
+                      <ProtectedRoute>
+                        <TopUpPage user={user} />
                       </ProtectedRoute>
                     }
                   />
