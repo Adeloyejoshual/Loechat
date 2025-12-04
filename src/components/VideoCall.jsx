@@ -1,226 +1,225 @@
-// src/components/VideoCallPage.jsx
+// src/components/VideoCall.jsx
 import React, { useEffect, useRef, useState, useContext } from "react";
-import Video from "twilio-video";
-import { useParams, useNavigate } from "react-router-dom";
-import { ThemeContext } from "../context/ThemeContext";
+import { useNavigate, useParams } from "react-router-dom";
+import { doc, setDoc, onSnapshot, deleteDoc, serverTimestamp, getDoc } from "firebase/firestore";
+import { db, auth } from "../firebaseConfig";
+import { FiPhoneOff, FiVideo, FiVideoOff, FiMic, FiMicOff } from "react-icons/fi";
 import { UserContext } from "../context/UserContext";
-import { usePopup } from "../context/PopupContext";
 
-export default function VideoCallPage({ backend, setBalance, setTransactions }) {
-  const { uid: calleeId } = useParams();
+export default function VideoCall() {
+  const { friendId } = useParams();
   const navigate = useNavigate();
-  const { theme } = useContext(ThemeContext);
-  const { currentUser } = useContext(UserContext);
-  const { showPopup } = usePopup();
-  const isDark = theme === "dark";
+  const { profileName } = useContext(UserContext);
+  const myUid = auth.currentUser.uid;
 
-  const [connected, setConnected] = useState(false);
-  const [roomName, setRoomName] = useState(calleeId || `room-${Date.now()}`);
-  const [participants, setParticipants] = useState([]);
-  const [seconds, setSeconds] = useState(0);
-  const ratePerMinute = 0.12;
+  const localVideoRef = useRef(null);
+  const remoteVideoRef = useRef(null);
+  const pcRef = useRef(null);
 
-  const localRef = useRef();
-  const roomRef = useRef();
-  const timerRef = useRef();
+  const [callId, setCallId] = useState(null);
+  const [incomingCall, setIncomingCall] = useState(false);
+  const [callActive, setCallActive] = useState(false);
+  const [muted, setMuted] = useState(false);
+  const [videoOff, setVideoOff] = useState(false);
+  const [friendName, setFriendName] = useState("Friend");
 
-  // ----------------- Join Room -----------------
-  useEffect(() => {
-    if (!currentUser) return navigate("/");
+  // -------------------- Peer Connection --------------------
+  const createPeerConnection = () => {
+    const pc = new RTCPeerConnection({
+      iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+    });
 
-    const joinRoom = async () => {
-      try {
-        const identity = currentUser.uid;
-        const tokenResp = await fetch(
-          `${backend}/api/twilio/token?identity=${encodeURIComponent(identity)}&room=${encodeURIComponent(roomName)}`
-        );
-        const tokenData = await tokenResp.json();
-        if (!tokenResp.ok) throw new Error(tokenData.message || "Failed to get Twilio token");
+    pc.ontrack = (event) => {
+      if (remoteVideoRef.current) remoteVideoRef.current.srcObject = event.streams[0];
+    };
 
-        const room = await Video.connect(tokenData.token, { name: roomName, audio: true, video: { width: 1280 } });
-        roomRef.current = room;
-        setConnected(true);
-
-        // Timer
-        timerRef.current = setInterval(() => setSeconds(prev => prev + 1), 1000);
-
-        // Attach local video
-        const localTracks = Array.from(room.localParticipant.videoTracks).map(pub => pub.track);
-        if (localTracks.length === 0) {
-          const tracks = await Video.createLocalTracks({ audio: true, video: { width: 1280 } });
-          tracks.forEach(track => attachTrack(localRef.current, track, true));
-        } else {
-          localTracks.forEach(track => attachTrack(localRef.current, track, true));
-        }
-
-        // Existing participants
-        Array.from(room.participants.values()).forEach(handleParticipantConnected);
-
-        room.on("participantConnected", participant => {
-          handleParticipantConnected(participant);
-          setParticipants(prev => [...prev, participant]);
-        });
-
-        room.on("participantDisconnected", participant => {
-          handleParticipantDisconnected(participant);
-          setParticipants(prev => prev.filter(p => p.sid !== participant.sid));
-        });
-
-        room.on("disconnected", cleanupRoom);
-      } catch (err) {
-        console.error(err);
-        showPopup(`Failed to join call: ${err.message}`);
-        navigate(-1);
+    pc.onicecandidate = async (event) => {
+      if (event.candidate && callId) {
+        const callRef = doc(db, "calls", callId);
+        await setDoc(callRef, { candidate: event.candidate }, { merge: true });
       }
     };
 
-    joinRoom();
-    return () => cleanupRoom();
-  }, [roomName, currentUser]);
-
-  // ----------------- Handle Participants -----------------
-  const handleParticipantConnected = participant => {
-    const container = document.createElement("div");
-    container.id = participant.sid;
-    container.className = "remote-participant";
-    container.style.position = "relative";
-    participant.tracks.forEach(pub => pub.isSubscribed && attachTrack(container, pub.track));
-    participant.on("trackSubscribed", track => attachTrack(container, track));
-    participant.on("trackUnsubscribed", track => detachTrack(container, track));
-    document.getElementById("remoteContainer")?.appendChild(container);
+    pcRef.current = pc;
+    return pc;
   };
 
-  const attachTrack = (container, track, isLocal = false) => {
-    if (!container.querySelector(`video[data-track="${track.sid}"]`)) {
-      const el = track.attach();
-      el.dataset.track = track.sid;
-      el.style.width = "100%";
-      el.style.height = "100%";
-      el.style.objectFit = "cover";
-      el.style.borderRadius = isLocal ? "12px" : "6px";
-      container.appendChild(el);
-    }
-  };
+  // -------------------- Start Call --------------------
+  const startCall = async () => {
+    const callRef = doc(db, "calls", `${myUid}_${friendId}`);
+    setCallId(callRef.id);
 
-  const detachTrack = (container, track) => {
-    try { track.detach().forEach(el => el.remove()); } catch {}
-  };
+    const pc = createPeerConnection();
 
-  const handleParticipantDisconnected = participant => {
-    document.getElementById(participant.sid)?.remove();
-  };
+    // Add local stream
+    const localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
+    localVideoRef.current.srcObject = localStream;
+    localStream.getTracks().forEach((track) => pc.addTrack(track, localStream));
 
-  // ----------------- Billing -----------------
-  const chargeWallet = async () => {
-    if (!currentUser) return { amount: 0, status: "failed" };
-    const cost = ((seconds / 60) * ratePerMinute).toFixed(2);
-    const payload = { amount: parseFloat(cost), type: "video_call", roomName, durationSeconds: seconds, calleeId };
+    // Firestore signaling: create offer
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    await setDoc(callRef, {
+      offer: offer.toJSON(),
+      from: myUid,
+      to: friendId,
+      timestamp: serverTimestamp(),
+    });
 
-    try {
-      const token = await currentUser.getIdToken(true);
-      const res = await fetch(`${backend}/api/wallet/charge`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify(payload),
-      });
-      const data = await res.json();
-      if (res.ok) {
-        setBalance?.(data.newBalance);
-        setTransactions?.(prev => [data.transaction, ...prev]);
-        return { amount: cost, transaction: data.transaction };
-      } else {
-        return { amount: cost, status: "failed" };
+    // Listen for answer and ICE candidates
+    onSnapshot(callRef, async (snap) => {
+      const data = snap.data();
+      if (!data) {
+        hangUp();
+        return;
       }
-    } catch (err) {
-      console.error(err);
-      return { amount: cost, status: "failed" };
-    }
+
+      if (data.answer && !pc.currentRemoteDescription) {
+        await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
+        setCallActive(true);
+      }
+
+      if (data.candidate) {
+        try {
+          await pc.addIceCandidate(data.candidate);
+        } catch (err) {
+          console.error("ICE candidate error:", err);
+        }
+      }
+    });
+
+    setCallActive(true);
   };
 
-  const saveCallHistory = async (billingInfo) => {
-    if (!currentUser) return;
-    try {
-      const token = await currentUser.getIdToken(true);
-      await fetch(`${backend}/api/callHistory`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({
-          userId: currentUser.uid,
-          calleeId,
-          roomName,
-          durationSeconds: seconds,
-          amount: billingInfo.amount,
-          transactionId: billingInfo.transaction?._id,
-          timestamp: new Date(),
-          status: "completed",
-        }),
-      });
-    } catch (err) {
-      console.error("Save call history error", err);
-    }
+  // -------------------- Receive Call --------------------
+  useEffect(() => {
+    const callRef = doc(db, "calls", `${friendId}_${myUid}`);
+    const unsub = onSnapshot(callRef, (snap) => {
+      const data = snap.data();
+      if (data && data.offer && !callActive) {
+        setIncomingCall(true);
+        setCallId(callRef.id);
+      }
+    });
+    return () => unsub();
+  }, [friendId, myUid, callActive]);
+
+  const answerCall = async () => {
+    const callRef = doc(db, "calls", callId);
+    const pc = createPeerConnection();
+
+    // Add local stream
+    const localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
+    localVideoRef.current.srcObject = localStream;
+    localStream.getTracks().forEach((track) => pc.addTrack(track, localStream));
+
+    // Get offer from caller
+    const snap = await getDoc(callRef);
+    const data = snap.data();
+    await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
+
+    // Create answer
+    const answer = await pc.createAnswer();
+    await pc.setLocalDescription(answer);
+    await setDoc(callRef, { answer: answer.toJSON() }, { merge: true });
+
+    // Listen for ICE candidates
+    onSnapshot(callRef, async (snap) => {
+      const data = snap.data();
+      if (data?.candidate) {
+        try {
+          await pc.addIceCandidate(data.candidate);
+        } catch (err) {
+          console.error("ICE candidate error:", err);
+        }
+      }
+    });
+
+    setIncomingCall(false);
+    setCallActive(true);
   };
 
-  // ----------------- Cleanup -----------------
-  const cleanupRoom = async () => {
-    clearInterval(timerRef.current);
-    const billingInfo = await chargeWallet();
-    await saveCallHistory(billingInfo);
+  // -------------------- Call Controls --------------------
+  const toggleMute = () => {
+    const stream = localVideoRef.current?.srcObject;
+    if (!stream) return;
 
-    const room = roomRef.current;
-    if (room) {
-      room.localParticipant.tracks.forEach(pub => { pub.track.stop?.(); pub.track.detach?.().forEach(n => n.remove()); });
-      room.disconnect();
-      roomRef.current = null;
-    }
-
-    setConnected(false);
-    setParticipants([]);
-    setSeconds(0);
-    navigate("/history");
+    stream.getAudioTracks().forEach((track) => (track.enabled = !track.enabled));
+    setMuted(!muted);
   };
 
-  const formatTime = s => `${Math.floor(s/60)}:${String(s%60).padStart(2,"0")}`;
+  const toggleVideo = () => {
+    const stream = localVideoRef.current?.srcObject;
+    if (!stream) return;
+
+    stream.getVideoTracks().forEach((track) => (track.enabled = !track.enabled));
+    setVideoOff(!videoOff);
+  };
+
+  // -------------------- Hang Up --------------------
+  const hangUp = async () => {
+    if (pcRef.current) {
+      pcRef.current.getTracks().forEach((track) => track.stop());
+      pcRef.current.close();
+    }
+    if (callId) await deleteDoc(doc(db, "calls", callId));
+    navigate("/chat");
+  };
 
   return (
-    <div style={{
-      width: "100%",
-      height: "100vh",
-      background: isDark ? "#000" : "#eef6ff",
-      color: isDark ? "#fff" : "#000",
-      position: "relative",
-      overflow: "hidden"
-    }}>
-      <button onClick={cleanupRoom} style={{ position: "absolute", top: 12, left: 12, zIndex: 10, padding: 8 }}>← Leave</button>
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        height: "100vh",
+        alignItems: "center",
+        justifyContent: "center",
+        background: "#075e54",
+        color: "#fff",
+      }}
+    >
+      <video
+        ref={localVideoRef}
+        autoPlay
+        muted
+        style={{ width: 200, height: 150, borderRadius: 8, marginBottom: 16 }}
+      />
+      <video
+        ref={remoteVideoRef}
+        autoPlay
+        style={{ width: 400, height: 300, borderRadius: 8, marginBottom: 16 }}
+      />
 
-      {/* Call Duration & Bill */}
-      <div style={{ position: "absolute", top: 12, right: 12, zIndex: 10 }}>
-        Duration: {formatTime(seconds)} | Bill: ${((seconds/60)*ratePerMinute).toFixed(2)}
-      </div>
+      {incomingCall && (
+        <div>
+          <h2>{friendName} is calling...</h2>
+          <button onClick={answerCall} style={{ margin: 8 }}>
+            Answer
+          </button>
+          <button onClick={hangUp} style={{ margin: 8 }}>
+            Reject
+          </button>
+        </div>
+      )}
 
-      {/* Local Video */}
-      <div id="localContainer" ref={localRef} style={{
-        position: "absolute",
-        bottom: 12,
-        right: 12,
-        width: 200,
-        height: 150,
-        borderRadius: 12,
-        overflow: "hidden",
-        zIndex: 5,
-        background: "#000",
-      }} />
+      {callActive && (
+        <div>
+          <h2>In Call with {friendName}</h2>
+          <button onClick={toggleMute} style={{ margin: 8 }}>
+            {muted ? <FiMicOff /> : <FiMic />}
+          </button>
+          <button onClick={toggleVideo} style={{ margin: 8 }}>
+            {videoOff ? <FiVideoOff /> : <FiVideo />}
+          </button>
+          <button onClick={hangUp} style={{ margin: 8 }}>
+            <FiPhoneOff />
+          </button>
+        </div>
+      )}
 
-      {/* Remote Participants Grid */}
-      <div id="remoteContainer" style={{
-        display: "grid",
-        gridTemplateColumns: `repeat(auto-fit, minmax(240px, 1fr))`,
-        gridAutoRows: "200px",
-        gap: "8px",
-        width: "100%",
-        height: "100%",
-        padding: "12px",
-        boxSizing: "border-box",
-      }} />
+      {!incomingCall && !callActive && (
+        <button onClick={startCall}>Call {friendName}</button>
+      )}
     </div>
   );
 }
