@@ -20,13 +20,12 @@ import HomePage from "./components/HomePage";
 import ChatPage from "./components/ChatPage";
 import ChatConversationPage from "./components/ChatConversationPage";
 import ArchivePage from "./components/ChatPage/ArchivePage";
-import VoiceCallPage from "./components/VoiceCallPage";
-import VideoCallPage from "./components/VideoCallPage";
+import VoiceCall from "./components/VoiceCall";
+import VideoCall from "./components/VideoCall";
 import SettingsPage from "./components/SettingsPage";
 import WalletPage from "./components/WalletPage";
 import WithdrawPage from "./components/WithdrawPage";
 import TopUpPage from "./components/TopUpPage";
-import CallPage from "./components/CallPage";
 import CallHistoryPage from "./components/CallHistoryPage";
 import EditProfilePage from "./components/EditProfilePage";
 import UserProfile from "./components/UserProfile";
@@ -128,7 +127,7 @@ export default function App() {
                   {/* Public Route */}
                   <Route
                     path="/"
-                    element={user ? <ChatPage user={user} /> : <HomePage />}
+                    element={user ? <ChatPage /> : <HomePage />}
                   />
 
                   {/* Protected Routes */}
@@ -136,7 +135,7 @@ export default function App() {
                     path="/chat"
                     element={
                       <ProtectedRoute>
-                        <ChatPage user={user} />
+                        <ChatPage />
                       </ProtectedRoute>
                     }
                   />
@@ -154,26 +153,25 @@ export default function App() {
                     path="/chat/:chatId"
                     element={
                       <ProtectedRoute>
-                        <ChatConversationPage user={user} />
+                        <ChatConversationPage />
                       </ProtectedRoute>
                     }
                   />
 
-                  {/* Voice / Video Calls */}
+                  {/* Voice / Video Calls (WebRTC) */}
                   <Route
-                    path="/voicecall/:uid"
+                    path="/voicecall/:friendId"
                     element={
                       <ProtectedRoute>
-                        <VoiceCallPage user={user} />
+                        <VoiceCall />
                       </ProtectedRoute>
                     }
                   />
-
                   <Route
-                    path="/videocall/:uid"
+                    path="/videocall/:friendId"
                     element={
                       <ProtectedRoute>
-                        <VideoCallPage user={user} />
+                        <VideoCall />
                       </ProtectedRoute>
                     }
                   />
@@ -183,7 +181,7 @@ export default function App() {
                     path="/settings"
                     element={
                       <ProtectedRoute>
-                        <SettingsPage user={user} />
+                        <SettingsPage />
                       </ProtectedRoute>
                     }
                   />
@@ -193,7 +191,7 @@ export default function App() {
                     path="/wallet"
                     element={
                       <ProtectedRoute>
-                        <WalletPage user={user} rewardCoins={rewardCoins} />
+                        <WalletPage rewardCoins={rewardCoins} />
                       </ProtectedRoute>
                     }
                   />
@@ -202,7 +200,7 @@ export default function App() {
                     path="/daily-bonus"
                     element={
                       <ProtectedRoute>
-                        <HomePage user={user} rewardCoins={rewardCoins} />
+                        <HomePage rewardCoins={rewardCoins} />
                       </ProtectedRoute>
                     }
                   />
@@ -211,7 +209,7 @@ export default function App() {
                     path="/withdraw"
                     element={
                       <ProtectedRoute>
-                        <WithdrawPage user={user} rewardCoins={rewardCoins} />
+                        <WithdrawPage rewardCoins={rewardCoins} />
                       </ProtectedRoute>
                     }
                   />
@@ -221,7 +219,7 @@ export default function App() {
                     path="/edit-profile"
                     element={
                       <ProtectedRoute>
-                        <EditProfilePage user={user} />
+                        <EditProfilePage />
                       </ProtectedRoute>
                     }
                   />
@@ -230,7 +228,7 @@ export default function App() {
                     path="/profile/:uid"
                     element={
                       <ProtectedRoute>
-                        <UserProfile currentUser={user} />
+                        <UserProfile />
                       </ProtectedRoute>
                     }
                   />
@@ -239,7 +237,7 @@ export default function App() {
                     path="/friend/:uid"
                     element={
                       <ProtectedRoute>
-                        <FriendProfilePage currentUser={user} />
+                        <FriendProfilePage />
                       </ProtectedRoute>
                     }
                   />
@@ -249,7 +247,7 @@ export default function App() {
                     path="/history"
                     element={
                       <ProtectedRoute>
-                        <CallHistoryPage user={user} />
+                        <CallHistoryPage />
                       </ProtectedRoute>
                     }
                   />
@@ -259,7 +257,7 @@ export default function App() {
                     path="/topup"
                     element={
                       <ProtectedRoute>
-                        <TopUpPage user={user} />
+                        <TopUpPage />
                       </ProtectedRoute>
                     }
                   />
