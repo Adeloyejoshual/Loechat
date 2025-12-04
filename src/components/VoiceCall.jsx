@@ -1,35 +1,35 @@
-// src/components/VoiceCall.jsx
+// src/components/VideoCall.jsx
 import React, { useEffect, useRef, useState, useContext } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { doc, setDoc, onSnapshot, deleteDoc, serverTimestamp } from "firebase/firestore";
 import { db, auth } from "../firebaseConfig";
-import { FiPhoneOff, FiMic, FiMicOff } from "react-icons/fi";
+import { FiPhoneOff, FiVideo, FiVideoOff } from "react-icons/fi";
 import { UserContext } from "../context/UserContext";
 
-export default function VoiceCall() {
+export default function VideoCall() {
   const { friendId } = useParams();
   const navigate = useNavigate();
   const { profileName } = useContext(UserContext);
   const myUid = auth.currentUser.uid;
 
-  const localAudioRef = useRef(null);
-  const remoteAudioRef = useRef(null);
+  const localVideoRef = useRef(null);
+  const remoteVideoRef = useRef(null);
   const pcRef = useRef(null);
 
   const [callId, setCallId] = useState(null);
   const [incomingCall, setIncomingCall] = useState(false);
   const [callActive, setCallActive] = useState(false);
-  const [muted, setMuted] = useState(false);
+  const [videoOff, setVideoOff] = useState(false);
   const [friendName, setFriendName] = useState("Friend");
 
-  // -------------------- Generate Peer Connection --------------------
+  // -------------------- Peer Connection --------------------
   const createPeerConnection = () => {
     const pc = new RTCPeerConnection({
       iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
     });
 
     pc.ontrack = (event) => {
-      if (remoteAudioRef.current) remoteAudioRef.current.srcObject = event.streams[0];
+      if (remoteVideoRef.current) remoteVideoRef.current.srcObject = event.streams[0];
     };
 
     pc.onicecandidate = async (event) => {
@@ -43,16 +43,16 @@ export default function VoiceCall() {
     return pc;
   };
 
-  // -------------------- Start Call (Caller) --------------------
+  // -------------------- Start Call --------------------
   const startCall = async () => {
     const callRef = doc(db, "calls", `${myUid}_${friendId}`);
     setCallId(callRef.id);
 
     const pc = createPeerConnection();
 
-    // Add local audio
-    const localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    localAudioRef.current.srcObject = localStream;
+    // Add local audio & video
+    const localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
+    localVideoRef.current.srcObject = localStream;
     localStream.getTracks().forEach((track) => pc.addTrack(track, localStream));
 
     // Firestore signaling
@@ -60,7 +60,7 @@ export default function VoiceCall() {
     await pc.setLocalDescription(offer);
     await setDoc(callRef, { offer: offer.toJSON(), from: myUid, to: friendId, timestamp: serverTimestamp() });
 
-    // Listen for answer
+    // Listen for answer and ICE candidates
     onSnapshot(callRef, async (snap) => {
       const data = snap.data();
       if (!data) return;
@@ -77,16 +77,10 @@ export default function VoiceCall() {
       }
     });
 
-    // Handle cleanup if callee rejects or ends
-    onSnapshot(callRef, (snap) => {
-      const data = snap.data();
-      if (!data) hangUp();
-    });
-
     setCallActive(true);
   };
 
-  // -------------------- Receive Call (Callee) --------------------
+  // -------------------- Receive Call --------------------
   useEffect(() => {
     const callRef = doc(db, "calls", `${friendId}_${myUid}`);
     const unsub = onSnapshot(callRef, (snap) => {
@@ -96,7 +90,6 @@ export default function VoiceCall() {
         setCallId(callRef.id);
       }
     });
-
     return () => unsub();
   }, [friendId, myUid, callActive]);
 
@@ -104,9 +97,9 @@ export default function VoiceCall() {
     const callRef = doc(db, "calls", callId);
     const pc = createPeerConnection();
 
-    // Add local audio
-    const localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    localAudioRef.current.srcObject = localStream;
+    // Add local audio & video
+    const localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
+    localVideoRef.current.srcObject = localStream;
     localStream.getTracks().forEach((track) => pc.addTrack(track, localStream));
 
     // Get offer from caller
@@ -147,8 +140,8 @@ export default function VoiceCall() {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100vh", alignItems: "center", justifyContent: "center", background: "#075e54", color: "#fff" }}>
-      <audio ref={localAudioRef} autoPlay muted />
-      <audio ref={remoteAudioRef} autoPlay />
+      <video ref={localVideoRef} autoPlay muted style={{ width: 200, height: 150, borderRadius: 8, marginBottom: 16 }} />
+      <video ref={remoteVideoRef} autoPlay style={{ width: 400, height: 300, borderRadius: 8, marginBottom: 16 }} />
 
       {incomingCall && (
         <div>
@@ -161,8 +154,8 @@ export default function VoiceCall() {
       {callActive && (
         <div>
           <h2>In Call with {friendName}</h2>
-          <button onClick={() => setMuted(!muted)} style={{ margin: 8 }}>
-            {muted ? <FiMicOff /> : <FiMic />}
+          <button onClick={() => setVideoOff(!videoOff)} style={{ margin: 8 }}>
+            {videoOff ? <FiVideoOff /> : <FiVideo />}
           </button>
           <button onClick={hangUp} style={{ margin: 8 }}>
             <FiPhoneOff />
