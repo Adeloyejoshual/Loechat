@@ -1,4 +1,3 @@
-
 // src/components/Chat/ChatHeader.jsx
 import React, { useEffect, useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
@@ -15,127 +14,131 @@ export default function ChatHeader({
   setBlockedStatus,
 }) {
   const navigate = useNavigate();
-  const [friendInfo, setFriendInfo] = useState(null);
-  const [chatInfo, setChatInfo] = useState(null);
+  const [friend, setFriend] = useState(null);
+  const [chat, setChat] = useState(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef(null);
 
-  // -------------------- Load Friend Info --------------------
+  // -------------------- Fetch Friend --------------------
   useEffect(() => {
     if (!friendId) return;
+
     const unsub = onSnapshot(doc(db, "users", friendId), (snap) => {
-      if (snap.exists()) setFriendInfo(snap.data());
+      if (snap.exists()) setFriend(snap.data());
     });
+
     return () => unsub();
   }, [friendId]);
 
-  // -------------------- Load Chat Info --------------------
+  // -------------------- Fetch Chat --------------------
   useEffect(() => {
     if (!chatId) return;
+
     const unsub = onSnapshot(doc(db, "chats", chatId), (snap) => {
-      if (snap.exists()) {
-        const data = snap.data();
-        setChatInfo(data);
-        setBlockedStatus && setBlockedStatus(data.blocked);
-      }
+      if (!snap.exists()) return;
+      const data = snap.data();
+      setChat(data);
+      setBlockedStatus?.(data.blocked);
     });
+
     return () => unsub();
   }, [chatId, setBlockedStatus]);
 
-  // -------------------- Close Menu on Outside Click --------------------
+  // -------------------- Click Outside to Close Menu --------------------
   useEffect(() => {
-    const handleClickOutside = (e) => {
-      if (menuRef.current && !menuRef.current.contains(e.target)) setMenuOpen(false);
+    const closeMenu = (e) => {
+      if (menuRef.current && !menuRef.current.contains(e.target)) {
+        setMenuOpen(false);
+      }
     };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
+    document.addEventListener("mousedown", closeMenu);
+    return () => document.removeEventListener("mousedown", closeMenu);
   }, []);
 
-  // -------------------- Block & Mute --------------------
+  // -------------------- Actions --------------------
   const toggleBlock = async () => {
-    if (!chatInfo) return;
-    const newBlocked = !chatInfo.blocked;
-    await updateDoc(doc(db, "chats", chatId), { blocked: newBlocked });
-    setChatInfo((prev) => ({ ...prev, blocked: newBlocked }));
-    setBlockedStatus && setBlockedStatus(newBlocked);
+    const newState = !chat?.blocked;
+    await updateDoc(doc(db, "chats", chatId), { blocked: newState });
+    setBlockedStatus?.(newState);
     setMenuOpen(false);
   };
 
   const toggleMute = async () => {
-    if (!chatInfo) return;
-    const isMuted = chatInfo.mutedUntil && chatInfo.mutedUntil > Date.now();
-    const newMutedUntil = isMuted ? 0 : Date.now() + 24 * 60 * 60 * 1000; // 24 hours
-    await updateDoc(doc(db, "chats", chatId), { mutedUntil: newMutedUntil });
-    setChatInfo((prev) => ({ ...prev, mutedUntil: newMutedUntil }));
+    const isMuted = chat?.mutedUntil > Date.now();
+    const until = isMuted ? 0 : Date.now() + 24 * 60 * 60 * 1000; // 24 hours
+    await updateDoc(doc(db, "chats", chatId), { mutedUntil: until });
     setMenuOpen(false);
   };
 
   // -------------------- Utilities --------------------
-  const getInitials = (name) => {
+  const initials = (name) => {
     if (!name) return "U";
-    const parts = name.trim().split(" ");
-    return parts.length > 1
-      ? (parts[0][0] + parts[1][0]).toUpperCase()
-      : parts[0][0].toUpperCase();
+    const p = name.split(" ");
+    return p.length > 1
+      ? (p[0][0] + p[1][0]).toUpperCase()
+      : p[0][0].toUpperCase();
   };
 
-  const formatLastSeen = (timestamp) => {
+  const lastSeenText = (timestamp) => {
     if (!timestamp) return "";
-    const lastSeenDate = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+    const lastSeen = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
     const now = new Date();
-    if (now - lastSeenDate <= 60 * 1000) return "Online";
 
-    const hours = lastSeenDate.getHours();
-    const minutes = lastSeenDate.getMinutes();
-    const ampm = hours >= 12 ? "pm" : "am";
-    const formattedHour = hours % 12 || 12;
-    const formattedMinutes = minutes.toString().padStart(2, "0");
-    const timeString = `${formattedHour}:${formattedMinutes} ${ampm}`;
+    if (now - lastSeen <= 60 * 1000) return "Online";
+
+    const time = lastSeen.toLocaleTimeString([], {
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true,
+    });
 
     const today = new Date();
-    if (lastSeenDate.toDateString() === today.toDateString()) return `Today at ${timeString}`;
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
 
-    const yesterday = new Date();
-    yesterday.setDate(today.getDate() - 1);
-    if (lastSeenDate.toDateString() === yesterday.toDateString()) return `Yesterday at ${timeString}`;
+    if (lastSeen.toDateString() === today.toDateString()) return `Today at ${time}`;
+    if (lastSeen.toDateString() === yesterday.toDateString()) return `Yesterday at ${time}`;
 
-    if (lastSeenDate.getFullYear() === now.getFullYear()) {
-      return `${lastSeenDate.toLocaleDateString([], { month: "short", day: "numeric" })} at ${timeString}`;
-    }
-
-    return `${lastSeenDate.toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" })} at ${timeString}`;
+    return lastSeen.toLocaleDateString([], {
+      month: "short",
+      day: "numeric",
+    }) + ` at ${time}`;
   };
 
-  const startVoiceCall = () => navigate(`/call/voice/${chatId}`);
-  const startVideoCall = () => navigate(`/call/video/${chatId}`);
-  const pinned = chatInfo?.pinnedMessage || null;
+  // -------------------- Call Navigation --------------------
+  const startVoiceCall = () => navigate(`/voicecall/${friendId}`);
+  const startVideoCall = () => navigate(`/videocall/${friendId}`);
 
-  // -------------------- Render --------------------
+  const pinned = chat?.pinnedMessage;
+
+  // -------------------- UI --------------------
   return (
     <>
       <div className="chat-header">
-        {/* Back Button */}
-        <div className="chat-back" onClick={() => navigate("/chat")}>←</div>
+
+        {/* Back */}
+        <div className="chat-back" onClick={() => navigate("/chat")}>
+          ←
+        </div>
 
         {/* Avatar */}
-        <div
-          className="chat-avatar"
-          onClick={() => navigate(`/friend/${friendId}`)}
-        >
-          {friendInfo?.profilePic ? (
-            <img src={friendInfo.profilePic} alt={friendInfo.name || "User"} />
+        <div className="chat-avatar" onClick={() => navigate(`/friend/${friendId}`)}>
+          {friend?.profilePic ? (
+            <img src={friend.profilePic} alt="avatar" />
           ) : (
-            <span>{getInitials(friendInfo?.name)}</span>
+            <span>{initials(friend?.name)}</span>
           )}
         </div>
 
-        {/* Name + Last Seen */}
+        {/* Name & Last Seen */}
         <div className="chat-info" onClick={() => navigate(`/friend/${friendId}`)}>
-          <span className="chat-name">{friendInfo?.name || "Loading..."}</span>
-          <span className="chat-lastseen">{formatLastSeen(friendInfo?.lastSeen)}</span>
+          <span className="chat-name">{friend?.name || "Loading..."}</span>
+          <span className="chat-lastseen">
+            {lastSeenText(friend?.lastSeen)}
+          </span>
         </div>
 
-        {/* Call Buttons */}
+        {/* Action Buttons */}
         <div className="chat-actions">
           <FiPhone size={22} className="action-btn" onClick={startVoiceCall} />
           <FiVideo size={22} className="action-btn" onClick={startVideoCall} />
@@ -143,22 +146,30 @@ export default function ChatHeader({
 
         {/* Menu */}
         <div ref={menuRef} className="chat-menu">
-          <FiMoreVertical size={24} onClick={() => setMenuOpen(!menuOpen)} className="action-btn" />
+          <FiMoreVertical
+            size={24}
+            className="action-btn"
+            onClick={() => setMenuOpen((v) => !v)}
+          />
           {menuOpen && (
             <div className="menu-dropdown">
               <div onClick={() => { setMenuOpen(false); onSearch(); }}>Search</div>
               <div onClick={() => { setMenuOpen(false); onClearChat(); }}>Clear Chat</div>
-              <div onClick={toggleMute}>{chatInfo?.mutedUntil > Date.now() ? "Unmute" : "Mute"}</div>
-              <div onClick={toggleBlock} className="danger">{chatInfo?.blocked ? "Unblock" : "Block"}</div>
+              <div onClick={toggleMute}>
+                {chat?.mutedUntil > Date.now() ? "Unmute" : "Mute"}
+              </div>
+              <div onClick={toggleBlock} className="danger">
+                {chat?.blocked ? "Unblock" : "Block"}
+              </div>
             </div>
           )}
         </div>
       </div>
 
-      {/* Pinned Message */}
+      {/* Pinned message */}
       {pinned && (
         <div className="pinned-message" onClick={() => onGoToPinned(pinned.messageId)}>
-          📌 <span>{pinned.text || "Pinned message"}</span>
+          📌 <span>{pinned.text}</span>
         </div>
       )}
 
@@ -167,43 +178,41 @@ export default function ChatHeader({
         .chat-header {
           display: flex;
           align-items: center;
+          background: #075e54;
           padding: 8px 12px;
-          background-color: #075e54;
+          gap: 10px;
           position: sticky;
           top: 0;
-          z-index: 999;
-          gap: 10px;
+          z-index: 1000;
         }
         .chat-back {
           width: 40px;
           height: 40px;
-          border-radius: 50%;
           background: rgba(255,255,255,0.15);
+          border-radius: 50%;
           display: flex;
           justify-content: center;
           align-items: center;
           cursor: pointer;
-          color: white;
-          font-size: 22px;
-          font-weight: 600;
+          color: #fff;
+          font-size: 20px;
           transition: background 0.2s;
         }
         .chat-back:hover {
           background: rgba(255,255,255,0.25);
         }
         .chat-avatar {
-          width: 50px;
-          height: 50px;
+          width: 47px;
+          height: 47px;
           border-radius: 50%;
+          color: #333;
+          background: #d8d8d8;
           overflow: hidden;
-          cursor: pointer;
           display: flex;
           justify-content: center;
           align-items: center;
-          font-weight: 600;
-          font-size: 18px;
-          color: #333;
-          background-color: #e0e0e0;
+          font-weight: bold;
+          cursor: pointer;
         }
         .chat-avatar img {
           width: 100%;
@@ -212,18 +221,13 @@ export default function ChatHeader({
         }
         .chat-info {
           flex: 1;
-          display: flex;
-          flex-direction: column;
+          color: white;
           overflow: hidden;
-          cursor: pointer;
-          color: #fff;
         }
         .chat-name {
           font-size: 16px;
           font-weight: 600;
           white-space: nowrap;
-          overflow: hidden;
-          text-overflow: ellipsis;
         }
         .chat-lastseen {
           font-size: 13px;
@@ -231,9 +235,10 @@ export default function ChatHeader({
         }
         .chat-actions {
           display: flex;
-          gap: 10px;
+          gap: 12px;
         }
         .action-btn {
+          color: white;
           cursor: pointer;
           transition: opacity 0.2s;
         }
@@ -242,48 +247,45 @@ export default function ChatHeader({
         }
         .chat-menu {
           position: relative;
-          margin-left: 8px;
         }
         .menu-dropdown {
           position: absolute;
-          top: 36px;
           right: 0;
-          background: #fff;
-          color: #000;
-          border-radius: 10px;
-          padding: 8px 0;
+          top: 34px;
           width: 170px;
-          box-shadow: 0 4px 14px rgba(0,0,0,0.3);
-          z-index: 999;
+          background: #fff;
+          border-radius: 10px;
+          box-shadow: 0 6px 18px rgba(0,0,0,0.25);
+          animation: fadeIn 0.15s ease;
         }
         .menu-dropdown div {
-          padding: 12px 16px;
+          padding: 12px 15px;
           cursor: pointer;
           font-size: 15px;
-          white-space: nowrap;
-          transition: background 0.2s;
+          border-bottom: 1px solid #eee;
+        }
+        .menu-dropdown div:last-child {
+          border-bottom: none;
         }
         .menu-dropdown div:hover {
-          background: #f0f0f0;
+          background: #f2f2f2;
         }
-        .menu-dropdown .danger {
+        .danger {
           color: red;
           font-weight: 600;
         }
         .pinned-message {
-          position: sticky;
-          top: 56px;
-          width: 100%;
-          background: #f7f7f7;
+          background: #fff8d1;
           padding: 6px 12px;
-          border-bottom: 1px solid #ddd;
+          border-bottom: 1px solid #e5e5e5;
           font-size: 14px;
           display: flex;
           align-items: center;
           gap: 6px;
           cursor: pointer;
-          color: #444;
-          z-index: 998;
+          position: sticky;
+          top: 60px;
+          z-index: 900;
         }
       `}</style>
     </>
