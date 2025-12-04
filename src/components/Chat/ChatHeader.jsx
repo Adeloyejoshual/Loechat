@@ -42,25 +42,27 @@ export default function ChatHeader({
 
   // -------------------- Close Menu on Click Outside --------------------
   useEffect(() => {
-    const closeMenu = (e) => {
+    const handleClickOutside = (e) => {
       if (menuRef.current && !menuRef.current.contains(e.target)) {
         setMenuOpen(false);
       }
     };
-    document.addEventListener("mousedown", closeMenu);
-    return () => document.removeEventListener("mousedown", closeMenu);
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
   // -------------------- Actions --------------------
   const toggleBlock = async () => {
-    const newState = !chat?.blocked;
+    if (!chat) return;
+    const newState = !chat.blocked;
     await updateDoc(doc(db, "chats", chatId), { blocked: newState });
     setBlockedStatus?.(newState);
     setMenuOpen(false);
   };
 
   const toggleMute = async () => {
-    const isMuted = chat?.mutedUntil > Date.now();
+    if (!chat) return;
+    const isMuted = chat.mutedUntil > Date.now();
     const until = isMuted ? 0 : Date.now() + 24 * 60 * 60 * 1000; // 24 hours
     await updateDoc(doc(db, "chats", chatId), { mutedUntil: until });
     setMenuOpen(false);
@@ -85,12 +87,12 @@ export default function ChatHeader({
     const time = lastSeen.toLocaleTimeString([], { hour: "numeric", minute: "2-digit", hour12: true });
     const today = new Date();
     const yesterday = new Date(today);
-    yesterday.setDate(yesterday.getDate() - 1);
+    yesterday.setDate(today.getDate() - 1);
 
     if (lastSeen.toDateString() === today.toDateString()) return `Today at ${time}`;
     if (lastSeen.toDateString() === yesterday.toDateString()) return `Yesterday at ${time}`;
 
-    return lastSeen.toLocaleDateString([], { month: "short", day: "numeric" }) + ` at ${time}`;
+    return `${lastSeen.toLocaleDateString([], { month: "short", day: "numeric" })} at ${time}`;
   };
 
   // -------------------- WebRTC Call Navigation --------------------
@@ -106,7 +108,7 @@ export default function ChatHeader({
 
   const pinned = chat?.pinnedMessage;
 
-  // -------------------- UI --------------------
+  // -------------------- Render --------------------
   return (
     <>
       <div className="chat-header">
