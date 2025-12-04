@@ -65,7 +65,7 @@ export default function ChatHeader({
 
   const toggleMute = async () => {
     const isMuted = chat?.mutedUntil > Date.now();
-    const until = isMuted ? 0 : Date.now() + 24 * 60 * 60 * 1000; // 24 hours
+    const until = isMuted ? 0 : Date.now() + 24 * 60 * 60 * 1000;
     await updateDoc(doc(db, "chats", chatId), { mutedUntil: until });
     setMenuOpen(false);
   };
@@ -105,9 +105,16 @@ export default function ChatHeader({
     }) + ` at ${time}`;
   };
 
-  // -------------------- Call Navigation --------------------
-  const startVoiceCall = () => navigate(`/voicecall/${friendId}`);
-  const startVideoCall = () => navigate(`/videocall/${friendId}`);
+  // -------------------- Call Navigation (WebRTC FIXED) --------------------
+  const startVoiceCall = () => {
+    if (!chatId || !friendId) return;
+    navigate(`/call/voice/${chatId}/${friendId}`);
+  };
+
+  const startVideoCall = () => {
+    if (!chatId || !friendId) return;
+    navigate(`/call/video/${chatId}/${friendId}`);
+  };
 
   const pinned = chat?.pinnedMessage;
 
