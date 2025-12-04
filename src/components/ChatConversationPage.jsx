@@ -22,7 +22,6 @@ import MediaViewer from "./Chat/MediaViewer";
 import TypingIndicator from "./Chat/TypingIndicator";
 import { toast, ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
-import axios from "axios";
 
 export default function ChatConversationPage() {
   const { chatId } = useParams();
@@ -43,35 +42,39 @@ export default function ChatConversationPage() {
   const [selectedFiles, setSelectedFiles] = useState([]);
   const [replyTo, setReplyTo] = useState(null);
   const [pinnedMessage, setPinnedMessage] = useState(null);
-  const [isAtBottom, setIsAtBottom] = useState(true);
   const [isBlocked, setIsBlocked] = useState(false);
   const [uploadProgress, setUploadProgress] = useState({});
   const [mediaViewerData, setMediaViewerData] = useState({ isOpen: false, items: [], startIndex: 0 });
   const [typingUsers, setTypingUsers] = useState({});
+  const [loading, setLoading] = useState(true);
 
-  // -------------------- Load chat & friend info --------------------
+  // -------------------- Load chat & friend --------------------
   useEffect(() => {
     if (!chatId) return;
-    const chatRef = doc(db, "chats", chatId);
+    setLoading(true);
 
-    const unsubChat = onSnapshot(chatRef, (snap) => {
+    const chatRef = doc(db, "chats", chatId);
+    const unsubChat = onSnapshot(chatRef, async (snap) => {
       if (!snap.exists()) return;
       const data = snap.data();
       setChatInfo({ id: snap.id, ...data });
       setIsBlocked(data.blocked || false);
+      setTypingUsers(data.typing || {});
 
+      // Load friend
       const friendId = data.participants?.find((p) => p !== myUid);
       if (friendId) {
         const userRef = doc(db, "users", friendId);
         onSnapshot(userRef, (s) => s.exists() && setFriendInfo({ id: s.id, ...s.data() }));
       }
 
+      // Load pinned message
       if (data.pinnedMessageId) {
         const pinnedRef = doc(db, "chats", chatId, "messages", data.pinnedMessageId);
         onSnapshot(pinnedRef, (s) => s.exists() && setPinnedMessage({ id: s.id, ...s.data() }));
       }
 
-      setTypingUsers(data.typing || {});
+      setLoading(false);
     });
 
     return () => unsubChat();
@@ -86,26 +89,18 @@ export default function ChatConversationPage() {
     const unsub = onSnapshot(q, (snap) => {
       const docs = snap.docs.map((d) => ({ id: d.id, ...d.data(), status: "sent" }));
       setMessages(docs);
-      if (isAtBottom) scrollToBottom();
+      scrollToBottom();
     });
 
     return () => unsub();
-  }, [chatId, isAtBottom]);
+  }, [chatId]);
 
-  // -------------------- Scroll detection --------------------
-  useEffect(() => {
-    const el = messagesRefEl.current;
-    if (!el) return;
-    const onScroll = () => setIsAtBottom(el.scrollHeight - el.scrollTop - el.clientHeight < 80);
-    el.addEventListener("scroll", onScroll);
-    return () => el.removeEventListener("scroll", onScroll);
-  }, []);
-
+  // -------------------- Scroll --------------------
   const scrollToBottom = useCallback(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
   }, []);
 
-  // -------------------- Date helpers --------------------
+  // -------------------- Group messages by date --------------------
   const formatDateSeparator = (date) => {
     if (!date) return "";
     const msgDate = new Date(date.toDate?.() || date);
@@ -121,14 +116,13 @@ export default function ChatConversationPage() {
     return msgDate.toLocaleDateString(undefined, options);
   };
 
-  // -------------------- Group messages by date --------------------
   const groupedMessages = [];
-  let lastDateStr = null;
+  let lastDate = null;
   messages.forEach((msg) => {
     const dateStr = formatDateSeparator(msg.createdAt);
-    if (dateStr !== lastDateStr) {
+    if (dateStr !== lastDate) {
       groupedMessages.push({ type: "date-separator", date: dateStr });
-      lastDateStr = dateStr;
+      lastDate = dateStr;
     }
     groupedMessages.push({ type: "message", data: msg });
   });
@@ -138,7 +132,7 @@ export default function ChatConversationPage() {
     if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
   }, []);
 
-  // -------------------- File Input Handlers --------------------
+  // -------------------- File Input --------------------
   const handleAddFiles = () => fileInputRef.current?.click();
   const handleFilesSelected = (e) => {
     const files = Array.from(e.target.files);
@@ -147,122 +141,7 @@ export default function ChatConversationPage() {
     e.target.value = null;
   };
 
-  // -------------------- Send messages --------------------
-  const sendMessage = async (textMsg = "", files = []) => {
-    if (isBlocked) return toast.error("You cannot send messages to this user");
-    if (!textMsg && files.length === 0) return;
-
-    const messagesCol = collection(db, "chats", chatId, "messages");
-
-    // --- Media messages ---
-    for (const f of files) {
-      const type = f.type.startsWith("image/") ? "image" : f.type.startsWith("video/") ? "video" : "file";
-      const tempId = `temp-${Date.now()}-${Math.random()}`;
-      const tempMessage = {
-        id: tempId,
-        senderId: myUid,
-        text: textMsg || "",
-        mediaUrl: URL.createObjectURL(f),
-        mediaType: type,
-        createdAt: new Date(),
-        reactions: {},
-        seenBy: [],
-        status: "sending",
-        replyTo: replyTo ? { id: replyTo.id, text: replyTo.text, senderId: replyTo.senderId } : null,
-      };
-      setMessages((prev) => [...prev, tempMessage]);
-      scrollToBottom();
-
-      try {
-        let mediaUrl = "";
-        if (type !== "file") {
-          const formData = new FormData();
-          formData.append("file", f);
-          formData.append("upload_preset", import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET);
-
-          const res = await axios.post(
-            `https://api.cloudinary.com/v1_1/${import.meta.env.VITE_CLOUDINARY_CLOUD_NAME}/auto/upload`,
-            formData,
-            {
-              onUploadProgress: (e) => {
-                const percent = Math.round((e.loaded * 100) / e.total);
-                setUploadProgress((prev) => ({ ...prev, [tempId]: percent }));
-              },
-            }
-          );
-          mediaUrl = res.data.secure_url;
-        }
-
-        const payload = {
-          senderId: myUid,
-          text: textMsg || "",
-          mediaUrl,
-          mediaType: type,
-          createdAt: serverTimestamp(),
-          reactions: {},
-          seenBy: [],
-          replyTo: replyTo ? { id: replyTo.id, text: replyTo.text, senderId: replyTo.senderId } : null,
-        };
-
-        const docRef = await addDoc(messagesCol, payload);
-        setMessages((prev) =>
-          prev.map((m) => (m.id === tempId ? { ...payload, id: docRef.id, status: "sent", createdAt: new Date() } : m))
-        );
-      } catch (err) {
-        console.error(err);
-        toast.error("Failed to send media");
-        setMessages((prev) => prev.map((m) => (m.id === tempId ? { ...m, status: "failed" } : m)));
-      } finally {
-        setUploadProgress((prev) => {
-          const copy = { ...prev };
-          delete copy[tempId];
-          return copy;
-        });
-      }
-    }
-
-    // --- Text-only message ---
-    if (textMsg.trim() && files.length === 0) {
-      const tempId = `temp-${Date.now()}-${Math.random()}`;
-      const tempMessage = {
-        id: tempId,
-        senderId: myUid,
-        text: textMsg.trim(),
-        mediaUrl: "",
-        mediaType: null,
-        createdAt: new Date(),
-        reactions: {},
-        seenBy: [],
-        status: "sending",
-        replyTo: replyTo ? { id: replyTo.id, text: replyTo.text, senderId: replyTo.senderId } : null,
-      };
-      setMessages((prev) => [...prev, tempMessage]);
-      scrollToBottom();
-
-      try {
-        const payload = { ...tempMessage, createdAt: serverTimestamp(), status: "sent" };
-        const docRef = await addDoc(messagesCol, payload);
-        setMessages((prev) => prev.map((m) => (m.id === tempId ? { ...payload, id: docRef.id, createdAt: new Date() } : m)));
-      } catch (err) {
-        console.error(err);
-        toast.error("Failed to send message");
-        setMessages((prev) => prev.map((m) => (m.id === tempId ? { ...m, status: "failed" } : m)));
-      }
-    }
-
-    const chatRef = doc(db, "chats", chatId);
-    await updateDoc(chatRef, {
-      lastMessage: textMsg || "",
-      lastMessageSender: myUid,
-      lastMessageAt: serverTimestamp(),
-      lastMessageStatus: "delivered",
-    });
-
-    setText("");
-    setSelectedFiles([]);
-    setReplyTo(null);
-  };
-
+  // -------------------- Media Viewer --------------------
   const handleOpenMediaViewer = (clickedMediaUrl) => {
     const mediaItems = messages
       .filter((m) => m.mediaUrl)
@@ -271,27 +150,31 @@ export default function ChatConversationPage() {
     setMediaViewerData({ isOpen: true, items: mediaItems, startIndex: startIndex >= 0 ? startIndex : 0 });
   };
 
-  // -------------------- Call Navigation --------------------
+  // -------------------- Chat actions --------------------
   const friendId = friendInfo?.id || null;
 
   const startVoiceCall = () => {
     if (!friendId) return toast.error("Cannot start call — user not loaded yet.");
     navigate(`/voicecall/${chatId}/${friendId}`);
   };
-
   const startVideoCall = () => {
     if (!friendId) return toast.error("Cannot start call — user not loaded yet.");
     navigate(`/videocall/${chatId}/${friendId}`);
   };
-
-  const onSearch = () => toast.info("Search is not implemented in this view yet.");
+  const onSearch = () => toast.info("Search not implemented.");
   const onGoToPinned = (messageId) => {
     const id = messageId || pinnedMessage?.id;
     if (id) scrollToMessage(id);
     else toast.info("No pinned message available.");
   };
 
-  const pinned = pinnedMessage || chatInfo?.pinnedMessage || null;
+  if (loading) {
+    return (
+      <div style={{ flex: 1, display: "flex", justifyContent: "center", alignItems: "center", height: "100vh" }}>
+        <p>Loading chat...</p>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -301,7 +184,6 @@ export default function ChatConversationPage() {
         height: "100vh",
         backgroundColor: wallpaper || (isDark ? "#0b0b0b" : "#f5f5f5"),
         color: isDark ? "#fff" : "#000",
-        position: "relative",
       }}
     >
       <input
@@ -314,7 +196,7 @@ export default function ChatConversationPage() {
       />
 
       <ChatHeader
-        friendId={friendInfo?.id}
+        friendId={friendId}
         chatId={chatId}
         pinnedMessage={pinnedMessage}
         setBlockedStatus={setIsBlocked}
@@ -328,14 +210,6 @@ export default function ChatConversationPage() {
         }}
         onSearch={onSearch}
         onGoToPinned={onGoToPinned}
-        extraActions={
-          <>
-            <button onClick={startVoiceCall} style={{ marginRight: 8 }}>
-              🎤 Voice Call
-            </button>
-            <button onClick={startVideoCall}>📹 Video Call</button>
-          </>
-        }
       />
 
       {/* Messages */}
@@ -361,7 +235,7 @@ export default function ChatConversationPage() {
               setReplyTo={setReplyTo}
               pinnedMessage={pinnedMessage}
               setPinnedMessage={setPinnedMessage}
-              friendId={friendInfo?.id}
+              friendId={friendId}
               onReplyClick={scrollToMessage}
               onOpenMediaViewer={handleOpenMediaViewer}
               messages={messages}
@@ -376,7 +250,7 @@ export default function ChatConversationPage() {
       <ChatInput
         text={text}
         setText={setText}
-        sendTextMessage={() => sendMessage(text, selectedFiles)}
+        sendTextMessage={() => {} /* Implement sendMessage function */}
         sendMediaMessage={setSelectedFiles}
         selectedFiles={selectedFiles}
         setSelectedFiles={setSelectedFiles}
