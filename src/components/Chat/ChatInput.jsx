@@ -1,51 +1,46 @@
 // src/components/Chat/ChatInput.jsx
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef } from "react";
 import { Paperclip, Send, X } from "lucide-react";
 import ImagePreviewModal from "./ImagePreviewModal";
 
 export default function ChatInput({
   text,
   setText,
-  sendTextMessage,
   selectedFiles,
   setSelectedFiles,
   isDark,
-  chatId,
   replyTo,
   setReplyTo,
-  addMessages, // function to immediately add message to chat
-  uploadFiles, // async function to upload files & return message object
+  addMessages,
+  uploadFiles,
 }) {
   const fileInputRef = useRef(null);
   const [showPreview, setShowPreview] = useState(false);
 
   // -----------------------------
-  // File Selection
+  // File selection (images/videos)
   // -----------------------------
   const handleFileChange = (e) => {
     const files = Array.from(e.target.files || []);
     if (!files.length) return;
 
-    const mediaFiles = files.filter((f) =>
-      f.type.startsWith("image/") || f.type.startsWith("video/") || f.type.startsWith("audio/")
+    const mediaFiles = files.filter(
+      (f) => f.type.startsWith("image/") || f.type.startsWith("video/")
     );
 
     if (!mediaFiles.length) return;
 
     setSelectedFiles((prev) => [...prev, ...mediaFiles].slice(0, 30));
     setShowPreview(true);
+
     e.target.value = null;
   };
 
   const handleRemoveFile = (index) => {
-    const fileToRemove = selectedFiles[index];
     setSelectedFiles((prev) => prev.filter((_, i) => i !== index));
-
-    if (fileToRemove && fileToRemove.url) URL.revokeObjectURL(fileToRemove.url);
   };
 
   const handleCancelPreview = () => {
-    selectedFiles.forEach((f) => f.url && URL.revokeObjectURL(f.url));
     setSelectedFiles([]);
     setShowPreview(false);
   };
@@ -53,64 +48,71 @@ export default function ChatInput({
   const handleAddMoreFiles = () => fileInputRef.current.click();
 
   // -----------------------------
-  // Send text message
+  // Send text + media
   // -----------------------------
-  const handleSendText = () => {
-    if (text.trim() === "" && selectedFiles.length === 0) return;
+  const handleSendFiles = async () => {
+    if (!selectedFiles.length && !text.trim()) return;
 
-    if (text.trim() !== "") {
-      sendTextMessage(); // existing function
-      setText("");
-      setReplyTo(null);
-    }
-  };
-
-  // -----------------------------
-  // Send files
-  // -----------------------------
-  const handleSendFiles = async (filesToSend) => {
-    if (!filesToSend.length) return;
-
-    // Convert files to messages with sending state
-    const tempMessages = filesToSend.map((f) => ({
-      id: `temp-${Date.now()}-${Math.random()}`,
-      file: f.file,
-      url: f.url,
-      type: f.file.type.startsWith("video/") ? "video" : "image",
-      status: "sending", // temp sending flag
+    const tempMessages = selectedFiles.map((file) => ({
+      id: `temp-${Date.now()}-${file.name}`,
+      mediaUrl: URL.createObjectURL(file),
+      mediaType: file.type.startsWith("video/") ? "video" : "image",
+      text: "",
       createdAt: new Date(),
-      chatId,
+      senderId: "me",
+      status: "uploading",
+      replyTo: replyTo ? replyTo.id : null,
     }));
 
-    // Add temp messages to chat immediately
+    // Add temp messages immediately
     addMessages(tempMessages);
 
-    // Close modal
-    setShowPreview(false);
+    // Close preview
     setSelectedFiles([]);
+    setShowPreview(false);
+    setText("");
 
-    // Upload files async and update message when done
-    tempMessages.forEach(async (msg, idx) => {
+    // Upload files in background
+    for (const file of selectedFiles) {
       try {
-        const uploadedMsg = await uploadFiles(msg.file, chatId, replyTo);
+        const uploaded = await uploadFiles(file, replyTo ? replyTo.chatId : null, replyTo);
         // Replace temp message with uploaded message
-        addMessages([uploadedMsg], msg.id); // second param = replace temp message
+        addMessages([uploaded], tempMessages.find((m) => m.id.includes(file.name)).id);
       } catch (err) {
         console.error("Upload failed", err);
-        // Update status to failed
-        addMessages([{ ...msg, status: "failed" }], msg.id);
       }
-    });
+    }
 
+    // Clear reply after sending
     setReplyTo(null);
   };
 
-  // Cleanup URLs on unmount
-  useEffect(() => {
-    return () => {
-      selectedFiles.forEach((f) => f.url && URL.revokeObjectURL(f.url));
+  // -----------------------------
+  // Send text message only
+  // -----------------------------
+  const handleSendText = async () => {
+    if (!text.trim()) return;
+
+    const tempMessage = {
+      id: `temp-text-${Date.now()}`,
+      text: text.trim(),
+      createdAt: new Date(),
+      senderId: "me",
+      status: "sending",
+      replyTo: replyTo ? replyTo.id : null,
     };
-  }, [selectedFiles]);
+
+    addMessages([tempMessage]);
+    setText("");
+    setReplyTo(null);
+
+    // Optionally, you can upload text message to Firestore here
+  };
+
+  const handleSend = () => {
+    if (selectedFiles.length > 0) handleSendFiles();
+    else handleSendText();
+  };
 
   return (
     <>
@@ -168,14 +170,13 @@ export default function ChatInput({
           zIndex: 25,
         }}
       >
-        {/* Hidden File Input */}
         <input
           type="file"
           multiple
           hidden
           ref={fileInputRef}
           onChange={handleFileChange}
-          accept="image/*,video/*,audio/*"
+          accept="image/*,video/*"
         />
 
         <button
@@ -202,13 +203,13 @@ export default function ChatInput({
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey) {
               e.preventDefault();
-              handleSendText();
+              handleSend();
             }
           }}
         />
 
         <button
-          onClick={handleSendText}
+          onClick={handleSend}
           style={{ background: "transparent", border: "none", cursor: "pointer", padding: 4 }}
         >
           <Send size={22} />
@@ -218,21 +219,12 @@ export default function ChatInput({
       {/* Preview Modal */}
       {showPreview && selectedFiles.length > 0 && (
         <ImagePreviewModal
-          previews={selectedFiles.map((file) => ({
-            file,
-            url: URL.createObjectURL(file),
-          }))}
+          previews={selectedFiles.map((file) => ({ file, url: URL.createObjectURL(file) }))}
           currentIndex={0}
           onRemove={handleRemoveFile}
           onClose={handleCancelPreview}
-          onSend={() =>
-            handleSendFiles(
-              selectedFiles.map((f) => ({
-                file: f,
-                url: URL.createObjectURL(f),
-              }))
-            )
-          }
+          onSend={handleSendFiles}
+          onAddFiles={handleAddMoreFiles}
           isDark={isDark}
         />
       )}
