@@ -1,4 +1,4 @@
-// src/components/ChatConversationPage.jsx
+// src/components/Chat/ChatConversationPage.jsx
 import React, { useEffect, useState, useRef, useContext, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import {
@@ -11,7 +11,7 @@ import {
   doc,
   updateDoc,
 } from "firebase/firestore";
-import { db, auth } from "../firebaseConfig";
+import { db, auth, storage } from "../firebaseConfig"; // make sure storage is imported
 import { ThemeContext } from "../context/ThemeContext";
 import { UserContext } from "../context/UserContext";
 
@@ -32,7 +32,6 @@ export default function ChatConversationPage() {
   const myUid = auth.currentUser?.uid;
 
   const messagesRefEl = useRef(null);
-  const fileInputRef = useRef(null);
 
   const [chatInfo, setChatInfo] = useState(null);
   const [friendInfo, setFriendInfo] = useState(null);
@@ -77,12 +76,10 @@ export default function ChatConversationPage() {
     return () => unsubChat();
   }, [chatId, myUid]);
 
-  // -------------------- Real-time messages (NEWEST FIRST) --------------------
+  // -------------------- Real-time messages --------------------
   useEffect(() => {
     if (!chatId) return;
     const messagesRef = collection(db, "chats", chatId, "messages");
-
-    // DESCENDING ORDER
     const q = query(messagesRef, orderBy("createdAt", "desc"));
 
     const unsub = onSnapshot(q, (snap) => {
@@ -94,12 +91,11 @@ export default function ChatConversationPage() {
     return () => unsub();
   }, [chatId]);
 
-  // -------------------- Scroll to TOP --------------------
   const scrollToTop = useCallback(() => {
     messagesRefEl.current?.scrollTo({ top: 0, behavior: "smooth" });
   }, []);
 
-  // -------------------- Group messages with DATE (descending) --------------------
+  // -------------------- Date separator --------------------
   const formatDateSeparator = (date) => {
     if (!date) return "";
     const msgDate = new Date(date.toDate?.() || date);
@@ -118,15 +114,12 @@ export default function ChatConversationPage() {
   const groupedMessages = [];
   let lastDate = null;
 
-  // messages already in NEWEST → OLDEST order
   messages.forEach((msg) => {
     const dateStr = formatDateSeparator(msg.createdAt);
-
     if (dateStr !== lastDate) {
       groupedMessages.push({ type: "date-separator", date: dateStr });
       lastDate = dateStr;
     }
-
     groupedMessages.push({ type: "message", data: msg });
   });
 
@@ -170,6 +163,52 @@ export default function ChatConversationPage() {
     else toast.info("No pinned message available.");
   };
 
+  // -------------------- Add messages helper --------------------
+  const addMessages = (newMessages, replaceId = null) => {
+    setMessages((prev) => {
+      if (!replaceId) return [...newMessages, ...prev];
+      return prev.map((m) => (m.id === replaceId ? newMessages[0] : m));
+    });
+  };
+
+  // -------------------- Upload files --------------------
+  const uploadFiles = async (file, chatId, replyTo) => {
+    const storageRef = storage.ref(); // Firebase storage reference
+    const fileRef = storageRef.child(`chatFiles/${chatId}/${Date.now()}-${file.name}`);
+
+    const uploadTask = fileRef.put(file);
+
+    return new Promise((resolve, reject) => {
+      uploadTask.on(
+        "state_changed",
+        (snapshot) => {
+          const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
+          setUploadProgress((prev) => ({ ...prev, [file.name]: progress }));
+        },
+        (error) => reject(error),
+        async () => {
+          const downloadURL = await uploadTask.snapshot.ref.getDownloadURL();
+          const msgRef = await addDoc(collection(db, "chats", chatId, "messages"), {
+            mediaUrl: downloadURL,
+            mediaType: file.type.startsWith("video/") ? "video" : "image",
+            text: "",
+            createdAt: serverTimestamp(),
+            senderId: myUid,
+            replyTo: replyTo ? replyTo.id : null,
+          });
+          resolve({
+            id: msgRef.id,
+            mediaUrl: downloadURL,
+            mediaType: file.type.startsWith("video/") ? "video" : "image",
+            text: "",
+            createdAt: new Date(),
+            senderId: myUid,
+          });
+        }
+      );
+    });
+  };
+
   // -------------------- Loading --------------------
   if (loading) {
     return (
@@ -189,19 +228,6 @@ export default function ChatConversationPage() {
         color: isDark ? "#fff" : "#000",
       }}
     >
-      <input
-        type="file"
-        ref={fileInputRef}
-        style={{ display: "none" }}
-        multiple
-        accept="image/*,video/*"
-        onChange={(e) => {
-          const files = Array.from(e.target.files);
-          if (files.length) setSelectedFiles((prev) => [...prev, ...files]);
-          e.target.value = null;
-        }}
-      />
-
       <ChatHeader
         friendId={friendId}
         chatId={chatId}
@@ -219,7 +245,7 @@ export default function ChatConversationPage() {
         onGoToPinned={onGoToPinned}
       />
 
-      {/* Messages (NEWEST FIRST using column-reverse) */}
+      {/* Messages */}
       <div
         ref={messagesRefEl}
         style={{
@@ -227,7 +253,7 @@ export default function ChatConversationPage() {
           overflowY: "auto",
           padding: 8,
           display: "flex",
-          flexDirection: "column-reverse", // NEW
+          flexDirection: "column-reverse",
         }}
       >
         {groupedMessages.map((item, idx) =>
@@ -263,13 +289,13 @@ export default function ChatConversationPage() {
       <ChatInput
         text={text}
         setText={setText}
-        sendTextMessage={() => {}}
-        sendMediaMessage={setSelectedFiles}
         selectedFiles={selectedFiles}
         setSelectedFiles={setSelectedFiles}
         isDark={isDark}
         replyTo={replyTo}
         setReplyTo={setReplyTo}
+        addMessages={addMessages}
+        uploadFiles={uploadFiles}
       />
 
       {mediaViewerData.isOpen && (
