@@ -1,5 +1,5 @@
 // src/components/Chat/ChatInput.jsx
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import { Paperclip, Send, X } from "lucide-react";
 import ImagePreviewModal from "./ImagePreviewModal";
 
@@ -18,32 +18,36 @@ export default function ChatInput({
   const [showPreview, setShowPreview] = useState(false);
 
   // -----------------------------
-  // File selection (images/videos/audio)
+  // File Selection
   // -----------------------------
   const handleFileChange = (e) => {
     const files = Array.from(e.target.files || []);
     if (!files.length) return;
 
-    const mediaFiles = files.filter(
-      (f) =>
-        f.type.startsWith("image/") ||
-        f.type.startsWith("video/") ||
-        f.type.startsWith("audio/")
+    const mediaFiles = files.filter((f) =>
+      f.type.startsWith("image/") || f.type.startsWith("video/") || f.type.startsWith("audio/")
     );
 
     if (!mediaFiles.length) return;
 
-    setSelectedFiles([...selectedFiles, ...mediaFiles].slice(0, 30));
+    setSelectedFiles((prev) => [...prev, ...mediaFiles].slice(0, 30));
     setShowPreview(true);
-
     e.target.value = null;
   };
 
   const handleRemoveFile = (index) => {
+    const fileToRemove = selectedFiles[index];
     setSelectedFiles((prev) => prev.filter((_, i) => i !== index));
+
+    // Revoke object URL if created
+    if (fileToRemove && fileToRemove.url) {
+      URL.revokeObjectURL(fileToRemove.url);
+    }
   };
 
   const handleCancelPreview = () => {
+    // Revoke all object URLs
+    selectedFiles.forEach((f) => f.url && URL.revokeObjectURL(f.url));
     setSelectedFiles([]);
     setShowPreview(false);
   };
@@ -52,9 +56,17 @@ export default function ChatInput({
 
   const handleSend = () => {
     if (text.trim() === "" && selectedFiles.length === 0) return;
+
     sendTextMessage();
     setReplyTo(null);
   };
+
+  // Cleanup object URLs on unmount
+  useEffect(() => {
+    return () => {
+      selectedFiles.forEach((f) => f.url && URL.revokeObjectURL(f.url));
+    };
+  }, [selectedFiles]);
 
   return (
     <>
@@ -112,7 +124,7 @@ export default function ChatInput({
           zIndex: 25,
         }}
       >
-        {/* File input */}
+        {/* Hidden File Input */}
         <input
           type="file"
           multiple
@@ -129,7 +141,6 @@ export default function ChatInput({
           <Paperclip size={22} />
         </button>
 
-        {/* Text Input */}
         <input
           value={text}
           onChange={(e) => setText(e.target.value)}
@@ -152,7 +163,6 @@ export default function ChatInput({
           }}
         />
 
-        {/* Send */}
         <button
           onClick={handleSend}
           style={{ background: "transparent", border: "none", cursor: "pointer", padding: 4 }}
@@ -164,13 +174,15 @@ export default function ChatInput({
       {/* Preview Modal */}
       {showPreview && selectedFiles.length > 0 && (
         <ImagePreviewModal
-          files={selectedFiles}
+          previews={selectedFiles.map((file) => ({
+            file,
+            url: URL.createObjectURL(file),
+          }))}
+          currentIndex={0}
           onRemove={handleRemoveFile}
-          onCancel={handleCancelPreview}
-          onAddFiles={handleAddMoreFiles}
-          chatId={chatId}
-          replyTo={replyTo}
-          clearReply={() => setReplyTo(null)}
+          onClose={handleCancelPreview}
+          onSend={handleSend}
+          isDark={isDark}
         />
       )}
     </>
