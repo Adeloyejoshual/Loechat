@@ -47,6 +47,7 @@ export default function MessageItem({
   const [reactionBubbles, setReactionBubbles] = useState([]);
   const [showFullText, setShowFullText] = useState(false);
 
+  // Fade-in animation
   useEffect(() => {
     const el = containerRef.current;
     if (el) el.style.opacity = 0;
@@ -57,8 +58,7 @@ export default function MessageItem({
     return () => clearTimeout(timer);
   }, []);
 
-  if (deleted) return null;
-
+  // Pin/unpin message
   const togglePin = async () => {
     const chatRef = doc(db, "chats", chatId);
     const newPin = pinnedMessage?.id !== message.id;
@@ -67,6 +67,7 @@ export default function MessageItem({
     toast.success(newPin ? "Message pinned" : "Message unpinned");
   };
 
+  // Delete message
   const deleteMessage = async () => {
     if (!window.confirm(`Delete this message for ${isMine ? "everyone" : "them"}?`)) return;
     setFadeOut(true);
@@ -76,11 +77,13 @@ export default function MessageItem({
     }, 300);
   };
 
+  // Copy message
   const copyMessage = async () => {
     await navigator.clipboard.writeText(message.text || message.mediaUrl || "");
     toast.success("Message copied");
   };
 
+  // Apply reaction
   const applyReaction = async (emoji) => {
     const msgRef = doc(db, "chats", chatId, "messages", message.id);
     const newEmoji = reactedEmoji === emoji ? "" : emoji;
@@ -94,6 +97,7 @@ export default function MessageItem({
     }
   };
 
+  // Double tap to ❤️
   const handleTap = () => {
     const now = Date.now();
     if (now - lastTap.current < 300) {
@@ -104,6 +108,7 @@ export default function MessageItem({
     }
   };
 
+  // Swipe to reply
   const handleTouchStart = (e) => (startX.current = e.touches[0].clientX);
   const handleTouchMove = (e) => {
     const deltaX = e.touches[0].clientX - startX.current;
@@ -114,14 +119,9 @@ export default function MessageItem({
     setTranslateX(0);
   };
 
-  const handleMediaClick = () => {
-    if (onOpenMediaViewer && message.mediaUrl) onOpenMediaViewer(message.mediaUrl);
-  };
+  if (deleted) return null;
 
-  const handleRetry = () => {
-    if (message.retry) message.retry();
-  };
-
+  // Render message text
   const renderMessageText = () => {
     if (!message.text) return null;
     if (message.text.length <= READ_MORE_LIMIT) return <div>{message.text}</div>;
@@ -150,149 +150,225 @@ export default function MessageItem({
     );
   };
 
+  // Media click
+  const handleMediaClick = () => {
+    if (onOpenMediaViewer && message.mediaUrl) onOpenMediaViewer(message.mediaUrl);
+  };
+
+  // Retry upload
+  const handleRetry = () => {
+    if (message.retry) message.retry();
+  };
+
   return (
-    <div
-      ref={containerRef}
-      id={message.id}
-      className={`message-item ${isMine ? "mine" : "other"}`}
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        alignItems: isMine ? "flex-end" : "flex-start",
-        marginBottom: 8,
-        position: "relative",
-        transform: `translateX(${translateX}px) ${fadeOut ? `translateX(${isMine ? 100 : -100}px)` : ""}`,
-        transition: "transform 0.3s ease, opacity 0.3s ease",
-      }}
-      onClick={handleTap}
-      onContextMenu={(e) => {
-        e.preventDefault();
-        setShowModal(true);
-      }}
-      onTouchStart={handleTouchStart}
-      onTouchMove={handleTouchMove}
-      onTouchEnd={handleTouchEnd}
-    >
+    <>
       <div
-        className="message-bubble"
+        ref={containerRef}
+        id={message.id}
+        className={`message-item ${isMine ? "mine" : "other"}`}
         style={{
-          maxWidth: "75%",
-          padding: 10,
-          borderRadius: 18,
-          background: isMine ? COLORS.primary : isDark ? COLORS.darkCard : COLORS.lightCard,
-          color: isMine ? "#fff" : isDark ? COLORS.darkText : "#000",
-          wordBreak: "break-word",
-          display: "inline-block",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: isMine ? "flex-end" : "flex-start",
+          marginBottom: 8,
           position: "relative",
-          boxShadow: "0 1px 3px rgba(0,0,0,0.15)",
-          transition: "background 0.2s ease",
+          transform: `translateX(${translateX}px) ${fadeOut ? `translateX(${isMine ? 100 : -100}px)` : ""}`,
+          transition: "transform 0.3s ease, opacity 0.3s ease",
         }}
+        onClick={handleTap}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          setShowModal(true);
+        }}
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
       >
-        {/* Media */}
-        {message.mediaUrl && (
-          <div style={{ position: "relative" }}>
-            {message.mediaType === "image" ? (
-              <img
-                src={message.mediaUrl}
-                alt="media"
-                style={{
-                  maxWidth: "100%",
-                  borderRadius: 12,
-                  cursor: "pointer",
-                  opacity: message.status === "uploading" ? 0.6 : 1,
-                }}
-                onClick={handleMediaClick}
-              />
-            ) : (
-              <video
-                src={message.mediaUrl}
-                controls
-                style={{
-                  maxWidth: "100%",
-                  borderRadius: 12,
-                  cursor: "pointer",
-                  opacity: message.status === "uploading" ? 0.6 : 1,
-                }}
-                onClick={handleMediaClick}
-              />
-            )}
+        <div
+          className="message-bubble"
+          style={{
+            maxWidth: "75%",
+            padding: 10,
+            borderRadius: 18,
+            background: isMine ? COLORS.primary : isDark ? COLORS.darkCard : COLORS.lightCard,
+            color: isMine ? "#fff" : isDark ? COLORS.darkText : "#000",
+            wordBreak: "break-word",
+            display: "inline-block",
+            position: "relative",
+            boxShadow: "0 1px 3px rgba(0,0,0,0.15)",
+            transition: "background 0.2s ease",
+          }}
+        >
+          {/* Reply Preview */}
+          {message.replyTo && (
+            <div
+              onClick={() => onReplyClick?.(message.replyTo?.id)}
+              style={{
+                fontSize: 12,
+                opacity: 0.7,
+                borderLeft: `2px solid ${COLORS.mutedText}`,
+                paddingLeft: 6,
+                marginBottom: 4,
+                cursor: "pointer",
+              }}
+            >
+              ↪ {message.replyTo?.text?.slice(0, 50)}
+            </div>
+          )}
 
-            {message.status === "uploading" && (
+          {/* Media */}
+          {message.mediaUrl && (
+            <div style={{ position: "relative", marginBottom: message.text ? 4 : 0 }}>
+              {message.mediaType === "image" ? (
+                <img
+                  src={message.mediaUrl}
+                  alt="media"
+                  style={{
+                    maxWidth: "100%",
+                    borderRadius: 12,
+                    cursor: "pointer",
+                    opacity: message.status === "uploading" ? 0.6 : 1,
+                  }}
+                  onClick={handleMediaClick}
+                />
+              ) : (
+                <video
+                  src={message.mediaUrl}
+                  controls
+                  style={{
+                    maxWidth: "100%",
+                    borderRadius: 12,
+                    cursor: "pointer",
+                    opacity: message.status === "uploading" ? 0.6 : 1,
+                  }}
+                  onClick={handleMediaClick}
+                />
+              )}
+
+              {message.status === "uploading" && (
+                <div
+                  style={{
+                    position: "absolute",
+                    inset: 0,
+                    background: "rgba(0,0,0,0.3)",
+                    borderRadius: 12,
+                    display: "flex",
+                    justifyContent: "center",
+                    alignItems: "center",
+                    color: "#fff",
+                    fontSize: 14,
+                  }}
+                >
+                  {Math.round(message.uploadProgress || 0)}%
+                </div>
+              )}
+
+              {message.status === "failed" && (
+                <button
+                  onClick={handleRetry}
+                  style={{
+                    position: "absolute",
+                    bottom: 8,
+                    right: 8,
+                    background: "#ff4d4f",
+                    color: "#fff",
+                    border: "none",
+                    borderRadius: 8,
+                    padding: "4px 8px",
+                    cursor: "pointer",
+                    fontSize: 12,
+                  }}
+                >
+                  Retry
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* Text */}
+          {message.text && renderMessageText()}
+
+          {/* Reactions */}
+          <div style={{ position: "relative", marginTop: 4 }}>
+            {message.reactions &&
+              Object.values(message.reactions)
+                .filter(Boolean)
+                .map((emoji, i) => (
+                  <span
+                    key={i}
+                    style={{
+                      background: COLORS.reactionBg,
+                      color: "#fff",
+                      padding: "0 6px",
+                      borderRadius: 12,
+                      fontSize: 12,
+                      marginRight: 4,
+                    }}
+                  >
+                    {emoji}
+                  </span>
+                ))}
+            {reactionBubbles.map((b) => (
               <div
+                key={b.id}
                 style={{
                   position: "absolute",
-                  inset: 0,
-                  background: "rgba(0,0,0,0.3)",
-                  borderRadius: 12,
-                  display: "flex",
-                  justifyContent: "center",
-                  alignItems: "center",
-                  color: "#fff",
-                  fontSize: 14,
+                  bottom: 0,
+                  left: "50%",
+                  transform: "translateX(-50%)",
+                  animation: "popUp 0.8s forwards",
+                  pointerEvents: "none",
+                  fontSize: 18,
                 }}
               >
-                {Math.round(message.uploadProgress || 0)}%
+                {b.emoji}
               </div>
-            )}
-
-            {message.status === "failed" && (
-              <button
-                onClick={handleRetry}
-                style={{
-                  position: "absolute",
-                  bottom: 8,
-                  right: 8,
-                  background: "#ff4d4f",
-                  color: "#fff",
-                  border: "none",
-                  borderRadius: 8,
-                  padding: "4px 8px",
-                  cursor: "pointer",
-                  fontSize: 12,
-                }}
-              >
-                Retry
-              </button>
-            )}
+            ))}
           </div>
-        )}
 
-        {/* Text */}
-        {renderMessageText()}
+          {/* Timestamp */}
+          {message.createdAt && (
+            <div
+              style={{
+                fontSize: 10,
+                opacity: 0.6,
+                marginTop: 4,
+                textAlign: isMine ? "right" : "left",
+              }}
+            >
+              {new Date(message.createdAt.toDate ? message.createdAt.toDate() : message.createdAt).toLocaleTimeString([], {
+                hour: "2-digit",
+                minute: "2-digit",
+              })}
+              {isMine && status && <> • {status}</>}
+            </div>
+          )}
+        </div>
 
-        {/* Timestamp */}
-        {message.createdAt && (
-          <div
-            style={{
-              fontSize: 10,
-              opacity: 0.6,
-              marginTop: 4,
-              textAlign: isMine ? "right" : "left",
-            }}
-          >
-            {new Date(message.createdAt.toDate ? message.createdAt.toDate() : message.createdAt).toLocaleTimeString([], {
-              hour: "2-digit",
-              minute: "2-digit",
-            })}
-            {isMine && status && <> • {status}</>}
-          </div>
+        {!isMine && typing && <TypingIndicator userName={friendInfo?.name || "Someone"} isDark={isDark} />}
+
+        {/* Long Press Modal */}
+        {showModal && (
+          <LongPressMessageModal
+            onClose={() => setShowModal(false)}
+            onReaction={applyReaction}
+            onReply={() => setReplyTo(message)}
+            onCopy={copyMessage}
+            onPin={togglePin}
+            onDelete={deleteMessage}
+            messageSenderName={isMine ? "you" : "them"}
+            isDark={isDark}
+          />
         )}
       </div>
 
-      {!isMine && typing && <TypingIndicator userName={friendInfo?.name || "Someone"} isDark={isDark} />}
-
-      {showModal && (
-        <LongPressMessageModal
-          onClose={() => setShowModal(false)}
-          onReaction={applyReaction}
-          onReply={() => setReplyTo(message)}
-          onCopy={copyMessage}
-          onPin={togglePin}
-          onDelete={deleteMessage}
-          messageSenderName={isMine ? "you" : "them"}
-          isDark={isDark}
-        />
-      )}
-    </div>
+      <style>{`
+        @keyframes popUp {
+          0% { transform: translate(-50%, 0) scale(1); opacity: 1; }
+          50% { transform: translate(-50%, -20px) scale(1.3); opacity: 1; }
+          100% { transform: translate(-50%, -40px) scale(1); opacity: 0; }
+        }
+      `}</style>
+    </>
   );
 }
