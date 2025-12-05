@@ -237,20 +237,58 @@ export default function MessageItem({
           {message.mediaUrl ? (
             <div style={{ display: "flex", flexDirection: "column", position: "relative" }}>
               {message.mediaType === "image" && (
-                <img
-                  src={message.mediaUrl}
-                  alt="media"
-                  style={{ maxWidth: "100%", borderRadius: 12, cursor: "pointer" }}
-                  onClick={handleMediaClick}
-                />
+                <div style={{ position: "relative" }}>
+                  <img
+                    src={message.mediaUrl}
+                    alt="media"
+                    style={{ maxWidth: "100%", borderRadius: 12, cursor: "pointer", opacity: message.status === "uploading" ? 0.6 : 1 }}
+                    onClick={handleMediaClick}
+                  />
+                  {message.status === "uploading" && (
+                    <div
+                      style={{
+                        position: "absolute",
+                        inset: 0,
+                        background: "rgba(0,0,0,0.3)",
+                        borderRadius: 12,
+                        display: "flex",
+                        justifyContent: "center",
+                        alignItems: "center",
+                        color: "#fff",
+                        fontSize: 14,
+                      }}
+                    >
+                      {Math.round(message.uploadProgress || 0)}%
+                    </div>
+                  )}
+                </div>
               )}
               {message.mediaType === "video" && (
-                <video
-                  src={message.mediaUrl}
-                  controls
-                  style={{ maxWidth: "100%", borderRadius: 12, cursor: "pointer" }}
-                  onClick={handleMediaClick}
-                />
+                <div style={{ position: "relative" }}>
+                  <video
+                    src={message.mediaUrl}
+                    controls
+                    style={{ maxWidth: "100%", borderRadius: 12, cursor: "pointer", opacity: message.status === "uploading" ? 0.6 : 1 }}
+                    onClick={handleMediaClick}
+                  />
+                  {message.status === "uploading" && (
+                    <div
+                      style={{
+                        position: "absolute",
+                        inset: 0,
+                        background: "rgba(0,0,0,0.3)",
+                        borderRadius: 12,
+                        display: "flex",
+                        justifyContent: "center",
+                        alignItems: "center",
+                        color: "#fff",
+                        fontSize: 14,
+                      }}
+                    >
+                      {Math.round(message.uploadProgress || 0)}%
+                    </div>
+                  )}
+                </div>
               )}
               {message.text && <div style={{ marginTop: 4, whiteSpace: "pre-wrap" }}>{message.text}</div>}
             </div>
@@ -313,7 +351,7 @@ export default function MessageItem({
                 hour: "2-digit",
                 minute: "2-digit",
               })}
-              {isMine && status && <>• {status === "sending" ? "Sending..." : status}</>}
+              {isMine && status && <>• {status === "uploading" ? "Uploading..." : status}</>}
             </div>
           )}
         </div>
