@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useContext } from "react";
-import { doc, updateDoc, onSnapshot } from "firebase/firestore";
+import { doc, updateDoc } from "firebase/firestore";
 import { db } from "../../firebaseConfig";
 import { ThemeContext } from "../../context/ThemeContext";
 import LongPressMessageModal from "./LongPressMessageModal";
@@ -47,7 +47,6 @@ export default function MessageItem({
   const [reactionBubbles, setReactionBubbles] = useState([]);
   const [showFullText, setShowFullText] = useState(false);
 
-  // Fade-in animation on mount
   useEffect(() => {
     const el = containerRef.current;
     if (el) el.style.opacity = 0;
@@ -58,16 +57,9 @@ export default function MessageItem({
     return () => clearTimeout(timer);
   }, []);
 
-  // Update message status (seen/delivered)
   useEffect(() => {
     if (!friendId) return;
-    const unsub = onSnapshot(doc(db, "users", friendId), (snap) => {
-      if (!snap.exists()) return;
-      const data = snap.data();
-      if (data.isOnline && isMine && status !== "sent") setStatus("Delivered");
-      if (message.seenBy?.includes(friendId)) setStatus("Seen");
-    });
-    return () => unsub();
+    // Optionally: update message status
   }, [friendId, message, isMine]);
 
   const togglePin = async () => {
@@ -160,6 +152,10 @@ export default function MessageItem({
     if (onOpenMediaViewer && message.mediaUrl) onOpenMediaViewer(message.mediaUrl);
   };
 
+  const handleRetry = () => {
+    if (message.retry) message.retry();
+  };
+
   return (
     <>
       <div
@@ -199,142 +195,79 @@ export default function MessageItem({
             transition: "background 0.2s ease",
           }}
         >
-          {/* Tail */}
-          <div
-            style={{
-              position: "absolute",
-              bottom: 0,
-              width: 0,
-              height: 0,
-              borderStyle: "solid",
-              borderWidth: "6px 6px 0 0",
-              borderColor: isMine
-                ? `${COLORS.primary} transparent transparent transparent`
-                : `${isDark ? COLORS.darkCard : COLORS.lightCard} transparent transparent transparent`,
-              right: isMine ? -6 : "auto",
-              left: isMine ? "auto" : -6,
-            }}
-          />
+          {/* Media */}
+          {message.mediaUrl && (
+            <div style={{ position: "relative" }}>
+              {message.mediaType === "image" ? (
+                <img
+                  src={message.mediaUrl || ""}
+                  alt="media"
+                  style={{
+                    maxWidth: "100%",
+                    borderRadius: 12,
+                    cursor: "pointer",
+                    opacity: message.status === "uploading" ? 0.6 : 1,
+                  }}
+                  onClick={handleMediaClick}
+                />
+              ) : (
+                <video
+                  src={message.mediaUrl || ""}
+                  controls
+                  style={{
+                    maxWidth: "100%",
+                    borderRadius: 12,
+                    cursor: "pointer",
+                    opacity: message.status === "uploading" ? 0.6 : 1,
+                  }}
+                  onClick={handleMediaClick}
+                />
+              )}
 
-          {/* Reply Preview */}
-          {message.replyTo && (
-            <div
-              onClick={() => onReplyClick?.(message.replyTo?.id)}
-              style={{
-                fontSize: 12,
-                opacity: 0.7,
-                borderLeft: `2px solid ${COLORS.mutedText}`,
-                paddingLeft: 6,
-                marginBottom: 4,
-                cursor: "pointer",
-              }}
-            >
-              ↪ {message.replyTo?.text?.slice(0, 50)}
+              {message.status === "uploading" && (
+                <div
+                  style={{
+                    position: "absolute",
+                    inset: 0,
+                    background: "rgba(0,0,0,0.3)",
+                    borderRadius: 12,
+                    display: "flex",
+                    justifyContent: "center",
+                    alignItems: "center",
+                    color: "#fff",
+                    fontSize: 14,
+                  }}
+                >
+                  {Math.round(message.uploadProgress || 0)}%
+                </div>
+              )}
+
+              {message.status === "failed" && (
+                <button
+                  onClick={handleRetry}
+                  style={{
+                    position: "absolute",
+                    bottom: 8,
+                    right: 8,
+                    background: "#ff4d4f",
+                    color: "#fff",
+                    border: "none",
+                    borderRadius: 8,
+                    padding: "4px 8px",
+                    cursor: "pointer",
+                    fontSize: 12,
+                  }}
+                >
+                  Retry
+                </button>
+              )}
             </div>
           )}
 
-          {/* Media + Text */}
-          {message.mediaUrl ? (
-            <div style={{ display: "flex", flexDirection: "column", position: "relative" }}>
-              {message.mediaType === "image" && (
-                <div style={{ position: "relative" }}>
-                  <img
-                    src={message.mediaUrl}
-                    alt="media"
-                    style={{ maxWidth: "100%", borderRadius: 12, cursor: "pointer", opacity: message.status === "uploading" ? 0.6 : 1 }}
-                    onClick={handleMediaClick}
-                  />
-                  {message.status === "uploading" && (
-                    <div
-                      style={{
-                        position: "absolute",
-                        inset: 0,
-                        background: "rgba(0,0,0,0.3)",
-                        borderRadius: 12,
-                        display: "flex",
-                        justifyContent: "center",
-                        alignItems: "center",
-                        color: "#fff",
-                        fontSize: 14,
-                      }}
-                    >
-                      {Math.round(message.uploadProgress || 0)}%
-                    </div>
-                  )}
-                </div>
-              )}
-              {message.mediaType === "video" && (
-                <div style={{ position: "relative" }}>
-                  <video
-                    src={message.mediaUrl}
-                    controls
-                    style={{ maxWidth: "100%", borderRadius: 12, cursor: "pointer", opacity: message.status === "uploading" ? 0.6 : 1 }}
-                    onClick={handleMediaClick}
-                  />
-                  {message.status === "uploading" && (
-                    <div
-                      style={{
-                        position: "absolute",
-                        inset: 0,
-                        background: "rgba(0,0,0,0.3)",
-                        borderRadius: 12,
-                        display: "flex",
-                        justifyContent: "center",
-                        alignItems: "center",
-                        color: "#fff",
-                        fontSize: 14,
-                      }}
-                    >
-                      {Math.round(message.uploadProgress || 0)}%
-                    </div>
-                  )}
-                </div>
-              )}
-              {message.text && <div style={{ marginTop: 4, whiteSpace: "pre-wrap" }}>{message.text}</div>}
-            </div>
-          ) : (
-            renderMessageText()
-          )}
+          {/* Text */}
+          {!message.mediaUrl && renderMessageText()}
 
-          {/* Reactions */}
-          <div style={{ position: "relative", marginTop: 4 }}>
-            {message.reactions &&
-              Object.values(message.reactions)
-                .filter(Boolean)
-                .map((emoji, i) => (
-                  <span
-                    key={i}
-                    style={{
-                      background: COLORS.reactionBg,
-                      color: "#fff",
-                      padding: "0 6px",
-                      borderRadius: 12,
-                      fontSize: 12,
-                      marginRight: 4,
-                    }}
-                  >
-                    {emoji}
-                  </span>
-                ))}
-            {reactionBubbles.map((b) => (
-              <div
-                key={b.id}
-                style={{
-                  position: "absolute",
-                  bottom: 0,
-                  left: "50%",
-                  transform: "translateX(-50%)",
-                  animation: "popUp 0.8s forwards",
-                  pointerEvents: "none",
-                  fontSize: 18,
-                }}
-              >
-                {b.emoji}
-              </div>
-            ))}
-          </div>
-
-          {/* Timestamp + Status */}
+          {/* Timestamp */}
           {message.createdAt && (
             <div
               style={{
@@ -342,45 +275,32 @@ export default function MessageItem({
                 opacity: 0.6,
                 marginTop: 4,
                 textAlign: isMine ? "right" : "left",
-                display: "flex",
-                alignItems: "center",
-                gap: 4,
               }}
             >
               {new Date(message.createdAt.toDate ? message.createdAt.toDate() : message.createdAt).toLocaleTimeString([], {
                 hour: "2-digit",
                 minute: "2-digit",
               })}
-              {isMine && status && <>• {status === "uploading" ? "Uploading..." : status}</>}
+              {isMine && status && <> • {status}</>}
             </div>
           )}
         </div>
 
-        {/* Typing Indicator */}
         {!isMine && typing && <TypingIndicator userName={friendInfo?.name || "Someone"} isDark={isDark} />}
+
+        {showModal && (
+          <LongPressMessageModal
+            onClose={() => setShowModal(false)}
+            onReaction={applyReaction}
+            onReply={() => setReplyTo(message)}
+            onCopy={copyMessage}
+            onPin={togglePin}
+            onDelete={deleteMessage}
+            messageSenderName={isMine ? "you" : "them"}
+            isDark={isDark}
+          />
+        )}
       </div>
-
-      {/* Long Press Modal */}
-      {showModal && (
-        <LongPressMessageModal
-          onClose={() => setShowModal(false)}
-          onReaction={applyReaction}
-          onReply={() => setReplyTo(message)}
-          onCopy={copyMessage}
-          onPin={togglePin}
-          onDelete={deleteMessage}
-          messageSenderName={isMine ? "you" : "them"}
-          isDark={isDark}
-        />
-      )}
-
-      <style>{`
-        @keyframes popUp {
-          0% { transform: translate(-50%, 0) scale(1); opacity: 1; }
-          50% { transform: translate(-50%, -20px) scale(1.3); opacity: 1; }
-          100% { transform: translate(-50%, -40px) scale(1); opacity: 0; }
-        }
-      `}</style>
     </>
   );
 }
