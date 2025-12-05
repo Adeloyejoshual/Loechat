@@ -57,10 +57,7 @@ export default function MessageItem({
     return () => clearTimeout(timer);
   }, []);
 
-  useEffect(() => {
-    if (!friendId) return;
-    // Optionally: update message status
-  }, [friendId, message, isMine]);
+  if (deleted) return null;
 
   const togglePin = async () => {
     const chatRef = doc(db, "chats", chatId);
@@ -117,7 +114,13 @@ export default function MessageItem({
     setTranslateX(0);
   };
 
-  if (deleted) return null;
+  const handleMediaClick = () => {
+    if (onOpenMediaViewer && message.mediaUrl) onOpenMediaViewer(message.mediaUrl);
+  };
+
+  const handleRetry = () => {
+    if (message.retry) message.retry();
+  };
 
   const renderMessageText = () => {
     if (!message.text) return null;
@@ -125,7 +128,6 @@ export default function MessageItem({
     return (
       <div>
         <div
-          className="message-text"
           style={{
             display: "-webkit-box",
             WebkitLineClamp: showFullText ? "none" : 4,
@@ -148,159 +150,149 @@ export default function MessageItem({
     );
   };
 
-  const handleMediaClick = () => {
-    if (onOpenMediaViewer && message.mediaUrl) onOpenMediaViewer(message.mediaUrl);
-  };
-
-  const handleRetry = () => {
-    if (message.retry) message.retry();
-  };
-
   return (
-    <>
+    <div
+      ref={containerRef}
+      id={message.id}
+      className={`message-item ${isMine ? "mine" : "other"}`}
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        alignItems: isMine ? "flex-end" : "flex-start",
+        marginBottom: 8,
+        position: "relative",
+        transform: `translateX(${translateX}px) ${fadeOut ? `translateX(${isMine ? 100 : -100}px)` : ""}`,
+        transition: "transform 0.3s ease, opacity 0.3s ease",
+      }}
+      onClick={handleTap}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        setShowModal(true);
+      }}
+      onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
+      onTouchEnd={handleTouchEnd}
+    >
       <div
-        ref={containerRef}
-        id={message.id}
-        className={`message-item ${isMine ? "mine" : "other"}`}
+        className="message-bubble"
         style={{
-          display: "flex",
-          flexDirection: "column",
-          alignItems: isMine ? "flex-end" : "flex-start",
-          marginBottom: 8,
+          maxWidth: "75%",
+          padding: 10,
+          borderRadius: 18,
+          background: isMine ? COLORS.primary : isDark ? COLORS.darkCard : COLORS.lightCard,
+          color: isMine ? "#fff" : isDark ? COLORS.darkText : "#000",
+          wordBreak: "break-word",
+          display: "inline-block",
           position: "relative",
-          transform: `translateX(${translateX}px) ${fadeOut ? `translateX(${isMine ? 100 : -100}px)` : ""}`,
-          transition: "transform 0.3s ease, opacity 0.3s ease",
+          boxShadow: "0 1px 3px rgba(0,0,0,0.15)",
+          transition: "background 0.2s ease",
         }}
-        onClick={handleTap}
-        onContextMenu={(e) => {
-          e.preventDefault();
-          setShowModal(true);
-        }}
-        onTouchStart={handleTouchStart}
-        onTouchMove={handleTouchMove}
-        onTouchEnd={handleTouchEnd}
       >
-        <div
-          className="message-bubble"
-          style={{
-            maxWidth: "75%",
-            padding: 10,
-            borderRadius: 18,
-            background: isMine ? COLORS.primary : isDark ? COLORS.darkCard : COLORS.lightCard,
-            color: isMine ? "#fff" : isDark ? COLORS.darkText : "#000",
-            wordBreak: "break-word",
-            display: "inline-block",
-            position: "relative",
-            boxShadow: "0 1px 3px rgba(0,0,0,0.15)",
-            transition: "background 0.2s ease",
-          }}
-        >
-          {/* Media */}
-          {message.mediaUrl && (
-            <div style={{ position: "relative" }}>
-              {message.mediaType === "image" ? (
-                <img
-                  src={message.mediaUrl || ""}
-                  alt="media"
-                  style={{
-                    maxWidth: "100%",
-                    borderRadius: 12,
-                    cursor: "pointer",
-                    opacity: message.status === "uploading" ? 0.6 : 1,
-                  }}
-                  onClick={handleMediaClick}
-                />
-              ) : (
-                <video
-                  src={message.mediaUrl || ""}
-                  controls
-                  style={{
-                    maxWidth: "100%",
-                    borderRadius: 12,
-                    cursor: "pointer",
-                    opacity: message.status === "uploading" ? 0.6 : 1,
-                  }}
-                  onClick={handleMediaClick}
-                />
-              )}
+        {/* Media */}
+        {message.mediaUrl && (
+          <div style={{ position: "relative" }}>
+            {message.mediaType === "image" ? (
+              <img
+                src={message.mediaUrl}
+                alt="media"
+                style={{
+                  maxWidth: "100%",
+                  borderRadius: 12,
+                  cursor: "pointer",
+                  opacity: message.status === "uploading" ? 0.6 : 1,
+                }}
+                onClick={handleMediaClick}
+              />
+            ) : (
+              <video
+                src={message.mediaUrl}
+                controls
+                style={{
+                  maxWidth: "100%",
+                  borderRadius: 12,
+                  cursor: "pointer",
+                  opacity: message.status === "uploading" ? 0.6 : 1,
+                }}
+                onClick={handleMediaClick}
+              />
+            )}
 
-              {message.status === "uploading" && (
-                <div
-                  style={{
-                    position: "absolute",
-                    inset: 0,
-                    background: "rgba(0,0,0,0.3)",
-                    borderRadius: 12,
-                    display: "flex",
-                    justifyContent: "center",
-                    alignItems: "center",
-                    color: "#fff",
-                    fontSize: 14,
-                  }}
-                >
-                  {Math.round(message.uploadProgress || 0)}%
-                </div>
-              )}
+            {message.status === "uploading" && (
+              <div
+                style={{
+                  position: "absolute",
+                  inset: 0,
+                  background: "rgba(0,0,0,0.3)",
+                  borderRadius: 12,
+                  display: "flex",
+                  justifyContent: "center",
+                  alignItems: "center",
+                  color: "#fff",
+                  fontSize: 14,
+                }}
+              >
+                {Math.round(message.uploadProgress || 0)}%
+              </div>
+            )}
 
-              {message.status === "failed" && (
-                <button
-                  onClick={handleRetry}
-                  style={{
-                    position: "absolute",
-                    bottom: 8,
-                    right: 8,
-                    background: "#ff4d4f",
-                    color: "#fff",
-                    border: "none",
-                    borderRadius: 8,
-                    padding: "4px 8px",
-                    cursor: "pointer",
-                    fontSize: 12,
-                  }}
-                >
-                  Retry
-                </button>
-              )}
-            </div>
-          )}
+            {message.status === "failed" && (
+              <button
+                onClick={handleRetry}
+                style={{
+                  position: "absolute",
+                  bottom: 8,
+                  right: 8,
+                  background: "#ff4d4f",
+                  color: "#fff",
+                  border: "none",
+                  borderRadius: 8,
+                  padding: "4px 8px",
+                  cursor: "pointer",
+                  fontSize: 12,
+                }}
+              >
+                Retry
+              </button>
+            )}
+          </div>
+        )}
 
-          {/* Text */}
-          {!message.mediaUrl && renderMessageText()}
+        {/* Text */}
+        {renderMessageText()}
 
-          {/* Timestamp */}
-          {message.createdAt && (
-            <div
-              style={{
-                fontSize: 10,
-                opacity: 0.6,
-                marginTop: 4,
-                textAlign: isMine ? "right" : "left",
-              }}
-            >
-              {new Date(message.createdAt.toDate ? message.createdAt.toDate() : message.createdAt).toLocaleTimeString([], {
-                hour: "2-digit",
-                minute: "2-digit",
-              })}
-              {isMine && status && <> • {status}</>}
-            </div>
-          )}
-        </div>
-
-        {!isMine && typing && <TypingIndicator userName={friendInfo?.name || "Someone"} isDark={isDark} />}
-
-        {showModal && (
-          <LongPressMessageModal
-            onClose={() => setShowModal(false)}
-            onReaction={applyReaction}
-            onReply={() => setReplyTo(message)}
-            onCopy={copyMessage}
-            onPin={togglePin}
-            onDelete={deleteMessage}
-            messageSenderName={isMine ? "you" : "them"}
-            isDark={isDark}
-          />
+        {/* Timestamp */}
+        {message.createdAt && (
+          <div
+            style={{
+              fontSize: 10,
+              opacity: 0.6,
+              marginTop: 4,
+              textAlign: isMine ? "right" : "left",
+            }}
+          >
+            {new Date(message.createdAt.toDate ? message.createdAt.toDate() : message.createdAt).toLocaleTimeString([], {
+              hour: "2-digit",
+              minute: "2-digit",
+            })}
+            {isMine && status && <> • {status}</>}
+          </div>
         )}
       </div>
-    </>
+
+      {!isMine && typing && <TypingIndicator userName={friendInfo?.name || "Someone"} isDark={isDark} />}
+
+      {showModal && (
+        <LongPressMessageModal
+          onClose={() => setShowModal(false)}
+          onReaction={applyReaction}
+          onReply={() => setReplyTo(message)}
+          onCopy={copyMessage}
+          onPin={togglePin}
+          onDelete={deleteMessage}
+          messageSenderName={isMine ? "you" : "them"}
+          isDark={isDark}
+        />
+      )}
+    </div>
   );
 }
