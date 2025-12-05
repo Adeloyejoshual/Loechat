@@ -1,18 +1,9 @@
-// src/components/Chat/ChatConversationPage.jsx
+// src/components/ChatConversationPage.jsx
 import React, { useEffect, useState, useRef, useContext, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import {
-  collection,
-  addDoc,
-  query,
-  orderBy,
-  onSnapshot,
-  serverTimestamp,
-  doc,
-  updateDoc,
-} from "firebase/firestore";
-import { ref, uploadBytesResumable, getDownloadURL } from "firebase/storage";
-import { db, auth, storage } from "../firebaseConfig";
+import { collection, addDoc, query, orderBy, onSnapshot, serverTimestamp, doc, updateDoc } from "firebase/firestore";
+import axios from "axios";
+import { db, auth } from "../firebaseConfig";
 import { ThemeContext } from "../context/ThemeContext";
 import { UserContext } from "../context/UserContext";
 
@@ -62,9 +53,9 @@ export default function ChatConversationPage() {
       setIsBlocked(data.blocked || false);
       setTypingUsers(data.typing || {});
 
-      const friendId = data.participants?.find((p) => p !== myUid);
-      if (friendId) {
-        const userRef = doc(db, "users", friendId);
+      const fId = data.participants?.find((p) => p !== myUid);
+      if (fId) {
+        const userRef = doc(db, "users", fId);
         onSnapshot(userRef, (s) => s.exists() && setFriendInfo({ id: s.id, ...s.data() }));
       }
 
@@ -171,7 +162,7 @@ export default function ChatConversationPage() {
     });
   };
 
-  // -------------------- Upload files --------------------
+  // -------------------- Upload files to Cloudinary --------------------
   const uploadFiles = async (file, replyTo) => {
     const tempId = "temp-" + Date.now();
     const tempMsg = {
@@ -183,86 +174,54 @@ export default function ChatConversationPage() {
       uploadProgress: 0,
       createdAt: new Date(),
       replyTo: replyTo ? replyTo.id : null,
-      retry: () => uploadFiles(file, replyTo),
     };
 
     addMessages([tempMsg]);
 
-    // Save pending upload
-    const pending = JSON.parse(localStorage.getItem("pendingUploads") || "[]");
-    localStorage.setItem("pendingUploads", JSON.stringify([...pending, { tempId, fileName: file.name, fileType: file.type, chatId }]));
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("upload_preset", "YOUR_CLOUDINARY_PRESET"); // replace with your preset
 
-    const storageRef = ref(storage, `chatFiles/${chatId}/${Date.now()}-${file.name}`);
-    const uploadTask = uploadBytesResumable(storageRef, file);
-
-    return new Promise((resolve, reject) => {
-      uploadTask.on(
-        "state_changed",
-        (snapshot) => {
-          const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
+      const res = await axios.post("https://api.cloudinary.com/v1_1/YOUR_CLOUD_NAME/upload", formData, {
+        headers: { "X-Requested-With": "XMLHttpRequest" },
+        onUploadProgress: (progressEvent) => {
+          const progress = (progressEvent.loaded / progressEvent.total) * 100;
           setUploadProgress((prev) => ({ ...prev, [tempId]: progress }));
           setMessages((prev) =>
             prev.map((m) => (m.id === tempId ? { ...m, uploadProgress: progress } : m))
           );
         },
-        (error) => {
-          toast.error("Upload failed: " + error.message);
-          setMessages((prev) =>
-            prev.map((m) =>
-              m.id === tempId ? { ...m, status: "failed", retry: () => uploadFiles(file, replyTo) } : m
-            )
-          );
-          reject(error);
-        },
-        async () => {
-          const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
-          const msgRef = await addDoc(collection(db, "chats", chatId, "messages"), {
-            mediaUrl: downloadURL,
-            mediaType: file.type.startsWith("video/") ? "video" : "image",
-            text: "",
-            createdAt: serverTimestamp(),
-            senderId: myUid,
-            replyTo: replyTo ? replyTo.id : null,
-          });
+      });
 
-          setMessages((prev) =>
-            prev.map((m) =>
-              m.id === tempId
-                ? { ...m, id: msgRef.id, mediaUrl: downloadURL, status: "sent", uploadProgress: 100 }
-                : m
-            )
-          );
+      const downloadURL = res.data.secure_url;
 
-          // Remove from pending
-          const pending = JSON.parse(localStorage.getItem("pendingUploads") || "[]");
-          localStorage.setItem(
-            "pendingUploads",
-            JSON.stringify(pending.filter((p) => p.tempId !== tempId))
-          );
-
-          resolve(msgRef.id);
-        }
-      );
-    });
-  };
-
-  // -------------------- Restore pending uploads --------------------
-  useEffect(() => {
-    const pending = JSON.parse(localStorage.getItem("pendingUploads") || "[]");
-    pending.forEach((p) => {
-      const tempMsg = {
-        id: p.tempId,
-        mediaUrl: "", // no preview possible
-        mediaType: p.fileType.startsWith("video/") ? "video" : "image",
+      const msgRef = await addDoc(collection(db, "chats", chatId, "messages"), {
+        mediaUrl: downloadURL,
+        mediaType: file.type.startsWith("video/") ? "video" : "image",
+        text: "",
+        createdAt: serverTimestamp(),
         senderId: myUid,
-        status: "failed",
-        uploadProgress: 0,
-        createdAt: new Date(),
-        retry: () => toast.info("Please reselect the file to retry"), // cannot auto-resume actual file
-      };
-      addMessages([tempMsg]);
-    });
-  }, []);
+        replyTo: replyTo ? replyTo.id : null,
+      });
+
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === tempId
+            ? { ...m, id: msgRef.id, mediaUrl: downloadURL, status: "sent", uploadProgress: 100 }
+            : m
+        )
+      );
+
+      return msgRef.id;
+    } catch (err) {
+      toast.error("Upload failed: " + err.message);
+      setMessages((prev) =>
+        prev.map((m) => (m.id === tempId ? { ...m, status: "failed" } : m))
+      );
+      return null;
+    }
+  };
 
   // -------------------- Loading --------------------
   if (loading) {
@@ -322,10 +281,7 @@ export default function ChatConversationPage() {
           ) : (
             <MessageItem
               key={item.data.id}
-              message={{
-                ...item.data,
-                uploadProgress: uploadProgress[item.data.id] || item.data.uploadProgress,
-              }}
+              message={{ ...item.data, uploadProgress: uploadProgress[item.data.id] || item.data.uploadProgress }}
               myUid={myUid}
               isDark={isDark}
               chatId={chatId}
