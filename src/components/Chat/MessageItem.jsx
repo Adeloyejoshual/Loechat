@@ -38,62 +38,112 @@ export default function MessageItem({
   const lastTap = useRef(0);
   const startX = useRef(0);
 
+  // Local UI state (keeps synced with incoming `message` prop)
   const [showModal, setShowModal] = useState(false);
   const [reactedEmoji, setReactedEmoji] = useState(message.reactions?.[myUid] || "");
-  const [deleted, setDeleted] = useState(false);
   const [fadeOut, setFadeOut] = useState(false);
   const [translateX, setTranslateX] = useState(0);
-  const [status, setStatus] = useState(message.status || "Sent");
+  const [status, setStatus] = useState((message.status || "sent").toLowerCase());
   const [reactionBubbles, setReactionBubbles] = useState([]);
   const [showFullText, setShowFullText] = useState(false);
+
+  // Derived deleted flag from message prop. We keep it derived so remote deletes are respected.
+  const deleted = !!message.deleted;
+
+  // Keep local state synced when `message` updates (reactions, status)
+  useEffect(() => {
+    setReactedEmoji(message.reactions?.[myUid] || "");
+  }, [message.reactions, myUid]);
+
+  useEffect(() => {
+    setStatus((message.status || "sent").toLowerCase());
+  }, [message.status]);
 
   // Fade-in animation
   useEffect(() => {
     const el = containerRef.current;
     if (el) el.style.opacity = 0;
     const timer = setTimeout(() => {
-      if (el) el.style.transition = "opacity 0.3s ease";
-      if (el) el.style.opacity = 1;
+      if (el) {
+        el.style.transition = "opacity 0.3s ease";
+        el.style.opacity = 1;
+      }
     }, 50);
     return () => clearTimeout(timer);
   }, []);
 
   // Pin/unpin message
   const togglePin = async () => {
-    const chatRef = doc(db, "chats", chatId);
-    const newPin = pinnedMessage?.id !== message.id;
-    await updateDoc(chatRef, { pinnedMessageId: newPin ? message.id : null });
-    setPinnedMessage(newPin ? message : null);
-    toast.success(newPin ? "Message pinned" : "Message unpinned");
+    try {
+      const chatRef = doc(db, "chats", chatId);
+      const newPin = pinnedMessage?.id !== message.id;
+      await updateDoc(chatRef, { pinnedMessageId: newPin ? message.id : null });
+      setPinnedMessage(newPin ? message : null);
+      toast.success(newPin ? "Message pinned" : "Message unpinned");
+    } catch (err) {
+      toast.error("Could not update pin: " + (err.message || err));
+    }
   };
 
   // Delete message
   const deleteMessage = async () => {
     if (!window.confirm(`Delete this message for ${isMine ? "everyone" : "them"}?`)) return;
+
+    // If this is a temporary client-side message (e.g. id starts with temp-), don't call Firestore
+    if (!message.id || message.id.startsWith("temp-")) {
+      // animate out and return (assumes parent will remove temp messages when appropriate)
+      setFadeOut(true);
+      setTimeout(() => {
+        // nothing else to do for temp messages
+      }, 300);
+      return;
+    }
+
     setFadeOut(true);
     setTimeout(async () => {
-      setDeleted(true);
-      await updateDoc(doc(db, "chats", chatId, "messages", message.id), { deleted: true });
+      try {
+        await updateDoc(doc(db, "chats", chatId, "messages", message.id), { deleted: true });
+        toast.success("Message deleted");
+      } catch (err) {
+        toast.error("Failed to delete message: " + (err.message || err));
+        // revert fadeOut on failure
+        setFadeOut(false);
+      }
     }, 300);
   };
 
   // Copy message
   const copyMessage = async () => {
-    await navigator.clipboard.writeText(message.text || message.mediaUrl || "");
-    toast.success("Message copied");
+    try {
+      const textToCopy = message.text || message.mediaUrl || "";
+      if (!textToCopy) return toast.info("Nothing to copy");
+      await navigator.clipboard.writeText(textToCopy);
+      toast.success("Message copied");
+    } catch (err) {
+      toast.error("Copy failed");
+    }
   };
 
-  // Apply reaction
+  // Apply reaction (optimistic + rollback on failure)
   const applyReaction = async (emoji) => {
+    if (!message.id) return;
     const msgRef = doc(db, "chats", chatId, "messages", message.id);
     const newEmoji = reactedEmoji === emoji ? "" : emoji;
-    await updateDoc(msgRef, { [`reactions.${myUid}`]: newEmoji });
-    setReactedEmoji(newEmoji);
 
+    // optimistic update
+    setReactedEmoji(newEmoji);
     if (newEmoji) {
       const bubbleId = Date.now();
       setReactionBubbles((prev) => [...prev, { id: bubbleId, emoji: newEmoji }]);
       setTimeout(() => setReactionBubbles((prev) => prev.filter((b) => b.id !== bubbleId)), 800);
+    }
+
+    try {
+      await updateDoc(msgRef, { [`reactions.${myUid}`]: newEmoji });
+    } catch (err) {
+      // rollback
+      setReactedEmoji(message.reactions?.[myUid] || "");
+      toast.error("Failed to react: " + (err.message || err));
     }
   };
 
@@ -112,7 +162,9 @@ export default function MessageItem({
   const handleTouchStart = (e) => (startX.current = e.touches[0].clientX);
   const handleTouchMove = (e) => {
     const deltaX = e.touches[0].clientX - startX.current;
-    setTranslateX(Math.min(Math.abs(deltaX), 100) * Math.sign(deltaX));
+    // limit to +-100 px
+    const clamped = Math.max(-100, Math.min(100, deltaX));
+    setTranslateX(clamped);
   };
   const handleTouchEnd = () => {
     if (Math.abs(translateX) > 50) setReplyTo(message);
@@ -130,7 +182,7 @@ export default function MessageItem({
         <div
           style={{
             display: "-webkit-box",
-            WebkitLineClamp: showFullText ? "none" : 4,
+            WebkitLineClamp: showFullText ? undefined : 4,
             WebkitBoxOrient: "vertical",
             overflow: "hidden",
             wordBreak: "break-word",
@@ -155,9 +207,23 @@ export default function MessageItem({
     if (onOpenMediaViewer && message.mediaUrl) onOpenMediaViewer(message.mediaUrl);
   };
 
-  // Retry upload
+  // Retry upload (delegate to provided retry handler)
   const handleRetry = () => {
     if (message.retry) message.retry();
+  };
+
+  // Combine translate values numerically to avoid malformed transform strings
+  const fadeOffset = fadeOut ? (isMine ? 100 : -100) : 0;
+  const totalTranslate = Math.round((translateX || 0) + fadeOffset);
+
+  // Format time safely (works for Date or Firestore Timestamp)
+  const formatTime = (ts) => {
+    try {
+      const d = ts?.toDate ? ts.toDate() : new Date(ts);
+      return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    } catch {
+      return "";
+    }
   };
 
   return (
@@ -172,7 +238,7 @@ export default function MessageItem({
           alignItems: isMine ? "flex-end" : "flex-start",
           marginBottom: 8,
           position: "relative",
-          transform: `translateX(${translateX}px) ${fadeOut ? `translateX(${isMine ? 100 : -100}px)` : ""}`,
+          transform: `translateX(${totalTranslate}px)`,
           transition: "transform 0.3s ease, opacity 0.3s ease",
         }}
         onClick={handleTap}
@@ -336,10 +402,7 @@ export default function MessageItem({
                 textAlign: isMine ? "right" : "left",
               }}
             >
-              {new Date(message.createdAt.toDate ? message.createdAt.toDate() : message.createdAt).toLocaleTimeString([], {
-                hour: "2-digit",
-                minute: "2-digit",
-              })}
+              {formatTime(message.createdAt)}
               {isMine && status && <> • {status}</>}
             </div>
           )}
