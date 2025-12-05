@@ -1,6 +1,5 @@
-// src/components/ChatConversationPage.jsx
 import React, { useEffect, useState, useRef, useContext, useCallback } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams } from "react-router-dom";
 import { collection, addDoc, query, orderBy, onSnapshot, serverTimestamp, doc, updateDoc } from "firebase/firestore";
 import { db, auth } from "../firebaseConfig";
 import { ThemeContext } from "../context/ThemeContext";
@@ -16,9 +15,8 @@ import "react-toastify/dist/ReactToastify.css";
 
 export default function ChatConversationPage() {
   const { chatId } = useParams();
-  const navigate = useNavigate();
   const { theme, wallpaper } = useContext(ThemeContext);
-  const { profilePic, profileName } = useContext(UserContext);
+  const { profileName } = useContext(UserContext);
   const isDark = theme === "dark";
   const myUid = auth.currentUser?.uid;
 
@@ -31,8 +29,6 @@ export default function ChatConversationPage() {
   const [selectedFiles, setSelectedFiles] = useState([]);
   const [replyTo, setReplyTo] = useState(null);
   const [pinnedMessage, setPinnedMessage] = useState(null);
-  const [isBlocked, setIsBlocked] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState({});
   const [mediaViewerData, setMediaViewerData] = useState({ isOpen: false, items: [], startIndex: 0 });
   const [typingUsers, setTypingUsers] = useState({});
   const [loading, setLoading] = useState(true);
@@ -49,7 +45,6 @@ export default function ChatConversationPage() {
       if (!snap.exists()) return;
       const data = snap.data();
       setChatInfo({ id: snap.id, ...data });
-      setIsBlocked(data.blocked || false);
       setTypingUsers(data.typing || {});
 
       const fId = data.participants?.find((p) => p !== myUid);
@@ -73,7 +68,7 @@ export default function ChatConversationPage() {
   useEffect(() => {
     if (!chatId) return;
     const messagesRef = collection(db, "chats", chatId, "messages");
-    const q = query(messagesRef, orderBy("createdAt", "desc"));
+    const q = query(messagesRef, orderBy("createdAt", "asc"));
 
     const unsub = onSnapshot(q, (snap) => {
       const docs = snap.docs.map((d) => ({ id: d.id, ...d.data(), status: "sent" }));
@@ -96,7 +91,7 @@ export default function ChatConversationPage() {
   // -------------------- Date separator --------------------
   const formatDateSeparator = (date) => {
     if (!date) return "";
-    const msgDate = new Date(date.toDate?.() || date);
+    const msgDate = new Date(date?.toDate?.() || date);
     const now = new Date();
     const yesterday = new Date();
     yesterday.setDate(now.getDate() - 1);
@@ -135,34 +130,12 @@ export default function ChatConversationPage() {
     });
   };
 
-  // -------------------- Add messages helper --------------------
-  const addMessages = (newMessages, replaceId = null) => {
-    setMessages((prev) => {
-      if (!replaceId) return [...newMessages, ...prev];
-      return prev.map((m) => (m.id === replaceId ? newMessages[0] : m));
-    });
+  // -------------------- Add message helper --------------------
+  const addMessages = (newMessages) => {
+    setMessages((prev) => [...prev, ...newMessages]);
     scrollToBottom();
   };
 
-  // -------------------- Chat actions --------------------
-  const startVoiceCall = () => {
-    if (!friendId) return toast.error("Cannot start call — user not loaded yet.");
-    navigate(`/voicecall/${chatId}/${friendId}`);
-  };
-
-  const startVideoCall = () => {
-    if (!friendId) return toast.error("Cannot start call — user not loaded yet.");
-    navigate(`/videocall/${chatId}/${friendId}`);
-  };
-
-  const onSearch = () => toast.info("Search not implemented.");
-  const onGoToPinned = (messageId) => {
-    const id = messageId || pinnedMessage?.id;
-    if (id) scrollToMessage(id);
-    else toast.info("No pinned message available.");
-  };
-
-  // -------------------- Loading --------------------
   if (loading) {
     return (
       <div style={{ flex: 1, display: "flex", justifyContent: "center", alignItems: "center", height: "100vh" }}>
@@ -185,56 +158,30 @@ export default function ChatConversationPage() {
         friendId={friendId}
         chatId={chatId}
         pinnedMessage={pinnedMessage}
-        setBlockedStatus={setIsBlocked}
-        onClearChat={async () => {
-          if (!window.confirm("Clear this chat?")) return;
-          messages.forEach(async (msg) => {
-            const msgRef = doc(db, "chats", chatId, "messages", msg.id);
-            await updateDoc(msgRef, { deleted: true });
-          });
-          toast.success("Chat cleared");
-        }}
-        onSearch={onSearch}
-        onGoToPinned={onGoToPinned}
       />
 
-      {/* Messages */}
       <div
         ref={messagesRefEl}
-        style={{
-          flex: 1,
-          overflowY: "auto",
-          padding: 8,
-          display: "flex",
-          flexDirection: "column-reverse",
-        }}
+        style={{ flex: 1, overflowY: "auto", padding: 8 }}
       >
         {groupedMessages.map((item, idx) =>
           item.type === "date-separator" ? (
-            <div
-              key={idx}
-              style={{ textAlign: "center", margin: "10px 0", fontSize: 12, color: isDark ? "#aaa" : "#555" }}
-            >
+            <div key={idx} style={{ textAlign: "center", margin: "10px 0", fontSize: 12, color: isDark ? "#aaa" : "#555" }}>
               {item.date}
             </div>
           ) : (
             <MessageItem
               key={item.data.id}
-              message={{ ...item.data, uploadProgress: uploadProgress[item.data.id] || item.data.uploadProgress }}
+              message={item.data}
               myUid={myUid}
               isDark={isDark}
               chatId={chatId}
               setReplyTo={setReplyTo}
-              pinnedMessage={pinnedMessage}
-              setPinnedMessage={setPinnedMessage}
-              friendId={friendId}
-              onReplyClick={scrollToMessage}
               onOpenMediaViewer={handleOpenMediaViewer}
-              typing={!!typingUsers[item.data.senderId]}
+              friendInfo={friendInfo}
             />
           )
         )}
-
         <TypingIndicator typingUsers={typingUsers} myUid={myUid} />
       </div>
 
@@ -247,8 +194,6 @@ export default function ChatConversationPage() {
         replyTo={replyTo}
         setReplyTo={setReplyTo}
         addMessages={addMessages}
-        uploadFiles={uploadFiles}
-        chatId={chatId}
       />
 
       {mediaViewerData.isOpen && (
