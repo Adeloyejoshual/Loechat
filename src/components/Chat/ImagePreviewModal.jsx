@@ -1,8 +1,8 @@
 // src/components/Chat/ImagePreviewModal.jsx
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 
 export default function ImagePreviewModal({
-  previews = [],          // [{ file, url }]
+  previews = [],         // [{ file, url }]
   currentIndex = 0,
   onRemove = () => {},
   onClose = () => {},
@@ -10,32 +10,50 @@ export default function ImagePreviewModal({
   isDark = false,
 }) {
   const [index, setIndex] = useState(currentIndex);
+  const [translateY, setTranslateY] = useState(0);
+  const [isDragging, setIsDragging] = useState(false);
+  const startY = useRef(0);
 
-  useEffect(() => {
-    setIndex(currentIndex);
-  }, [currentIndex]);
+  useEffect(() => setIndex(currentIndex), [currentIndex]);
 
   if (!previews.length) return null;
 
-  const handleNext = () => setIndex((prev) => (prev + 1 < previews.length ? prev + 1 : prev));
-  const handlePrev = () => setIndex((prev) => (prev - 1 >= 0 ? prev - 1 : prev));
-
   const current = previews[index];
+
+  // Next / Prev
+  const handleNext = () => setIndex((p) => (p + 1 < previews.length ? p + 1 : p));
+  const handlePrev = () => setIndex((p) => (p - 1 >= 0 ? p - 1 : p));
+
+  // Swipe-down handlers
+  const handleTouchStart = (e) => {
+    startY.current = e.touches[0].clientY;
+    setIsDragging(true);
+  };
+
+  const handleTouchMove = (e) => {
+    if (!isDragging) return;
+    const dy = e.touches[0].clientY - startY.current;
+    if (dy > 0) setTranslateY(dy);
+  };
+
+  const handleTouchEnd = () => {
+    setIsDragging(false);
+    if (translateY > 120) onClose();
+    setTranslateY(0);
+  };
 
   return (
     <div
       style={{
         position: "fixed",
-        top: 0,
-        left: 0,
-        width: "100vw",
-        height: "100vh",
+        inset: 0,
         backgroundColor: isDark ? "rgba(0,0,0,0.9)" : "rgba(255,255,255,0.9)",
         display: "flex",
         flexDirection: "column",
         justifyContent: "center",
         alignItems: "center",
         zIndex: 9999,
+        transition: isDragging ? "none" : "background 0.2s ease",
       }}
     >
       {/* Close Button */}
@@ -48,7 +66,7 @@ export default function ImagePreviewModal({
           background: "transparent",
           border: "none",
           color: isDark ? "#fff" : "#000",
-          fontSize: 24,
+          fontSize: 26,
           cursor: "pointer",
         }}
       >
@@ -56,7 +74,20 @@ export default function ImagePreviewModal({
       </button>
 
       {/* Media Preview */}
-      <div style={{ display: "flex", alignItems: "center", maxWidth: "90%", maxHeight: "80%" }}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          maxWidth: "90%",
+          maxHeight: "80%",
+          transform: `translateY(${translateY}px)`,
+          transition: isDragging ? "none" : "transform 0.25s ease",
+          touchAction: "none",
+        }}
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+      >
         {/* Prev */}
         <button
           onClick={handlePrev}
@@ -73,7 +104,7 @@ export default function ImagePreviewModal({
           ‹
         </button>
 
-        {/* Image or Video */}
+        {/* Image / Video */}
         {current.file.type.startsWith("video/") ? (
           <video
             src={current.url}
@@ -84,7 +115,8 @@ export default function ImagePreviewModal({
           <img
             src={current.url}
             alt="preview"
-            style={{ maxHeight: "80vh", maxWidth: "80vw", borderRadius: 8 }}
+            style={{ maxHeight: "80vh", maxWidth: "80vw", borderRadius: 8, userSelect: "none" }}
+            draggable={false}
           />
         )}
 
