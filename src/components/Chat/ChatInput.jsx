@@ -24,7 +24,7 @@ export default function ChatInput({
   const myUid = auth.currentUser?.uid;
 
   // -----------------------------
-  // ✅ FILE SELECTION
+  // FILE SELECTION
   // -----------------------------
   const handleFileChange = (e) => {
     const files = Array.from(e.target.files || []);
@@ -41,46 +41,33 @@ export default function ChatInput({
     e.target.value = null;
   };
 
-  const handleRemoveFile = (index) => {
-    setSelectedFiles((prev) => prev.filter((_, i) => i !== index));
-  };
-
-  const handleCancelPreview = () => {
-    setSelectedFiles([]);
-    setShowPreview(false);
-  };
-
+  const handleRemoveFile = (index) => setSelectedFiles((prev) => prev.filter((_, i) => i !== index));
+  const handleCancelPreview = () => { setSelectedFiles([]); setShowPreview(false); };
   const handleAddMoreFiles = () => fileInputRef.current.click();
 
   // -----------------------------
-  // ✅ TYPING INDICATOR (LIVE)
+  // TYPING INDICATOR
   // -----------------------------
   const handleTyping = async (value) => {
     setText(value);
 
     if (!chatId || !myUid) return;
-
     const chatRef = doc(db, "chats", chatId);
-    await updateDoc(chatRef, {
-      [`typing.${myUid}`]: true,
-    });
+    await updateDoc(chatRef, { [`typing.${myUid}`]: true });
 
     clearTimeout(typingTimeout.current);
     typingTimeout.current = setTimeout(async () => {
-      await updateDoc(chatRef, {
-        [`typing.${myUid}`]: false,
-      });
+      await updateDoc(chatRef, { [`typing.${myUid}`]: false });
     }, 1200);
   };
 
   // -----------------------------
-  // ✅ SEND TEXT (SAVED TO FIRESTORE)
+  // SEND TEXT
   // -----------------------------
   const handleSendText = async () => {
     if (!text.trim()) return;
 
     const tempId = `temp-text-${Date.now()}`;
-
     const tempMessage = {
       id: tempId,
       text: text.trim(),
@@ -111,7 +98,7 @@ export default function ChatInput({
   };
 
   // -----------------------------
-  // ✅ SEND FILES
+  // SEND FILES
   // -----------------------------
   const handleSendFiles = async () => {
     if (!selectedFiles.length) return;
@@ -131,36 +118,44 @@ export default function ChatInput({
   };
 
   // -----------------------------
-  // ✅ MAIN SEND HANDLER
+  // MAIN SEND HANDLER
   // -----------------------------
   const handleSend = () => {
     if (selectedFiles.length > 0) handleSendFiles();
     else handleSendText();
   };
 
-  // ✅ ENTER = SEND | SHIFT + ENTER = NEW LINE
+  // -----------------------------
+  // ENTER = NEW LINE | SHIFT+ENTER = NEW LINE
+  // Send is only via button now
+  // -----------------------------
   const handleKeyDown = (e) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      handleSend();
+      const cursorPos = e.target.selectionStart;
+      const newText = text.slice(0, cursorPos) + "\n" + text.slice(cursorPos);
+      setText(newText);
+
+      // Move cursor after newline
+      setTimeout(() => {
+        e.target.selectionStart = e.target.selectionEnd = cursorPos + 1;
+      }, 0);
     }
   };
 
   // -----------------------------
-  // ✅ CLEAR TYPING ON UNMOUNT
+  // CLEAR TYPING ON UNMOUNT
   // -----------------------------
   useEffect(() => {
     return async () => {
       if (!chatId || !myUid) return;
-      await updateDoc(doc(db, "chats", chatId), {
-        [`typing.${myUid}`]: false,
-      });
+      await updateDoc(doc(db, "chats", chatId), { [`typing.${myUid}`]: false });
     };
   }, [chatId, myUid]);
 
   return (
     <>
-      {/* ✅ REPLY PREVIEW */}
+      {/* REPLY PREVIEW */}
       {replyTo && (
         <div
           style={{
@@ -191,16 +186,13 @@ export default function ChatInput({
               : "Media"}
           </div>
 
-          <button
-            onClick={() => setReplyTo(null)}
-            style={{ background: "transparent", border: "none", cursor: "pointer" }}
-          >
+          <button onClick={() => setReplyTo(null)} style={{ background: "transparent", border: "none", cursor: "pointer" }}>
             <X size={16} />
           </button>
         </div>
       )}
 
-      {/* ✅ INPUT BAR */}
+      {/* INPUT BAR */}
       <div
         style={{
           display: "flex",
@@ -214,14 +206,7 @@ export default function ChatInput({
           zIndex: 25,
         }}
       >
-        <input
-          type="file"
-          multiple
-          hidden
-          ref={fileInputRef}
-          onChange={handleFileChange}
-          accept="image/*,video/*"
-        />
+        <input type="file" multiple hidden ref={fileInputRef} onChange={handleFileChange} accept="image/*,video/*" />
 
         <button onClick={() => fileInputRef.current.click()} style={{ background: "transparent", border: "none" }}>
           <Paperclip size={22} />
@@ -230,7 +215,13 @@ export default function ChatInput({
         <textarea
           ref={textareaRef}
           value={text}
-          onChange={(e) => handleTyping(e.target.value)}
+          onChange={(e) => {
+            handleTyping(e.target.value);
+
+            // Auto resize textarea
+            textareaRef.current.style.height = "auto";
+            textareaRef.current.style.height = textareaRef.current.scrollHeight + "px";
+          }}
           placeholder="Type a message..."
           rows={1}
           onKeyDown={handleKeyDown}
@@ -244,6 +235,7 @@ export default function ChatInput({
             color: isDark ? "#fff" : "#000",
             fontSize: 15,
             resize: "none",
+            overflow: "hidden",
           }}
         />
 
@@ -252,7 +244,7 @@ export default function ChatInput({
         </button>
       </div>
 
-      {/* ✅ MEDIA PREVIEW */}
+      {/* MEDIA PREVIEW */}
       {showPreview && selectedFiles.length > 0 && (
         <ImagePreviewModal
           previews={selectedFiles.map((file) => ({ file, url: URL.createObjectURL(file) }))}
