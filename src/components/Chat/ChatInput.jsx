@@ -1,7 +1,9 @@
 // src/components/Chat/ChatInput.jsx
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import { Paperclip, Send, X } from "lucide-react";
 import ImagePreviewModal from "./ImagePreviewModal";
+import { addDoc, collection, doc, updateDoc, serverTimestamp } from "firebase/firestore";
+import { db, auth } from "../../firebaseConfig";
 
 export default function ChatInput({
   text,
@@ -13,12 +15,16 @@ export default function ChatInput({
   setReplyTo,
   addMessages,
   uploadFiles,
+  chatId,
 }) {
   const fileInputRef = useRef(null);
+  const textareaRef = useRef(null);
   const [showPreview, setShowPreview] = useState(false);
+  const typingTimeout = useRef(null);
+  const myUid = auth.currentUser?.uid;
 
   // -----------------------------
-  // File selection (images/videos)
+  // ✅ FILE SELECTION
   // -----------------------------
   const handleFileChange = (e) => {
     const files = Array.from(e.target.files || []);
@@ -32,7 +38,6 @@ export default function ChatInput({
 
     setSelectedFiles((prev) => [...prev, ...mediaFiles].slice(0, 30));
     setShowPreview(true);
-
     e.target.value = null;
   };
 
@@ -48,56 +53,39 @@ export default function ChatInput({
   const handleAddMoreFiles = () => fileInputRef.current.click();
 
   // -----------------------------
-  // Send text + media
+  // ✅ TYPING INDICATOR (LIVE)
   // -----------------------------
-  const handleSendFiles = async () => {
-    if (!selectedFiles.length && !text.trim()) return;
+  const handleTyping = async (value) => {
+    setText(value);
 
-    const tempMessages = selectedFiles.map((file) => ({
-      id: `temp-${Date.now()}-${file.name}`,
-      mediaUrl: URL.createObjectURL(file),
-      mediaType: file.type.startsWith("video/") ? "video" : "image",
-      text: "",
-      createdAt: new Date(),
-      senderId: "me",
-      status: "uploading",
-      replyTo: replyTo ? replyTo.id : null,
-    }));
+    if (!chatId || !myUid) return;
 
-    // Add temp messages immediately
-    addMessages(tempMessages);
+    const chatRef = doc(db, "chats", chatId);
+    await updateDoc(chatRef, {
+      [`typing.${myUid}`]: true,
+    });
 
-    // Close preview
-    setSelectedFiles([]);
-    setShowPreview(false);
-    setText("");
-
-    // Upload files in background
-    for (const file of selectedFiles) {
-      try {
-        const uploaded = await uploadFiles(file, replyTo ? replyTo.chatId : null, replyTo);
-        // Replace temp message with uploaded message
-        addMessages([uploaded], tempMessages.find((m) => m.id.includes(file.name)).id);
-      } catch (err) {
-        console.error("Upload failed", err);
-      }
-    }
-
-    // Clear reply after sending
-    setReplyTo(null);
+    clearTimeout(typingTimeout.current);
+    typingTimeout.current = setTimeout(async () => {
+      await updateDoc(chatRef, {
+        [`typing.${myUid}`]: false,
+      });
+    }, 1200);
   };
 
   // -----------------------------
-  // Send text message only
+  // ✅ SEND TEXT (SAVED TO FIRESTORE)
   // -----------------------------
   const handleSendText = async () => {
     if (!text.trim()) return;
 
+    const tempId = `temp-text-${Date.now()}`;
+
     const tempMessage = {
-      id: `temp-text-${Date.now()}`,
+      id: tempId,
       text: text.trim(),
       createdAt: new Date(),
-      senderId: "me",
+      senderId: myUid,
       status: "sending",
       replyTo: replyTo ? replyTo.id : null,
     };
@@ -106,17 +94,73 @@ export default function ChatInput({
     setText("");
     setReplyTo(null);
 
-    // Optionally, you can upload text message to Firestore here
+    try {
+      const docRef = await addDoc(collection(db, "chats", chatId, "messages"), {
+        text: tempMessage.text,
+        createdAt: serverTimestamp(),
+        senderId: myUid,
+        status: "sent",
+        replyTo: replyTo ? replyTo.id : null,
+        seenBy: [myUid],
+      });
+
+      addMessages([{ ...tempMessage, id: docRef.id, status: "sent" }], tempId);
+    } catch (err) {
+      console.error("Text send failed:", err);
+    }
   };
 
+  // -----------------------------
+  // ✅ SEND FILES
+  // -----------------------------
+  const handleSendFiles = async () => {
+    if (!selectedFiles.length) return;
+
+    setSelectedFiles([]);
+    setShowPreview(false);
+    setText("");
+    setReplyTo(null);
+
+    for (const file of selectedFiles) {
+      try {
+        await uploadFiles(file, replyTo);
+      } catch (err) {
+        console.error("Upload failed", err);
+      }
+    }
+  };
+
+  // -----------------------------
+  // ✅ MAIN SEND HANDLER
+  // -----------------------------
   const handleSend = () => {
     if (selectedFiles.length > 0) handleSendFiles();
     else handleSendText();
   };
 
+  // ✅ ENTER = SEND | SHIFT + ENTER = NEW LINE
+  const handleKeyDown = (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      handleSend();
+    }
+  };
+
+  // -----------------------------
+  // ✅ CLEAR TYPING ON UNMOUNT
+  // -----------------------------
+  useEffect(() => {
+    return async () => {
+      if (!chatId || !myUid) return;
+      await updateDoc(doc(db, "chats", chatId), {
+        [`typing.${myUid}`]: false,
+      });
+    };
+  }, [chatId, myUid]);
+
   return (
     <>
-      {/* Reply Preview */}
+      {/* ✅ REPLY PREVIEW */}
       {replyTo && (
         <div
           style={{
@@ -156,11 +200,11 @@ export default function ChatInput({
         </div>
       )}
 
-      {/* Input Bar */}
+      {/* ✅ INPUT BAR */}
       <div
         style={{
           display: "flex",
-          alignItems: "center",
+          alignItems: "flex-end",
           padding: 10,
           gap: 10,
           borderTop: `1px solid ${isDark ? "#333" : "rgba(0,0,0,0.1)"}`,
@@ -179,17 +223,17 @@ export default function ChatInput({
           accept="image/*,video/*"
         />
 
-        <button
-          onClick={() => fileInputRef.current.click()}
-          style={{ background: "transparent", border: "none", cursor: "pointer", padding: 4 }}
-        >
+        <button onClick={() => fileInputRef.current.click()} style={{ background: "transparent", border: "none" }}>
           <Paperclip size={22} />
         </button>
 
-        <input
+        <textarea
+          ref={textareaRef}
           value={text}
-          onChange={(e) => setText(e.target.value)}
+          onChange={(e) => handleTyping(e.target.value)}
           placeholder="Type a message..."
+          rows={1}
+          onKeyDown={handleKeyDown}
           style={{
             flex: 1,
             padding: "10px 14px",
@@ -199,24 +243,16 @@ export default function ChatInput({
             background: isDark ? "#0b0b0b" : "#fff",
             color: isDark ? "#fff" : "#000",
             fontSize: 15,
-          }}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              handleSend();
-            }
+            resize: "none",
           }}
         />
 
-        <button
-          onClick={handleSend}
-          style={{ background: "transparent", border: "none", cursor: "pointer", padding: 4 }}
-        >
+        <button onClick={handleSend} style={{ background: "transparent", border: "none" }}>
           <Send size={22} />
         </button>
       </div>
 
-      {/* Preview Modal */}
+      {/* ✅ MEDIA PREVIEW */}
       {showPreview && selectedFiles.length > 0 && (
         <ImagePreviewModal
           previews={selectedFiles.map((file) => ({ file, url: URL.createObjectURL(file) }))}
