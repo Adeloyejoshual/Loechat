@@ -1,4 +1,4 @@
-// src/components/Chat/ChatConversationPage.jsx
+// src/components/ChatConversationPage.jsx
 import React, { useEffect, useState, useRef, useContext, useCallback } from "react";
 import { useParams } from "react-router-dom";
 import {
@@ -89,16 +89,12 @@ export default function ChatConversationPage() {
         const tempMsgs = prev.filter((m) => m.id.startsWith("temp-"));
         return [...docs, ...tempMsgs];
       });
-      scrollToTop();
     });
 
     return () => unsub();
   }, [chatId]);
 
-  const scrollToTop = useCallback(() => {
-    messagesRefEl.current?.scrollTo({ top: 0, behavior: "smooth" });
-  }, []);
-
+  // -------------------- Scroll helpers --------------------
   const scrollToMessage = useCallback((id) => {
     const el = document.getElementById(id);
     if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -172,7 +168,9 @@ export default function ChatConversationPage() {
     addMessages([tempMsg]);
 
     const retryUpload = () => uploadFiles(file, replyTo);
-    setMessages((prev) => prev.map((m) => (m.id === tempId ? { ...m, retry: retryUpload } : m)));
+    setMessages((prev) =>
+      prev.map((m) => (m.id === tempId ? { ...m, retry: retryUpload } : m))
+    );
 
     const storageRef = ref(storage, `chatFiles/${chatId}/${Date.now()}-${file.name}`);
     const uploadTask = uploadBytesResumable(storageRef, file);
@@ -204,14 +202,22 @@ export default function ChatConversationPage() {
             replyTo: replyTo?.id || null,
           });
 
+          // Replace temp message with Firestore message
           setMessages((prev) =>
             prev.map((m) =>
               m.id === tempId
-                ? { ...m, id: docRef.id, mediaUrl: downloadURL, status: "sent", uploadProgress: 100 }
+                ? {
+                    ...m,
+                    id: docRef.id,
+                    mediaUrl: downloadURL,
+                    status: "sent",
+                    uploadProgress: 100,
+                  }
                 : m
             )
           );
 
+          scrollToMessage(docRef.id);
           resolve(docRef.id);
         }
       );
