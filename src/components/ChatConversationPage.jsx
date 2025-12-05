@@ -42,7 +42,6 @@ export default function ChatConversationPage() {
   const [replyTo, setReplyTo] = useState(null);
   const [pinnedMessage, setPinnedMessage] = useState(null);
   const [isBlocked, setIsBlocked] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState({});
   const [mediaViewerData, setMediaViewerData] = useState({ isOpen: false, items: [], startIndex: 0 });
   const [typingUsers, setTypingUsers] = useState({});
   const [loading, setLoading] = useState(true);
@@ -87,7 +86,11 @@ export default function ChatConversationPage() {
 
     const unsub = onSnapshot(q, (snap) => {
       const docs = snap.docs.map((d) => ({ id: d.id, ...d.data(), status: "sent" }));
-      setMessages(docs);
+      setMessages((prev) => {
+        // Merge with existing uploading messages
+        const uploading = prev.filter((m) => m.status === "uploading");
+        return [...docs, ...uploading];
+      });
       scrollToTop();
     });
 
@@ -183,6 +186,7 @@ export default function ChatConversationPage() {
       uploadProgress: 0,
       createdAt: new Date(),
       replyTo: replyTo ? replyTo.id : null,
+      retry: () => uploadFiles(file, replyTo), // allow retry
     };
 
     addMessages([tempMsg]);
@@ -190,42 +194,39 @@ export default function ChatConversationPage() {
     const storageRef = ref(storage, `chatFiles/${chatId}/${Date.now()}-${file.name}`);
     const uploadTask = uploadBytesResumable(storageRef, file);
 
-    return new Promise((resolve, reject) => {
-      uploadTask.on(
-        "state_changed",
-        (snapshot) => {
-          const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
-          setUploadProgress((prev) => ({ ...prev, [tempId]: progress }));
-          setMessages((prev) =>
-            prev.map((m) => (m.id === tempId ? { ...m, uploadProgress: progress } : m))
-          );
-        },
-        (error) => {
-          toast.error("Upload failed: " + error.message);
-          setMessages((prev) => prev.filter((m) => m.id !== tempId));
-          reject(error);
-        },
-        async () => {
-          const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
-          const msgRef = await addDoc(collection(db, "chats", chatId, "messages"), {
-            mediaUrl: downloadURL,
-            mediaType: file.type.startsWith("video/") ? "video" : "image",
-            text: "",
-            createdAt: serverTimestamp(),
-            senderId: myUid,
-            replyTo: replyTo ? replyTo.id : null,
-          });
-          setMessages((prev) =>
-            prev.map((m) =>
-              m.id === tempId
-                ? { ...m, id: msgRef.id, mediaUrl: downloadURL, status: "sent", uploadProgress: 100 }
-                : m
-            )
-          );
-          resolve(msgRef.id);
-        }
-      );
-    });
+    uploadTask.on(
+      "state_changed",
+      (snapshot) => {
+        const progress = Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100);
+        setMessages((prev) =>
+          prev.map((m) => (m.id === tempId ? { ...m, uploadProgress: progress } : m))
+        );
+      },
+      (error) => {
+        toast.error("Upload failed: " + error.message);
+        setMessages((prev) =>
+          prev.map((m) => (m.id === tempId ? { ...m, status: "failed" } : m))
+        );
+      },
+      async () => {
+        const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
+        const msgRef = await addDoc(collection(db, "chats", chatId, "messages"), {
+          mediaUrl: downloadURL,
+          mediaType: file.type.startsWith("video/") ? "video" : "image",
+          text: "",
+          createdAt: serverTimestamp(),
+          senderId: myUid,
+          replyTo: replyTo ? replyTo.id : null,
+        });
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === tempId
+              ? { ...m, id: msgRef.id, mediaUrl: downloadURL, status: "sent", uploadProgress: 100 }
+              : m
+          )
+        );
+      }
+    );
   };
 
   // -------------------- Loading --------------------
@@ -286,7 +287,7 @@ export default function ChatConversationPage() {
           ) : (
             <MessageItem
               key={item.data.id}
-              message={{ ...item.data, uploadProgress: uploadProgress[item.data.id] || item.data.uploadProgress }}
+              message={item.data}
               myUid={myUid}
               isDark={isDark}
               chatId={chatId}
