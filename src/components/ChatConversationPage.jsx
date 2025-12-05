@@ -32,7 +32,6 @@ export default function ChatConversationPage() {
   const myUid = auth.currentUser?.uid;
 
   const messagesRefEl = useRef(null);
-  const endRef = useRef(null);
   const fileInputRef = useRef(null);
 
   const [chatInfo, setChatInfo] = useState(null);
@@ -61,14 +60,12 @@ export default function ChatConversationPage() {
       setIsBlocked(data.blocked || false);
       setTypingUsers(data.typing || {});
 
-      // Load friend
       const friendId = data.participants?.find((p) => p !== myUid);
       if (friendId) {
         const userRef = doc(db, "users", friendId);
         onSnapshot(userRef, (s) => s.exists() && setFriendInfo({ id: s.id, ...s.data() }));
       }
 
-      // Load pinned message
       if (data.pinnedMessageId) {
         const pinnedRef = doc(db, "chats", chatId, "messages", data.pinnedMessageId);
         onSnapshot(pinnedRef, (s) => s.exists() && setPinnedMessage({ id: s.id, ...s.data() }));
@@ -80,27 +77,29 @@ export default function ChatConversationPage() {
     return () => unsubChat();
   }, [chatId, myUid]);
 
-  // -------------------- Real-time messages --------------------
+  // -------------------- Real-time messages (NEWEST FIRST) --------------------
   useEffect(() => {
     if (!chatId) return;
     const messagesRef = collection(db, "chats", chatId, "messages");
-    const q = query(messagesRef, orderBy("createdAt", "asc"));
+
+    // DESCENDING ORDER
+    const q = query(messagesRef, orderBy("createdAt", "desc"));
 
     const unsub = onSnapshot(q, (snap) => {
       const docs = snap.docs.map((d) => ({ id: d.id, ...d.data(), status: "sent" }));
       setMessages(docs);
-      scrollToBottom();
+      scrollToTop();
     });
 
     return () => unsub();
   }, [chatId]);
 
-  // -------------------- Scroll --------------------
-  const scrollToBottom = useCallback(() => {
-    endRef.current?.scrollIntoView({ behavior: "smooth" });
+  // -------------------- Scroll to TOP --------------------
+  const scrollToTop = useCallback(() => {
+    messagesRefEl.current?.scrollTo({ top: 0, behavior: "smooth" });
   }, []);
 
-  // -------------------- Group messages by date --------------------
+  // -------------------- Group messages with DATE (descending) --------------------
   const formatDateSeparator = (date) => {
     if (!date) return "";
     const msgDate = new Date(date.toDate?.() || date);
@@ -118,12 +117,16 @@ export default function ChatConversationPage() {
 
   const groupedMessages = [];
   let lastDate = null;
+
+  // messages already in NEWEST → OLDEST order
   messages.forEach((msg) => {
     const dateStr = formatDateSeparator(msg.createdAt);
+
     if (dateStr !== lastDate) {
       groupedMessages.push({ type: "date-separator", date: dateStr });
       lastDate = dateStr;
     }
+
     groupedMessages.push({ type: "message", data: msg });
   });
 
@@ -132,22 +135,19 @@ export default function ChatConversationPage() {
     if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
   }, []);
 
-  // -------------------- File Input --------------------
-  const handleAddFiles = () => fileInputRef.current?.click();
-  const handleFilesSelected = (e) => {
-    const files = Array.from(e.target.files);
-    if (!files.length) return;
-    setSelectedFiles((prev) => [...prev, ...files]);
-    e.target.value = null;
-  };
-
   // -------------------- Media Viewer --------------------
-  const handleOpenMediaViewer = (clickedMediaUrl) => {
+  const handleOpenMediaViewer = (clickedUrl) => {
     const mediaItems = messages
       .filter((m) => m.mediaUrl)
       .map((m) => ({ url: m.mediaUrl, type: m.mediaType || "image" }));
-    const startIndex = mediaItems.findIndex((m) => m.url === clickedMediaUrl);
-    setMediaViewerData({ isOpen: true, items: mediaItems, startIndex: startIndex >= 0 ? startIndex : 0 });
+
+    const startIndex = mediaItems.findIndex((m) => m.url === clickedUrl);
+
+    setMediaViewerData({
+      isOpen: true,
+      items: mediaItems,
+      startIndex: startIndex >= 0 ? startIndex : 0,
+    });
   };
 
   // -------------------- Chat actions --------------------
@@ -157,10 +157,12 @@ export default function ChatConversationPage() {
     if (!friendId) return toast.error("Cannot start call — user not loaded yet.");
     navigate(`/voicecall/${chatId}/${friendId}`);
   };
+
   const startVideoCall = () => {
     if (!friendId) return toast.error("Cannot start call — user not loaded yet.");
     navigate(`/videocall/${chatId}/${friendId}`);
   };
+
   const onSearch = () => toast.info("Search not implemented.");
   const onGoToPinned = (messageId) => {
     const id = messageId || pinnedMessage?.id;
@@ -168,6 +170,7 @@ export default function ChatConversationPage() {
     else toast.info("No pinned message available.");
   };
 
+  // -------------------- Loading --------------------
   if (loading) {
     return (
       <div style={{ flex: 1, display: "flex", justifyContent: "center", alignItems: "center", height: "100vh" }}>
@@ -192,7 +195,11 @@ export default function ChatConversationPage() {
         style={{ display: "none" }}
         multiple
         accept="image/*,video/*"
-        onChange={handleFilesSelected}
+        onChange={(e) => {
+          const files = Array.from(e.target.files);
+          if (files.length) setSelectedFiles((prev) => [...prev, ...files]);
+          e.target.value = null;
+        }}
       />
 
       <ChatHeader
@@ -212,10 +219,16 @@ export default function ChatConversationPage() {
         onGoToPinned={onGoToPinned}
       />
 
-      {/* Messages */}
+      {/* Messages (NEWEST FIRST using column-reverse) */}
       <div
         ref={messagesRefEl}
-        style={{ flex: 1, overflowY: "auto", padding: 8, display: "flex", flexDirection: "column" }}
+        style={{
+          flex: 1,
+          overflowY: "auto",
+          padding: 8,
+          display: "flex",
+          flexDirection: "column-reverse", // NEW
+        }}
       >
         {groupedMessages.map((item, idx) =>
           item.type === "date-separator" ? (
@@ -243,14 +256,14 @@ export default function ChatConversationPage() {
             />
           )
         )}
+
         <TypingIndicator typingUsers={typingUsers} myUid={myUid} />
-        <div ref={endRef} />
       </div>
 
       <ChatInput
         text={text}
         setText={setText}
-        sendTextMessage={() => {} /* Implement sendMessage function */}
+        sendTextMessage={() => {}}
         sendMediaMessage={setSelectedFiles}
         selectedFiles={selectedFiles}
         setSelectedFiles={setSelectedFiles}
