@@ -11,7 +11,8 @@ import {
   doc,
   updateDoc,
 } from "firebase/firestore";
-import { db, auth, storage } from "../firebaseConfig"; // make sure storage is imported
+import { ref, uploadBytesResumable, getDownloadURL } from "firebase/storage";
+import { db, auth, storage } from "../firebaseConfig";
 import { ThemeContext } from "../context/ThemeContext";
 import { UserContext } from "../context/UserContext";
 
@@ -46,13 +47,15 @@ export default function ChatConversationPage() {
   const [typingUsers, setTypingUsers] = useState({});
   const [loading, setLoading] = useState(true);
 
+  const friendId = friendInfo?.id || null;
+
   // -------------------- Load chat & friend --------------------
   useEffect(() => {
     if (!chatId) return;
     setLoading(true);
 
     const chatRef = doc(db, "chats", chatId);
-    const unsubChat = onSnapshot(chatRef, async (snap) => {
+    const unsubChat = onSnapshot(chatRef, (snap) => {
       if (!snap.exists()) return;
       const data = snap.data();
       setChatInfo({ id: snap.id, ...data });
@@ -95,6 +98,11 @@ export default function ChatConversationPage() {
     messagesRefEl.current?.scrollTo({ top: 0, behavior: "smooth" });
   }, []);
 
+  const scrollToMessage = useCallback((id) => {
+    const el = document.getElementById(id);
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, []);
+
   // -------------------- Date separator --------------------
   const formatDateSeparator = (date) => {
     if (!date) return "";
@@ -113,7 +121,6 @@ export default function ChatConversationPage() {
 
   const groupedMessages = [];
   let lastDate = null;
-
   messages.forEach((msg) => {
     const dateStr = formatDateSeparator(msg.createdAt);
     if (dateStr !== lastDate) {
@@ -122,11 +129,6 @@ export default function ChatConversationPage() {
     }
     groupedMessages.push({ type: "message", data: msg });
   });
-
-  const scrollToMessage = useCallback((id) => {
-    const el = document.getElementById(id);
-    if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
-  }, []);
 
   // -------------------- Media Viewer --------------------
   const handleOpenMediaViewer = (clickedUrl) => {
@@ -144,8 +146,6 @@ export default function ChatConversationPage() {
   };
 
   // -------------------- Chat actions --------------------
-  const friendId = friendInfo?.id || null;
-
   const startVoiceCall = () => {
     if (!friendId) return toast.error("Cannot start call — user not loaded yet.");
     navigate(`/voicecall/${chatId}/${friendId}`);
@@ -172,22 +172,41 @@ export default function ChatConversationPage() {
   };
 
   // -------------------- Upload files --------------------
-  const uploadFiles = async (file, chatId, replyTo) => {
-    const storageRef = storage.ref(); // Firebase storage reference
-    const fileRef = storageRef.child(`chatFiles/${chatId}/${Date.now()}-${file.name}`);
+  const uploadFiles = async (file, replyTo) => {
+    const tempId = "temp-" + Date.now();
+    const tempMsg = {
+      id: tempId,
+      mediaUrl: URL.createObjectURL(file),
+      mediaType: file.type.startsWith("video/") ? "video" : "image",
+      senderId: myUid,
+      status: "uploading",
+      uploadProgress: 0,
+      createdAt: new Date(),
+      replyTo: replyTo ? replyTo.id : null,
+    };
 
-    const uploadTask = fileRef.put(file);
+    addMessages([tempMsg]);
+
+    const storageRef = ref(storage, `chatFiles/${chatId}/${Date.now()}-${file.name}`);
+    const uploadTask = uploadBytesResumable(storageRef, file);
 
     return new Promise((resolve, reject) => {
       uploadTask.on(
         "state_changed",
         (snapshot) => {
           const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
-          setUploadProgress((prev) => ({ ...prev, [file.name]: progress }));
+          setUploadProgress((prev) => ({ ...prev, [tempId]: progress }));
+          setMessages((prev) =>
+            prev.map((m) => (m.id === tempId ? { ...m, uploadProgress: progress } : m))
+          );
         },
-        (error) => reject(error),
+        (error) => {
+          toast.error("Upload failed: " + error.message);
+          setMessages((prev) => prev.filter((m) => m.id !== tempId));
+          reject(error);
+        },
         async () => {
-          const downloadURL = await uploadTask.snapshot.ref.getDownloadURL();
+          const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
           const msgRef = await addDoc(collection(db, "chats", chatId, "messages"), {
             mediaUrl: downloadURL,
             mediaType: file.type.startsWith("video/") ? "video" : "image",
@@ -196,14 +215,14 @@ export default function ChatConversationPage() {
             senderId: myUid,
             replyTo: replyTo ? replyTo.id : null,
           });
-          resolve({
-            id: msgRef.id,
-            mediaUrl: downloadURL,
-            mediaType: file.type.startsWith("video/") ? "video" : "image",
-            text: "",
-            createdAt: new Date(),
-            senderId: myUid,
-          });
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === tempId
+                ? { ...m, id: msgRef.id, mediaUrl: downloadURL, status: "sent", uploadProgress: 100 }
+                : m
+            )
+          );
+          resolve(msgRef.id);
         }
       );
     });
@@ -267,7 +286,7 @@ export default function ChatConversationPage() {
           ) : (
             <MessageItem
               key={item.data.id}
-              message={{ ...item.data, uploadProgress: uploadProgress[item.data.id] }}
+              message={{ ...item.data, uploadProgress: uploadProgress[item.data.id] || item.data.uploadProgress }}
               myUid={myUid}
               isDark={isDark}
               chatId={chatId}
@@ -277,8 +296,7 @@ export default function ChatConversationPage() {
               friendId={friendId}
               onReplyClick={scrollToMessage}
               onOpenMediaViewer={handleOpenMediaViewer}
-              messages={messages}
-              typingUsers={typingUsers}
+              typing={!!typingUsers[item.data.senderId]}
             />
           )
         )}
