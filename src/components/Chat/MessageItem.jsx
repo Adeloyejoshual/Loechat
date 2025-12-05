@@ -30,6 +30,8 @@ export default function MessageItem({
   onOpenMediaViewer,
   typing = false,
   friendInfo = null,
+  // optional: parent can remove temp messages after delete
+  onRemoveTemp,
 }) {
   const isMine = message.senderId === myUid;
   const { theme } = useContext(ThemeContext);
@@ -89,12 +91,12 @@ export default function MessageItem({
   const deleteMessage = async () => {
     if (!window.confirm(`Delete this message for ${isMine ? "everyone" : "them"}?`)) return;
 
-    // If this is a temporary client-side message (e.g. id starts with temp-), don't call Firestore
+    // If this is a temporary client-side message (e.g. id starts with temp-), animate out and notify parent to remove it
     if (!message.id || message.id.startsWith("temp-")) {
-      // animate out and return (assumes parent will remove temp messages when appropriate)
       setFadeOut(true);
       setTimeout(() => {
-        // nothing else to do for temp messages
+        // let parent remove the temp message from state
+        if (typeof onRemoveTemp === "function") onRemoveTemp(message.id);
       }, 300);
       return;
     }
@@ -128,6 +130,7 @@ export default function MessageItem({
   const applyReaction = async (emoji) => {
     if (!message.id) return;
     const msgRef = doc(db, "chats", chatId, "messages", message.id);
+    const prevEmoji = message.reactions?.[myUid] || reactedEmoji || "";
     const newEmoji = reactedEmoji === emoji ? "" : emoji;
 
     // optimistic update
@@ -141,8 +144,8 @@ export default function MessageItem({
     try {
       await updateDoc(msgRef, { [`reactions.${myUid}`]: newEmoji });
     } catch (err) {
-      // rollback
-      setReactedEmoji(message.reactions?.[myUid] || "");
+      // rollback to the previous emoji
+      setReactedEmoji(prevEmoji);
       toast.error("Failed to react: " + (err.message || err));
     }
   };
@@ -226,6 +229,9 @@ export default function MessageItem({
     }
   };
 
+  // Determine if uploading from local status (prefer local `status` state)
+  const isUploading = status === "uploading";
+
   return (
     <>
       <div
@@ -293,7 +299,7 @@ export default function MessageItem({
                     maxWidth: "100%",
                     borderRadius: 12,
                     cursor: "pointer",
-                    opacity: message.status === "uploading" ? 0.6 : 1,
+                    opacity: isUploading ? 0.6 : 1,
                   }}
                   onClick={handleMediaClick}
                 />
@@ -305,13 +311,13 @@ export default function MessageItem({
                     maxWidth: "100%",
                     borderRadius: 12,
                     cursor: "pointer",
-                    opacity: message.status === "uploading" ? 0.6 : 1,
+                    opacity: isUploading ? 0.6 : 1,
                   }}
                   onClick={handleMediaClick}
                 />
               )}
 
-              {message.status === "uploading" && (
+              {isUploading && (
                 <div
                   style={{
                     position: "absolute",
@@ -329,7 +335,7 @@ export default function MessageItem({
                 </div>
               )}
 
-              {message.status === "failed" && (
+              {status === "failed" && (
                 <button
                   onClick={handleRetry}
                   style={{
