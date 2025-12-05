@@ -1,17 +1,8 @@
 // src/components/ChatConversationPage.jsx
 import React, { useEffect, useState, useRef, useContext, useCallback } from "react";
-import { useParams } from "react-router-dom";
-import {
-  collection,
-  addDoc,
-  query,
-  orderBy,
-  onSnapshot,
-  serverTimestamp,
-  doc,
-} from "firebase/firestore";
-import { ref, uploadBytesResumable, getDownloadURL } from "firebase/storage";
-import { db, auth, storage } from "../firebaseConfig";
+import { useParams, useNavigate } from "react-router-dom";
+import { collection, addDoc, query, orderBy, onSnapshot, serverTimestamp, doc, updateDoc } from "firebase/firestore";
+import { db, auth } from "../firebaseConfig";
 import { ThemeContext } from "../context/ThemeContext";
 import { UserContext } from "../context/UserContext";
 
@@ -25,6 +16,7 @@ import "react-toastify/dist/ReactToastify.css";
 
 export default function ChatConversationPage() {
   const { chatId } = useParams();
+  const navigate = useNavigate();
   const { theme, wallpaper } = useContext(ThemeContext);
   const { profilePic, profileName } = useContext(UserContext);
   const isDark = theme === "dark";
@@ -40,6 +32,7 @@ export default function ChatConversationPage() {
   const [replyTo, setReplyTo] = useState(null);
   const [pinnedMessage, setPinnedMessage] = useState(null);
   const [isBlocked, setIsBlocked] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState({});
   const [mediaViewerData, setMediaViewerData] = useState({ isOpen: false, items: [], startIndex: 0 });
   const [typingUsers, setTypingUsers] = useState({});
   const [loading, setLoading] = useState(true);
@@ -59,9 +52,9 @@ export default function ChatConversationPage() {
       setIsBlocked(data.blocked || false);
       setTypingUsers(data.typing || {});
 
-      const friendId = data.participants?.find((p) => p !== myUid);
-      if (friendId) {
-        const userRef = doc(db, "users", friendId);
+      const fId = data.participants?.find((p) => p !== myUid);
+      if (fId) {
+        const userRef = doc(db, "users", fId);
         onSnapshot(userRef, (s) => s.exists() && setFriendInfo({ id: s.id, ...s.data() }));
       }
 
@@ -84,17 +77,17 @@ export default function ChatConversationPage() {
 
     const unsub = onSnapshot(q, (snap) => {
       const docs = snap.docs.map((d) => ({ id: d.id, ...d.data(), status: "sent" }));
-      setMessages((prev) => {
-        // Merge existing temp messages with new Firestore messages
-        const tempMsgs = prev.filter((m) => m.id.startsWith("temp-"));
-        return [...docs, ...tempMsgs];
-      });
+      setMessages(docs);
+      scrollToBottom();
     });
 
     return () => unsub();
   }, [chatId]);
 
-  // -------------------- Scroll helpers --------------------
+  const scrollToBottom = useCallback(() => {
+    messagesRefEl.current?.scrollTo({ top: messagesRefEl.current.scrollHeight, behavior: "smooth" });
+  }, []);
+
   const scrollToMessage = useCallback((id) => {
     const el = document.getElementById(id);
     if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -148,82 +141,28 @@ export default function ChatConversationPage() {
       if (!replaceId) return [...newMessages, ...prev];
       return prev.map((m) => (m.id === replaceId ? newMessages[0] : m));
     });
+    scrollToBottom();
   };
 
-  // -------------------- Upload files --------------------
-  const uploadFiles = async (file, replyTo) => {
-    const tempId = "temp-" + Date.now();
-    const tempMsg = {
-      id: tempId,
-      mediaUrl: URL.createObjectURL(file),
-      mediaType: file.type.startsWith("video/") ? "video" : "image",
-      senderId: myUid,
-      status: "uploading",
-      uploadProgress: 0,
-      createdAt: new Date(),
-      replyTo: replyTo?.id || null,
-      retry: null,
-    };
-
-    addMessages([tempMsg]);
-
-    const retryUpload = () => uploadFiles(file, replyTo);
-    setMessages((prev) =>
-      prev.map((m) => (m.id === tempId ? { ...m, retry: retryUpload } : m))
-    );
-
-    const storageRef = ref(storage, `chatFiles/${chatId}/${Date.now()}-${file.name}`);
-    const uploadTask = uploadBytesResumable(storageRef, file);
-
-    return new Promise((resolve, reject) => {
-      uploadTask.on(
-        "state_changed",
-        (snapshot) => {
-          const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
-          setMessages((prev) =>
-            prev.map((m) => (m.id === tempId ? { ...m, uploadProgress: progress } : m))
-          );
-        },
-        (error) => {
-          setMessages((prev) =>
-            prev.map((m) => (m.id === tempId ? { ...m, status: "failed" } : m))
-          );
-          toast.error("Upload failed: " + error.message);
-          reject(error);
-        },
-        async () => {
-          const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
-          const docRef = await addDoc(collection(db, "chats", chatId, "messages"), {
-            mediaUrl: downloadURL,
-            mediaType: file.type.startsWith("video/") ? "video" : "image",
-            text: "",
-            createdAt: serverTimestamp(),
-            senderId: myUid,
-            replyTo: replyTo?.id || null,
-          });
-
-          // Replace temp message with Firestore message
-          setMessages((prev) =>
-            prev.map((m) =>
-              m.id === tempId
-                ? {
-                    ...m,
-                    id: docRef.id,
-                    mediaUrl: downloadURL,
-                    status: "sent",
-                    uploadProgress: 100,
-                  }
-                : m
-            )
-          );
-
-          scrollToMessage(docRef.id);
-          resolve(docRef.id);
-        }
-      );
-    });
+  // -------------------- Chat actions --------------------
+  const startVoiceCall = () => {
+    if (!friendId) return toast.error("Cannot start call — user not loaded yet.");
+    navigate(`/voicecall/${chatId}/${friendId}`);
   };
 
+  const startVideoCall = () => {
+    if (!friendId) return toast.error("Cannot start call — user not loaded yet.");
+    navigate(`/videocall/${chatId}/${friendId}`);
+  };
+
+  const onSearch = () => toast.info("Search not implemented.");
+  const onGoToPinned = (messageId) => {
+    const id = messageId || pinnedMessage?.id;
+    if (id) scrollToMessage(id);
+    else toast.info("No pinned message available.");
+  };
+
+  // -------------------- Loading --------------------
   if (loading) {
     return (
       <div style={{ flex: 1, display: "flex", justifyContent: "center", alignItems: "center", height: "100vh" }}>
@@ -255,8 +194,11 @@ export default function ChatConversationPage() {
           });
           toast.success("Chat cleared");
         }}
+        onSearch={onSearch}
+        onGoToPinned={onGoToPinned}
       />
 
+      {/* Messages */}
       <div
         ref={messagesRefEl}
         style={{
@@ -278,7 +220,7 @@ export default function ChatConversationPage() {
           ) : (
             <MessageItem
               key={item.data.id}
-              message={item.data}
+              message={{ ...item.data, uploadProgress: uploadProgress[item.data.id] || item.data.uploadProgress }}
               myUid={myUid}
               isDark={isDark}
               chatId={chatId}
@@ -289,7 +231,6 @@ export default function ChatConversationPage() {
               onReplyClick={scrollToMessage}
               onOpenMediaViewer={handleOpenMediaViewer}
               typing={!!typingUsers[item.data.senderId]}
-              friendInfo={friendInfo}
             />
           )
         )}
@@ -307,6 +248,7 @@ export default function ChatConversationPage() {
         setReplyTo={setReplyTo}
         addMessages={addMessages}
         uploadFiles={uploadFiles}
+        chatId={chatId}
       />
 
       {mediaViewerData.isOpen && (
