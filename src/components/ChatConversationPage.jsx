@@ -1,4 +1,4 @@
-// src/components/ChatConversationPage.jsx
+// src/components/Chat/ChatConversationPage.jsx
 import React, { useEffect, useState, useRef, useContext } from "react";
 import { useParams } from "react-router-dom";
 import {
@@ -38,6 +38,7 @@ export default function ChatConversationPage() {
   const [messages, setMessages] = useState([]);
   const [text, setText] = useState("");
   const [selectedFiles, setSelectedFiles] = useState([]);
+  const [caption, setCaption] = useState(""); // caption for media
   const [replyTo, setReplyTo] = useState(null);
   const [pinnedMessage, setPinnedMessage] = useState(null);
   const [isAtBottom, setIsAtBottom] = useState(true);
@@ -141,8 +142,8 @@ export default function ChatConversationPage() {
     if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
   };
 
-  // -------------------- Send messages (text + media) --------------------
-  const sendMessage = async (textMsg = "", files = []) => {
+  // -------------------- Send messages (text + media + caption) --------------------
+  const sendMessage = async (textMsg = "", files = [], captionText = "") => {
     if (isBlocked) return toast.error("You cannot send messages to this user");
     if (!textMsg && files.length === 0) return;
 
@@ -160,6 +161,7 @@ export default function ChatConversationPage() {
             id: tempId,
             senderId: myUid,
             text: f.name,
+            caption: captionText, // save caption
             mediaUrl: URL.createObjectURL(f),
             mediaType: type,
             createdAt: new Date(),
@@ -188,6 +190,7 @@ export default function ChatConversationPage() {
             const payload = {
               senderId: myUid,
               text: f.name,
+              caption: captionText,
               mediaUrl,
               mediaType: type,
               createdAt: serverTimestamp(),
@@ -218,6 +221,7 @@ export default function ChatConversationPage() {
         id: tempId,
         senderId: myUid,
         text: textMsg.trim(),
+        caption: "", // optional caption for text-only messages
         mediaUrl: "",
         mediaType: null,
         createdAt: new Date(),
@@ -259,6 +263,7 @@ export default function ChatConversationPage() {
 
     setText("");
     setSelectedFiles([]);
+    setCaption("");
     setReplyTo(null);
     setShowPreview(false);
   };
@@ -315,10 +320,12 @@ export default function ChatConversationPage() {
       <ChatInput
         text={text}
         setText={setText}
-        sendTextMessage={() => sendMessage(text, selectedFiles)}
-        sendMediaMessage={(files) => sendMessage("", files)}
+        sendTextMessage={() => sendMessage(text, selectedFiles, caption)}
+        sendMediaMessage={(files) => sendMessage("", files, caption)}
         selectedFiles={selectedFiles}
         setSelectedFiles={setSelectedFiles}
+        caption={caption}
+        setCaption={setCaption}
         isDark={isDark}
         setShowPreview={setShowPreview}
         replyTo={replyTo}
@@ -329,8 +336,10 @@ export default function ChatConversationPage() {
       {showPreview && selectedFiles.length > 0 && (
         <ImagePreviewModal
           previews={selectedFiles.map((f) => ({ file: f, url: URL.createObjectURL(f) }))}
+          caption={caption}
+          setCaption={setCaption}
           onRemove={(i) => setSelectedFiles((prev) => prev.filter((_, idx) => idx !== i))}
-          onSend={() => sendMessage("", selectedFiles)}
+          onSend={() => sendMessage("", selectedFiles, caption)}
           onClose={() => setShowPreview(false)}
           isDark={isDark}
         />
