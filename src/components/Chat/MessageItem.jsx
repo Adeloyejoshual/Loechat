@@ -2,81 +2,119 @@
 import React, { useState, useRef, useEffect } from "react";
 import LongPressMessageModal from "./LongPressMessageModal";
 
+const READ_MORE_STEP = 450; // ~6–7 lines like WhatsApp
+const LONG_PRESS_DELAY = 500;
+const SWIPE_TRIGGER_DISTANCE = -70; // LEFT only
+
 export default function MessageItem({
   message,
   myUid,
   isDark,
-  chatId,
   setReplyTo,
-  pinnedMessage,
   setPinnedMessage,
   friendInfo,
   onMediaClick,
-  mediaItems = [],
 }) {
   const isMine = message.senderId === myUid;
   const containerRef = useRef(null);
 
-  // Long press modal
+  // -------------------- Long press --------------------
   const [showLongPress, setShowLongPress] = useState(false);
+  const longPressTimer = useRef(null);
 
-  // Read more for long messages
-  const [showFullText, setShowFullText] = useState(false);
-  const MAX_PREVIEW_LENGTH = 120;
+  // -------------------- Read more --------------------
+  const [visibleChars, setVisibleChars] = useState(READ_MORE_STEP);
 
-  // Swipe to reply
-  const [swipeStartX, setSwipeStartX] = useState(0);
-  const [swipeDeltaX, setSwipeDeltaX] = useState(0);
-  const [swiping, setSwiping] = useState(false);
+  const isLongText = message.text?.length > visibleChars;
 
-  // -------------------- Long press detection --------------------
+  // -------------------- Swipe to reply (LEFT only) --------------------
+  const swipeStartX = useRef(0);
+  const [swipeX, setSwipeX] = useState(0);
+  const swipeTimer = useRef(null);
+
+  // -------------------- Events --------------------
   useEffect(() => {
-    let timer = null;
     const el = containerRef.current;
     if (!el) return;
 
-    const startPress = () => (timer = setTimeout(() => setShowLongPress(true), 500));
-    const endPress = () => clearTimeout(timer);
+    const startPress = () => {
+      longPressTimer.current = setTimeout(
+        () => setShowLongPress(true),
+        LONG_PRESS_DELAY
+      );
+    };
+
+    const cancelPress = () => clearTimeout(longPressTimer.current);
 
     el.addEventListener("mousedown", startPress);
-    el.addEventListener("mouseup", endPress);
+    el.addEventListener("mouseup", cancelPress);
+    el.addEventListener("mouseleave", cancelPress);
     el.addEventListener("touchstart", startPress);
-    el.addEventListener("touchend", endPress);
+    el.addEventListener("touchend", cancelPress);
 
     return () => {
+      cancelPress();
       el.removeEventListener("mousedown", startPress);
-      el.removeEventListener("mouseup", endPress);
+      el.removeEventListener("mouseup", cancelPress);
+      el.removeEventListener("mouseleave", cancelPress);
       el.removeEventListener("touchstart", startPress);
-      el.removeEventListener("touchend", endPress);
+      el.removeEventListener("touchend", cancelPress);
     };
   }, []);
 
-  // -------------------- Swipe to reply detection --------------------
+  // -------------------- Swipe LEFT only --------------------
   const handleTouchStart = (e) => {
-    setSwipeStartX(e.touches[0].clientX);
-    setSwiping(true);
+    swipeStartX.current = e.touches[0].clientX;
+
+    swipeTimer.current = setTimeout(() => {
+      // enables swipe after 500ms
+    }, 500);
   };
+
   const handleTouchMove = (e) => {
-    if (!swiping) return;
-    setSwipeDeltaX(e.touches[0].clientX - swipeStartX);
+    const diff = e.touches[0].clientX - swipeStartX.current;
+
+    if (diff < 0) {
+      // LEFT only
+      setSwipeX(diff);
+    }
   };
+
   const handleTouchEnd = () => {
-    if (swiping && swipeDeltaX > 60) setReplyTo(message); // swipe right
-    setSwiping(false);
-    setSwipeDeltaX(0);
+    clearTimeout(swipeTimer.current);
+
+    if (swipeX < SWIPE_TRIGGER_DISTANCE) {
+      setReplyTo(message);
+    }
+
+    setSwipeX(0);
   };
 
-  // -------------------- Text display --------------------
-  const displayText =
-    message.text && !showFullText && message.text.length > MAX_PREVIEW_LENGTH
-      ? message.text.slice(0, MAX_PREVIEW_LENGTH) + "..."
-      : message.text;
+  // -------------------- Scroll to original message --------------------
+  const scrollToOriginal = () => {
+    if (!message.replyTo?.id) return;
+    const el = document.getElementById(message.replyTo.id);
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+  };
 
-  // -------------------- Media click --------------------
-  const handleMediaClick = () => {
-    if (!message.mediaUrl) return;
-    const index = mediaItems.findIndex((m) => m.url === message.mediaUrl);
-    onMediaClick(index);
+  // -------------------- Styles --------------------
+  const bubbleStyle = {
+    alignSelf: isMine ? "flex-end" : "flex-start",
+    maxWidth: "75%",
+    margin: "6px 0",
+    padding: 10,
+    borderRadius: 14,
+    backgroundColor: isMine
+      ? isDark
+        ? "#1976d2"
+        : "#d0e7ff"
+      : isDark
+      ? "#2a2a2a"
+      : "#fff",
+    color: isMine ? "#fff" : isDark ? "#fff" : "#000",
+    transform: `translateX(${swipeX}px)`,
+    transition: swipeX ? "none" : "transform 0.2s ease",
+    wordBreak: "break-word",
   };
 
   return (
@@ -87,57 +125,53 @@ export default function MessageItem({
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
-        onClick={handleMediaClick}
-        style={{
-          alignSelf: isMine ? "flex-end" : "flex-start",
-          maxWidth: "75%",
-          margin: "4px 0",
-          padding: 8,
-          borderRadius: 12,
-          backgroundColor: isMine
-            ? isDark
-              ? "#1976d2"
-              : "#d0e7ff"
-            : isDark
-            ? "#2a2a2a"
-            : "#fff",
-          color: isMine ? "#fff" : isDark ? "#fff" : "#000",
-          position: "relative",
-          transform: swiping ? `translateX(${swipeDeltaX}px)` : "none",
-          transition: swiping ? "none" : "transform 0.2s ease",
-          cursor: "pointer",
-        }}
+        style={bubbleStyle}
       >
-        {/* Reply preview */}
+        {/* ------------------ Reply Preview ------------------ */}
         {message.replyTo && (
           <div
+            onClick={scrollToOriginal}
             style={{
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
               fontSize: 12,
-              color: isDark ? "#aaa" : "#555",
-              marginBottom: 4,
-              paddingLeft: 4,
-              borderLeft: `2px solid ${isMine ? "#fff" : "#1976d2"}`,
+              opacity: 0.8,
+              borderLeft: "3px solid #4caf50",
+              paddingLeft: 6,
+              marginBottom: 6,
             }}
           >
-            {message.replyTo.text || "Media"}
+            {message.replyTo.mediaUrl ? (
+              <img
+                src={message.replyTo.mediaUrl}
+                alt="reply"
+                style={{
+                  width: 32,
+                  height: 32,
+                  borderRadius: 6,
+                  objectFit: "cover",
+                }}
+              />
+            ) : (
+              <span>{message.replyTo.text?.slice(0, 60) || "Message"}</span>
+            )}
           </div>
         )}
 
-        {/* Text */}
-        {displayText && (
-          <div style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
-            {displayText}
-            {message.text && !showFullText && message.text.length > MAX_PREVIEW_LENGTH && (
+        {/* ------------------ Text ------------------ */}
+        {message.text && (
+          <div>
+            {message.text.slice(0, visibleChars)}
+            {isLongText && (
               <span
+                onClick={() => setVisibleChars((p) => p + READ_MORE_STEP)}
                 style={{
-                  color: isMine ? "#fff" : "#1976d2",
-                  cursor: "pointer",
-                  marginLeft: 4,
+                  marginLeft: 6,
                   fontWeight: 500,
-                }}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setShowFullText(true);
+                  cursor: "pointer",
+                  opacity: 0.9,
                 }}
               >
                 Read more
@@ -146,32 +180,36 @@ export default function MessageItem({
           </div>
         )}
 
-        {/* Media */}
+        {/* ------------------ Media ------------------ */}
         {message.mediaUrl &&
           (message.mediaType === "image" ? (
             <img
               src={message.mediaUrl}
+              onClick={() => onMediaClick?.(message)}
               alt="media"
-              style={{ width: "100%", marginTop: 4, borderRadius: 8 }}
-              draggable={false}
+              style={{
+                width: "100%",
+                marginTop: 8,
+                borderRadius: 10,
+                cursor: "pointer",
+              }}
             />
           ) : (
             <video
               src={message.mediaUrl}
               controls
-              style={{ width: "100%", marginTop: 4, borderRadius: 8 }}
+              style={{ width: "100%", marginTop: 8, borderRadius: 10 }}
             />
           ))}
 
-        {/* Status */}
-        {isMine && message.status && (
+        {/* ------------------ Status ------------------ */}
+        {isMine && (
           <div
             style={{
               fontSize: 10,
-              color: "#888",
-              position: "absolute",
-              bottom: 2,
-              right: 6,
+              opacity: 0.7,
+              textAlign: "right",
+              marginTop: 4,
             }}
           >
             {message.status}
@@ -179,11 +217,11 @@ export default function MessageItem({
         )}
       </div>
 
-      {/* Long press modal */}
+      {/* ------------------ Long Press Modal ------------------ */}
       {showLongPress && (
         <LongPressMessageModal
+          isDark={isDark}
           onClose={() => setShowLongPress(false)}
-          onReaction={() => {}}
           onReply={() => {
             setReplyTo(message);
             setShowLongPress(false);
@@ -196,9 +234,8 @@ export default function MessageItem({
             setPinnedMessage(message);
             setShowLongPress(false);
           }}
-          onDelete={() => setShowLongPress(false)} // Implement delete logic in parent
-          isDark={isDark}
-          messageSenderName={isMine ? "you" : friendInfo?.name || "friend"}
+          onDelete={() => setShowLongPress(false)}
+          messageSenderName={isMine ? "You" : friendInfo?.name || "User"}
         />
       )}
     </>
