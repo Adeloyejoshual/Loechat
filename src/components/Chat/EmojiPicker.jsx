@@ -1,3 +1,4 @@
+// src/components/Chat/EmojiPicker.jsx
 import React, { useEffect, useRef } from "react";
 
 const EMOJIS = [
@@ -16,7 +17,6 @@ const EMOJIS = [
 export default function EmojiPicker({ onSelect, onClose, position, isDark = false }) {
   const pickerRef = useRef(null);
 
-  // Close when clicking outside
   useEffect(() => {
     const handleClickOutside = (e) => {
       if (pickerRef.current && !pickerRef.current.contains(e.target)) {
