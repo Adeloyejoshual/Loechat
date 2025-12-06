@@ -31,14 +31,17 @@ const formatLastSeen = (ts) => {
   if (d.toDateString() === yesterday.toDateString())
     return `Last seen: Yesterday at ${d.toLocaleTimeString([], { hour: "numeric", minute: "numeric", hour12: true })}`;
 
-  const options = d.getFullYear() !== now.getFullYear() 
-    ? { month: "long", day: "numeric", year: "numeric" } 
+  const options = d.getFullYear() !== now.getFullYear()
+    ? { month: "long", day: "numeric", year: "numeric" }
     : { month: "long", day: "numeric" };
 
   return `Last seen: ${d.toLocaleDateString(undefined, options)} at ${d.toLocaleTimeString([], { hour: "numeric", minute: "numeric", hour12: true })}`;
 };
 
-const getCloudinaryUrl = (path) => path ? `https://res.cloudinary.com/<your-cloud-name>/image/upload/w_300,h_300,c_thumb/${path}.jpg` : null;
+const getCloudinaryUrl = (path) =>
+  path
+    ? `https://res.cloudinary.com/${import.meta.env.VITE_CLOUDINARY_CLOUD_NAME}/image/upload/w_300,h_300,c_thumb/${path}.jpg`
+    : null;
 
 // ---------------- COMPONENT ----------------
 export default function FriendProfilePage() {
@@ -65,7 +68,7 @@ export default function FriendProfilePage() {
 
   // ---------------- ACTIONS ----------------
   const toggleBlock = async () => {
-    if (!currentUser || !friend) return;
+    if (!currentUser || !friend || currentUser.uid === uid) return;
     setActionLoading(true);
     try {
       const ref = doc(db, "users", uid);
@@ -107,7 +110,7 @@ export default function FriendProfilePage() {
     <div className={`${isDark ? "bg-black text-white" : "bg-white text-black"} min-h-screen p-4`}>
       {/* BACK BUTTON HEADER */}
       <div className="flex items-center gap-3 mb-6">
-        <button onClick={() => navigate(-1)} className="text-2xl font-bold">←</button>
+        <button onClick={() => navigate(-1)} className="text-2xl font-bold hover:opacity-80 transition">←</button>
         <h2 className="text-xl font-semibold">Profile</h2>
       </div>
 
@@ -116,7 +119,10 @@ export default function FriendProfilePage() {
         {profileUrl ? (
           <img src={profileUrl} alt="Profile" className="w-full h-full object-cover" />
         ) : (
-          <span className="text-white font-bold text-3xl" style={{ backgroundColor: stringToColor(friend.displayName), width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <span
+            className="text-white font-bold text-3xl flex items-center justify-center w-full h-full"
+            style={{ backgroundColor: stringToColor(friend.displayName) }}
+          >
             {getInitials(friend.displayName)}
           </span>
         )}
@@ -137,17 +143,31 @@ export default function FriendProfilePage() {
 
       {/* ACTION BUTTONS */}
       <div className="flex flex-col gap-3 max-w-sm mx-auto mt-4">
-        <button onClick={sendMessage} className="bg-blue-600 text-white py-2 rounded-lg font-semibold hover:bg-blue-700 transition">
+        <button
+          onClick={sendMessage}
+          className="bg-blue-600 text-white py-2 rounded-lg font-semibold hover:bg-blue-700 transition"
+        >
           Send Message
         </button>
 
-        <button onClick={toggleBlock} disabled={actionLoading} className={`py-2 rounded-lg font-semibold transition ${isBlocked ? "bg-green-600 text-white hover:bg-green-700" : "bg-red-600 text-white hover:bg-red-700"}`}>
-          {isBlocked ? "Unblock User" : "Block User"}
-        </button>
+        {currentUser.uid !== uid && (
+          <button
+            onClick={toggleBlock}
+            disabled={actionLoading}
+            className={`py-2 rounded-lg font-semibold transition ${isBlocked ? "bg-green-600 text-white hover:bg-green-700" : "bg-red-600 text-white hover:bg-red-700"}`}
+          >
+            {isBlocked ? "Unblock User" : "Block User"}
+          </button>
+        )}
 
-        <button onClick={reportUser} className="bg-gray-600 text-white py-2 rounded-lg font-semibold hover:bg-gray-700 transition">
-          Report User
-        </button>
+        {currentUser.uid !== uid && (
+          <button
+            onClick={reportUser}
+            className="bg-gray-600 text-white py-2 rounded-lg font-semibold hover:bg-gray-700 transition"
+          >
+            Report User
+          </button>
+        )}
       </div>
     </div>
   );
