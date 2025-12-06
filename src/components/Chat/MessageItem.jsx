@@ -1,171 +1,197 @@
-import React, { useState, useEffect, useContext, useRef } from "react";
-import { doc, updateDoc } from "firebase/firestore";
-import { db } from "../../firebaseConfig";
-import { ThemeContext } from "../../context/ThemeContext";
-import TypingIndicator from "./TypingIndicator";
-import { toast } from "react-toastify";
-
-const COLORS = {
-  primary: "#34B7F1",
-  lightCard: "#fff",
-  darkCard: "#1b1b1b",
-  darkText: "#fff",
-  mutedText: "#777",
-  reactionBg: "rgba(0,0,0,0.7)",
-};
+// src/components/Chat/MessageItem.jsx
+import React, { useState, useRef } from "react";
+import LongPressMessageModal from "./LongPressMessageModal";
+import MediaViewer from "./MediaViewer";
 
 export default function MessageItem({
   message,
   myUid,
-  isDark,
-  chatId,
+  isDark = false,
   setReplyTo,
-  onOpenMediaViewer,
-  friendInfo,
+  onReaction = () => {},
+  onDeleteMessage = () => {},
+  onPinMessage = () => {},
 }) {
-  const isMine = message.senderId === myUid;
-  const { theme } = useContext(ThemeContext);
-  const containerRef = useRef(null);
+  const [showLongPress, setShowLongPress] = useState(false);
+  const [showMediaViewer, setShowMediaViewer] = useState(false);
+  const [currentMediaIndex, setCurrentMediaIndex] = useState(0);
+  const [swipeX, setSwipeX] = useState(0);
+  const [showSwipeActions, setShowSwipeActions] = useState(false);
 
-  const [status, setStatus] = useState((message.status || "sent").toLowerCase());
-  const [reactedEmoji, setReactedEmoji] = useState(message.reactions?.[myUid] || "");
+  const touchStartX = useRef(0);
+  const touchStartTime = useRef(0);
+  const messageRef = useRef(null);
 
-  // Sync status and reactions when message updates
-  useEffect(() => {
-    setStatus((message.status || "sent").toLowerCase());
-    setReactedEmoji(message.reactions?.[myUid] || "");
-  }, [message]);
+  // Detect long press (500ms)
+  const handleTouchStart = (e) => {
+    touchStartTime.current = Date.now();
+    touchStartX.current = e.touches[0].clientX;
+    const timer = setTimeout(() => setShowLongPress(true), 500);
+    messageRef.current._longPressTimer = timer;
+  };
 
-  const formatTime = (ts) => {
-    try {
-      const d = ts?.toDate ? ts.toDate() : new Date(ts);
-      return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-    } catch {
-      return "";
+  const handleTouchMove = (e) => {
+    const dx = e.touches[0].clientX - touchStartX.current;
+    if (dx < 0) setSwipeX(dx);
+  };
+
+  const handleTouchEnd = () => {
+    clearTimeout(messageRef.current._longPressTimer);
+
+    if (Math.abs(swipeX) > 60) {
+      setShowSwipeActions(true);
+    } else {
+      setShowSwipeActions(false);
+      setSwipeX(0);
     }
   };
 
-  const handleMediaClick = () => {
-    if (onOpenMediaViewer && message.mediaUrl) onOpenMediaViewer(message.mediaUrl);
-  };
-
-  const toggleReaction = async (emoji) => {
-    if (!message.id) return;
-    const msgRef = doc(db, "chats", chatId, "messages", message.id);
-    const newEmoji = reactedEmoji === emoji ? "" : emoji;
-
-    // Optimistic update
-    setReactedEmoji(newEmoji);
-
-    try {
-      await updateDoc(msgRef, { [`reactions.${myUid}`]: newEmoji });
-    } catch (err) {
-      setReactedEmoji(reactedEmoji);
-      toast.error("Failed to react: " + err.message);
-    }
-  };
-
-  // Skip rendering if deleted
-  if (message.deleted) return null;
+  // Media array (support multiple images/videos per message)
+  const mediaItems = Array.isArray(message.media)
+    ? message.media.map((m) => ({ url: m.url, type: m.type }))
+    : message.mediaUrl
+    ? [{ url: message.mediaUrl, type: message.mediaType }]
+    : [];
 
   return (
     <div
-      ref={containerRef}
-      className={`message-item ${isMine ? "mine" : "other"}`}
+      ref={messageRef}
       style={{
+        position: "relative",
+        margin: "6px 0",
         display: "flex",
-        flexDirection: "column",
-        alignItems: isMine ? "flex-end" : "flex-start",
-        marginBottom: 8,
+        justifyContent: message.senderId === myUid ? "flex-end" : "flex-start",
+        touchAction: "pan-y",
+      }}
+      onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
+      onTouchEnd={handleTouchEnd}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        setShowLongPress(true);
       }}
     >
+      {/* Message Bubble */}
       <div
-        className="message-bubble"
         style={{
+          backgroundColor:
+            message.senderId === myUid
+              ? isDark
+                ? "#4caf50"
+                : "#1976d2"
+              : isDark
+              ? "#333"
+              : "#eee",
+          color: message.senderId === myUid ? "#fff" : "#000",
+          padding: "8px 12px",
+          borderRadius: 12,
           maxWidth: "75%",
-          padding: 10,
-          borderRadius: 18,
-          background: isMine ? COLORS.primary : isDark ? COLORS.darkCard : COLORS.lightCard,
-          color: isMine ? "#fff" : isDark ? COLORS.darkText : "#000",
-          wordBreak: "break-word",
-          position: "relative",
-          boxShadow: "0 1px 3px rgba(0,0,0,0.15)",
+          transform: `translateX(${swipeX}px)`,
+          transition: showSwipeActions ? "transform 0.2s ease" : "none",
+          cursor: mediaItems.length ? "pointer" : "default",
+          display: "flex",
+          flexDirection: "column",
+          gap: 6,
         }}
+        onClick={() => mediaItems.length && setShowMediaViewer(true)}
       >
-        {/* Reply Preview */}
-        {message.replyTo && (
-          <div
-            onClick={() => setReplyTo(message.replyTo)}
-            style={{
-              fontSize: 12,
-              opacity: 0.7,
-              borderLeft: `2px solid ${COLORS.mutedText}`,
-              paddingLeft: 6,
-              marginBottom: 4,
-              cursor: "pointer",
-            }}
-          >
-            ↪ {message.replyTo?.text?.slice(0, 50) || "Media"}
-          </div>
-        )}
-
-        {/* Media */}
-        {message.mediaUrl && (
-          <div style={{ marginBottom: message.text ? 4 : 0, position: "relative" }}>
-            {message.mediaType === "image" ? (
-              <img
-                src={message.mediaUrl}
-                alt="media"
-                style={{ maxWidth: "100%", borderRadius: 12, cursor: "pointer", opacity: status === "uploading" ? 0.6 : 1 }}
-                onClick={handleMediaClick}
-              />
-            ) : (
-              <video
-                src={message.mediaUrl}
-                controls
-                style={{ maxWidth: "100%", borderRadius: 12, cursor: "pointer", opacity: status === "uploading" ? 0.6 : 1 }}
-                onClick={handleMediaClick}
-              />
-            )}
-            {status === "uploading" && (
-              <div style={{
-                position: "absolute",
-                inset: 0,
-                background: "rgba(0,0,0,0.3)",
-                borderRadius: 12,
-                display: "flex",
-                justifyContent: "center",
-                alignItems: "center",
-                color: "#fff",
-                fontSize: 14,
-              }}>
-                {Math.round(message.uploadProgress || 0)}%
-              </div>
-            )}
-          </div>
-        )}
+        {/* Render Media */}
+        {mediaItems.map((m, idx) => (
+          m.type === "image" ? (
+            <img
+              key={idx}
+              src={m.url}
+              alt="media"
+              style={{ maxWidth: "100%", borderRadius: 8 }}
+            />
+          ) : (
+            <video
+              key={idx}
+              src={m.url}
+              controls
+              style={{ maxWidth: "100%", borderRadius: 8 }}
+            />
+          )
+        ))}
 
         {/* Text */}
         {message.text && <div>{message.text}</div>}
-
-        {/* Reactions */}
-        <div style={{ marginTop: 4, display: "flex" }}>
-          {message.reactions &&
-            Object.values(message.reactions).filter(Boolean).map((emoji, i) => (
-              <span key={i} style={{ background: COLORS.reactionBg, color: "#fff", padding: "0 6px", borderRadius: 12, fontSize: 12, marginRight: 4 }}>
-                {emoji}
-              </span>
-            ))}
-        </div>
-
-        {/* Timestamp */}
-        <div style={{ fontSize: 10, opacity: 0.6, marginTop: 4, textAlign: isMine ? "right" : "left" }}>
-          {formatTime(message.createdAt)} {isMine && status && <>• {status}</>}
-        </div>
       </div>
 
-      {/* Typing indicator for other user */}
-      {!isMine && message.typing && <TypingIndicator userName={friendInfo?.name || "Someone"} isDark={isDark} />}
+      {/* Swipe Actions */}
+      {showSwipeActions && swipeX < 0 && (
+        <div
+          style={{
+            position: "absolute",
+            top: 0,
+            right: 0,
+            height: "100%",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "flex-end",
+            gap: 8,
+            paddingRight: 8,
+          }}
+        >
+          {[
+            { emoji: "💗", action: "like", bg: "#ff6b81" },
+            { emoji: "😂", action: "haha", bg: "#ffb142" },
+            { emoji: "↩️", action: "reply", bg: "#1e90ff" },
+          ].map((item, i) => {
+            const opacity = Math.min(Math.max((Math.abs(swipeX) - i * 30) / 60, 0), 1);
+            return (
+              <button
+                key={i}
+                onClick={() => {
+                  if (item.action === "reply") setReplyTo(message);
+                  else onReaction(message.id, item.emoji);
+                  setShowSwipeActions(false);
+                  setSwipeX(0);
+                }}
+                style={{
+                  backgroundColor: item.bg,
+                  border: "none",
+                  borderRadius: "50%",
+                  width: 36,
+                  height: 36,
+                  color: "#fff",
+                  fontSize: 20,
+                  opacity,
+                  transition: "opacity 0.1s linear",
+                  cursor: opacity > 0 ? "pointer" : "default",
+                }}
+              >
+                {item.emoji}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Long Press Modal */}
+      {showLongPress && (
+        <LongPressMessageModal
+          messageSenderName={message.senderId === myUid ? "you" : "them"}
+          onClose={() => setShowLongPress(false)}
+          onReaction={(emoji) => onReaction(message.id, emoji)}
+          onReply={() => {
+            setReplyTo(message);
+            setShowLongPress(false);
+          }}
+          onCopy={() => navigator.clipboard.writeText(message.text || "")}
+          onPin={() => onPinMessage(message.id)}
+          onDelete={() => onDeleteMessage(message.id)}
+        />
+      )}
+
+      {/* Media Viewer */}
+      {showMediaViewer && mediaItems.length > 0 && (
+        <MediaViewer
+          items={mediaItems}
+          startIndex={currentMediaIndex}
+          onClose={() => setShowMediaViewer(false)}
+        />
+      )}
     </div>
   );
 }
