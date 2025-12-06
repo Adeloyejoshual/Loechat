@@ -2,11 +2,12 @@
 import React, { useState, useEffect, useRef } from "react";
 
 export default function ImagePreviewModal({
-  previews = [],         // [{ file, url }]
+  files = [],            // Array of File objects
   currentIndex = 0,
   onRemove = () => {},
   onClose = () => {},
   onSend = () => {},
+  onAddFiles = () => {},
   isDark = false,
 }) {
   const [index, setIndex] = useState(currentIndex);
@@ -16,12 +17,12 @@ export default function ImagePreviewModal({
 
   useEffect(() => setIndex(currentIndex), [currentIndex]);
 
-  if (!previews.length) return null;
+  if (!files.length) return null;
 
-  const current = previews[index];
+  const current = { file: files[index], url: URL.createObjectURL(files[index]) };
 
   // Next / Prev
-  const handleNext = () => setIndex((p) => (p + 1 < previews.length ? p + 1 : p));
+  const handleNext = () => setIndex((p) => (p + 1 < files.length ? p + 1 : p));
   const handlePrev = () => setIndex((p) => (p - 1 >= 0 ? p - 1 : p));
 
   // Swipe-down handlers
@@ -29,13 +30,11 @@ export default function ImagePreviewModal({
     startY.current = e.touches[0].clientY;
     setIsDragging(true);
   };
-
   const handleTouchMove = (e) => {
     if (!isDragging) return;
     const dy = e.touches[0].clientY - startY.current;
     if (dy > 0) setTranslateY(dy);
   };
-
   const handleTouchEnd = () => {
     setIsDragging(false);
     if (translateY > 120) onClose();
@@ -123,13 +122,13 @@ export default function ImagePreviewModal({
         {/* Next */}
         <button
           onClick={handleNext}
-          disabled={index === previews.length - 1}
+          disabled={index === files.length - 1}
           style={{
             background: "transparent",
             border: "none",
             fontSize: 32,
             color: isDark ? "#fff" : "#000",
-            cursor: index === previews.length - 1 ? "not-allowed" : "pointer",
+            cursor: index === files.length - 1 ? "not-allowed" : "pointer",
             marginLeft: 8,
           }}
         >
@@ -165,12 +164,25 @@ export default function ImagePreviewModal({
         >
           Send
         </button>
+        <button
+          onClick={onAddFiles}
+          style={{
+            padding: "8px 16px",
+            backgroundColor: isDark ? "#555" : "#888",
+            color: "#fff",
+            border: "none",
+            borderRadius: 4,
+            cursor: "pointer",
+          }}
+        >
+          Add More
+        </button>
       </div>
 
       {/* Pagination */}
-      {previews.length > 1 && (
+      {files.length > 1 && (
         <div style={{ marginTop: 12, color: isDark ? "#fff" : "#000", fontSize: 14 }}>
-          {index + 1} / {previews.length}
+          {index + 1} / {files.length}
         </div>
       )}
     </div>
