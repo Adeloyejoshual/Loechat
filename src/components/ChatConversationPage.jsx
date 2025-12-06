@@ -1,4 +1,4 @@
-// src/components/Chat/ChatConversationPage.jsx
+// src/components/ChatConversationPage.jsx
 import React, { useEffect, useState, useRef, useContext } from "react";
 import { useParams } from "react-router-dom";
 import {
@@ -28,7 +28,7 @@ import axios from "axios";
 export default function ChatConversationPage() {
   const { chatId } = useParams();
   const { theme, wallpaper } = useContext(ThemeContext);
-  const { profilePic, profileName } = useContext(UserContext);
+  const { currentUser } = useContext(UserContext);
   const isDark = theme === "dark";
   const myUid = auth.currentUser?.uid;
 
@@ -44,11 +44,10 @@ export default function ChatConversationPage() {
   const [caption, setCaption] = useState("");
   const [replyTo, setReplyTo] = useState(null);
   const [pinnedMessage, setPinnedMessage] = useState(null);
-  const [isAtBottom, setIsAtBottom] = useState(true);
-  const [showPreview, setShowPreview] = useState(false);
   const [isBlocked, setIsBlocked] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const [showPreview, setShowPreview] = useState(false);
   const [mediaViewer, setMediaViewer] = useState({ open: false, startIndex: 0 });
+  const [friendTyping, setFriendTyping] = useState(false);
 
   // -------------------- Load chat & friend info --------------------
   useEffect(() => {
@@ -79,8 +78,6 @@ export default function ChatConversationPage() {
           s.exists() && setPinnedMessage({ id: s.id, ...s.data() })
         );
       } else setPinnedMessage(null);
-
-      setLoading(false);
     });
 
     return () => {
@@ -100,13 +97,11 @@ export default function ChatConversationPage() {
       const docs = snap.docs.map((d) => ({
         id: d.id,
         ...d.data(),
-        // normalize createdAt to Date for UI
         createdAt: d.data().createdAt?.toDate ? d.data().createdAt.toDate() : new Date(),
       }));
       setMessages(docs);
 
-      // Mark messages as delivered for THIS client (so senders will see delivered)
-      // For each message that is not from me and not yet marked delivered for me, add myUid to deliveredTo
+      // Mark messages delivered
       const undelivered = docs.filter(
         (m) => m.senderId !== myUid && !(m.deliveredTo || []).includes(myUid)
       );
@@ -120,35 +115,27 @@ export default function ChatConversationPage() {
         );
       }
 
-      // Auto-scroll to bottom (or keep user's scroll if they scrolled up)
       endRef.current?.scrollIntoView({ behavior: "auto" });
     });
 
     return () => unsub();
   }, [chatId, myUid]);
 
-  // -------------------- Mark seen when chat is opened / visible --------------------
+  // -------------------- Mark seen --------------------
   useEffect(() => {
     if (!chatId || !myUid || !messages.length) return;
-
     const unseen = messages.filter(
       (m) => m.senderId !== myUid && !(m.seenBy || []).includes(myUid)
     );
-
-    if (!unseen.length) return;
-
-    // mark each message as seen by this user
     unseen.forEach(async (m) => {
       try {
         await updateDoc(doc(db, "chats", chatId, "messages", m.id), {
           seenBy: arrayUnion(myUid),
         });
       } catch (err) {
-        console.error("Failed to mark message seen:", err);
+        console.error(err);
       }
     });
-
-    // update chat lastSeen
     updateDoc(doc(db, "chats", chatId), {
       [`lastSeen.${myUid}`]: serverTimestamp(),
     });
@@ -164,7 +151,7 @@ export default function ChatConversationPage() {
     return () => el.removeEventListener("scroll", onScroll);
   }, []);
 
-  // -------------------- Date helpers (unchanged) --------------------
+  // -------------------- Date helpers --------------------
   const formatDateSeparator = (date) => {
     if (!date) return "";
     const msgDate = new Date(date.toDate?.() || date);
@@ -199,7 +186,7 @@ export default function ChatConversationPage() {
     }
   };
 
-  // -------------------- Send messages (includes deliveredTo & seenBy arrays) --------------------
+  // -------------------- Send messages --------------------
   const sendMessage = async (textMsg = "", files = []) => {
     if (isBlocked) return toast.error("You cannot send messages to this user");
     if (!textMsg && files.length === 0) return;
@@ -211,8 +198,7 @@ export default function ChatConversationPage() {
         // Media messages
         await Promise.all(
           files.map(async (f) => {
-            const type = f.type.startsWith("image/") ? "image" : f.type.startsWith("video/") ? "video" : "file";
-
+            const type = f.type.startsWith("image/") ? "image" : "video";
             const tempId = `temp-${Date.now()}-${Math.random()}`;
             const tempMessage = {
               id: tempId,
@@ -230,19 +216,16 @@ export default function ChatConversationPage() {
             setMessages((prev) => [...prev, tempMessage]);
             endRef.current?.scrollIntoView({ behavior: "smooth" });
 
-            // upload
+            // Upload to Cloudinary
             let mediaUrl = "";
-            if (type !== "file") {
-              const formData = new FormData();
-              formData.append("file", f);
-              formData.append("upload_preset", import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET);
-
-              const res = await axios.post(
-                `https://api.cloudinary.com/v1_1/${import.meta.env.VITE_CLOUDINARY_CLOUD_NAME}/auto/upload`,
-                formData
-              );
-              mediaUrl = res.data.secure_url;
-            }
+            const formData = new FormData();
+            formData.append("file", f);
+            formData.append("upload_preset", import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET);
+            const res = await axios.post(
+              `https://api.cloudinary.com/v1_1/${import.meta.env.VITE_CLOUDINARY_CLOUD_NAME}/auto/upload`,
+              formData
+            );
+            mediaUrl = res.data.secure_url;
 
             const payload = {
               senderId: myUid,
@@ -255,7 +238,6 @@ export default function ChatConversationPage() {
               deliveredTo: [],
               replyTo: replyTo ? { id: replyTo.id, text: replyTo.text, senderId: replyTo.senderId } : null,
             };
-
             const docRef = await addDoc(messagesCol, payload);
             setMessages((prev) =>
               prev.map((m) => (m.id === tempId ? { ...payload, id: docRef.id, status: "sent", createdAt: new Date() } : m))
@@ -301,7 +283,6 @@ export default function ChatConversationPage() {
       toast.error("Failed to send message");
     }
 
-    // Reset states
     setText("");
     setSelectedFiles([]);
     setCaption("");
@@ -309,12 +290,12 @@ export default function ChatConversationPage() {
     setShowPreview(false);
   };
 
-  if (loading) return <div style={{ padding: 20 }}>Loading chat...</div>;
+  if (!chatInfo || !friendInfo) return <div style={{ padding: 20 }}>Loading chat...</div>;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100vh", backgroundColor: wallpaper || (isDark ? "#0b0b0b" : "#f5f5f5"), color: isDark ? "#fff" : "#000", position: "relative" }}>
       <ChatHeader
-        friendId={friendInfo?.id}
+        friendId={friendInfo.id}
         chatId={chatId}
         pinnedMessage={pinnedMessage}
         setBlockedStatus={setIsBlocked}
@@ -365,11 +346,7 @@ export default function ChatConversationPage() {
           caption={caption}
           setCaption={setCaption}
           onRemove={(i) => setSelectedFiles((prev) => prev.filter((_, idx) => idx !== i))}
-          onSend={async () => {
-            await sendMessage(caption, selectedFiles);
-            setShowPreview(false);
-            setCaption("");
-          }}
+          onSend={async () => { await sendMessage(caption, selectedFiles); setShowPreview(false); setCaption(""); }}
           onClose={() => setShowPreview(false)}
           isDark={isDark}
         />
