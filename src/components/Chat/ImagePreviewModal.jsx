@@ -1,15 +1,17 @@
 // src/components/Chat/ImagePreviewModal.jsx
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useRef } from "react";
 
 export default function ImagePreviewModal({
   previews = [], // [{ file, url }]
+  caption: initialCaption = "",
+  setCaption = () => {},
   onRemove = () => {},
   onClose = () => {},
-  onSend = async (caption) => {},
+  onSend = async () => {},
   isDark = false,
+  disabled = false, // disable send while uploading
 }) {
   const [index, setIndex] = useState(0);
-  const [caption, setCaption] = useState("");
   const [sending, setSending] = useState(false);
   const [translateY, setTranslateY] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
@@ -22,6 +24,7 @@ export default function ImagePreviewModal({
   const handleNext = () => setIndex((p) => (p + 1 < previews.length ? p + 1 : p));
   const handlePrev = () => setIndex((p) => (p - 1 >= 0 ? p - 1 : p));
 
+  // Touch swipe to close
   const handleTouchStart = (e) => {
     startY.current = e.touches[0].clientY;
     setIsDragging(true);
@@ -38,11 +41,12 @@ export default function ImagePreviewModal({
   };
 
   const handleSend = async () => {
-    if (sending) return;
+    if (sending || disabled) return;
     setSending(true);
     try {
-      await onSend(caption); // send all files with single caption
-      onClose(); // close modal after send
+      await onSend(initialCaption); // send all files with single caption
+      setCaption(""); // clear caption
+      onClose();
     } catch (err) {
       console.error(err);
       setSending(false);
@@ -144,7 +148,7 @@ export default function ImagePreviewModal({
       {/* Caption Input */}
       <textarea
         placeholder="Add a caption..."
-        value={caption}
+        value={initialCaption}
         onChange={(e) => setCaption(e.target.value)}
         style={{
           marginTop: 12,
@@ -174,20 +178,21 @@ export default function ImagePreviewModal({
         </button>
         <button
           onClick={handleSend}
-          disabled={sending}
+          disabled={sending || disabled}
           style={{
             padding: "8px 16px",
             backgroundColor: isDark ? "#4caf50" : "#1976d2",
             color: "#fff",
             border: "none",
             borderRadius: 4,
-            cursor: sending ? "not-allowed" : "pointer",
+            cursor: sending || disabled ? "not-allowed" : "pointer",
           }}
         >
           {sending ? "Sending..." : "Send"}
         </button>
       </div>
 
+      {/* Index Indicator */}
       {previews.length > 1 && (
         <div style={{ marginTop: 12, color: isDark ? "#fff" : "#000", fontSize: 14 }}>
           {index + 1} / {previews.length}
