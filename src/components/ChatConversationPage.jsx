@@ -1,4 +1,3 @@
-// src/components/ChatConversationPage.jsx
 import React, { useEffect, useState, useRef, useContext } from "react";
 import { useParams } from "react-router-dom";
 import {
@@ -53,8 +52,8 @@ export default function ChatConversationPage() {
   // -------------------- Load chat & friend info --------------------
   useEffect(() => {
     if (!chatId) return;
-    const chatRef = doc(db, "chats", chatId);
 
+    const chatRef = doc(db, "chats", chatId);
     const unsubChat = onSnapshot(chatRef, (snap) => {
       if (!snap.exists()) return;
       const data = snap.data();
@@ -75,8 +74,7 @@ export default function ChatConversationPage() {
       } else setPinnedMessage(null);
 
       // Typing indicator
-      const friendIdForTyping = data.participants?.find((p) => p !== myUid);
-      setFriendTyping(data.typing?.[friendIdForTyping] || false);
+      setFriendTyping(data.typing?.[friendId] || false);
     });
 
     return () => unsubChat();
@@ -85,6 +83,7 @@ export default function ChatConversationPage() {
   // -------------------- Real-time messages --------------------
   useEffect(() => {
     if (!chatId) return;
+
     const messagesRef = collection(db, "chats", chatId, "messages");
     const q = query(messagesRef, orderBy("createdAt", "asc"));
 
@@ -98,50 +97,41 @@ export default function ChatConversationPage() {
       setMessages(docs);
 
       // Mark messages delivered
-      const undelivered = docs.filter(
-        (m) => m.senderId !== myUid && !(m.deliveredTo || []).includes(myUid)
-      );
-      if (undelivered.length) {
-        undelivered.forEach((m) =>
+      docs.forEach((m) => {
+        if (m.senderId !== myUid && !(m.deliveredTo || []).includes(myUid)) {
           updateDoc(doc(db, "chats", chatId, "messages", m.id), {
             deliveredTo: arrayUnion(myUid),
-          })
-        );
-      }
+          });
+        }
+      });
 
       // Auto-scroll
-      if (isAtBottom) {
-        endRef.current?.scrollIntoView({ behavior: "auto" });
-      }
+      if (isAtBottom) endRef.current?.scrollIntoView({ behavior: "auto" });
     });
 
     return () => unsub();
   }, [chatId, myUid, isAtBottom]);
 
-  // -------------------- Mark seen --------------------
+  // -------------------- Mark messages seen --------------------
   useEffect(() => {
-    if (!chatId || !myUid || !messages.length) return;
+    if (!chatId || !myUid || messages.length === 0) return;
 
-    const unseen = messages.filter(
-      (m) => m.senderId !== myUid && !(m.seenBy || []).includes(myUid)
-    );
-
-    if (unseen.length) {
-      unseen.forEach((m) =>
+    messages.forEach((m) => {
+      if (m.senderId !== myUid && !(m.seenBy || []).includes(myUid)) {
         updateDoc(doc(db, "chats", chatId, "messages", m.id), {
           seenBy: arrayUnion(myUid),
-        })
-      );
-      updateDoc(doc(db, "chats", chatId), { [`lastSeen.${myUid}`]: serverTimestamp() });
-    }
+        });
+      }
+    });
+
+    updateDoc(doc(db, "chats", chatId), { [`lastSeen.${myUid}`]: serverTimestamp() });
   }, [messages, chatId, myUid]);
 
   // -------------------- Scroll detection --------------------
   useEffect(() => {
     const el = messagesRefEl.current;
     if (!el) return;
-    const onScroll = () =>
-      setIsAtBottom(el.scrollHeight - el.scrollTop - el.clientHeight < 80);
+    const onScroll = () => setIsAtBottom(el.scrollHeight - el.scrollTop - el.clientHeight < 80);
     el.addEventListener("scroll", onScroll);
     return () => el.removeEventListener("scroll", onScroll);
   }, []);
@@ -167,7 +157,9 @@ export default function ChatConversationPage() {
           reactions: {},
           seenBy: [],
           deliveredTo: [],
-          replyTo: replyTo ? { id: replyTo.id, text: replyTo.text, senderId: replyTo.senderId } : null,
+          replyTo: replyTo
+            ? { id: replyTo.id, text: replyTo.text, senderId: replyTo.senderId }
+            : null,
           status: "sending",
         };
         setMessages((prev) => [...prev, tempMessage]);
@@ -188,7 +180,9 @@ export default function ChatConversationPage() {
         const docRef = await addDoc(messagesCol, payload);
 
         setMessages((prev) =>
-          prev.map((m) => (m.id === tempId ? { ...payload, id: docRef.id, createdAt: new Date() } : m))
+          prev.map((m) =>
+            m.id === tempId ? { ...payload, id: docRef.id, createdAt: new Date() } : m
+          )
         );
       }
 
