@@ -1,10 +1,9 @@
-// src/components/Chat/MessageItem.jsx
 import React, { useState, useRef, useEffect } from "react";
 import LongPressMessageModal from "./LongPressMessageModal";
 
 const READ_MORE_STEP = 450;
-const LONG_PRESS_DELAY = 400; // faster long press
-const SWIPE_TRIGGER_DISTANCE = 60; // swipe distance to trigger reply
+const LONG_PRESS_DELAY = 700;
+const SWIPE_TRIGGER_DISTANCE = 60;
 
 export default function MessageItem({
   message,
@@ -14,7 +13,7 @@ export default function MessageItem({
   setPinnedMessage,
   friendInfo,
   onMediaClick,
-  onReact, // callback for adding reactions
+  registerRef,
 }) {
   const isMine = message.senderId === myUid;
   const containerRef = useRef(null);
@@ -32,7 +31,7 @@ export default function MessageItem({
   const [swipeX, setSwipeX] = useState(0);
   const [swipeTriggered, setSwipeTriggered] = useState(false);
 
-  // -------------------- Long press --------------------
+  // -------------------- Long press handlers --------------------
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -66,17 +65,10 @@ export default function MessageItem({
 
   const handleTouchMove = (e) => {
     const diff = e.touches[0].clientX - swipeStartX.current;
+    setSwipeX(diff);
 
-    // Swipe right for reply
-    if (!isMine && diff > 0) {
-      setSwipeX(Math.min(diff, 120));
-      if (diff > SWIPE_TRIGGER_DISTANCE) setSwipeTriggered(true);
-    }
-
-    // Swipe left for sender
-    if (isMine && diff < 0) {
-      setSwipeX(Math.max(diff, -120));
-      if (Math.abs(diff) > SWIPE_TRIGGER_DISTANCE) setSwipeTriggered(true);
+    if (Math.abs(diff) > SWIPE_TRIGGER_DISTANCE) {
+      setSwipeTriggered(true);
     }
   };
 
@@ -93,15 +85,15 @@ export default function MessageItem({
     if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
   };
 
-  // -------------------- Delivered / Seen --------------------
+  // -------------------- Status --------------------
   const renderStatus = () => {
     if (!isMine) return null;
-    const totalParticipants = message.totalParticipants || 2;
-    const deliveredCount = message.deliveredTo?.length || 0;
-    const seenCount = message.seenBy?.length || 0;
-    if (seenCount >= totalParticipants - 1) return "✔✔"; // seen
-    if (deliveredCount >= totalParticipants - 1) return "✔✔"; // delivered
-    return "✔"; // sent
+    const total = message.totalParticipants || 2;
+    const delivered = message.deliveredTo?.length || 0;
+    const seen = message.seenBy?.length || 0;
+    if (seen >= total - 1) return "✔✔";
+    if (delivered >= total - 1) return "✔✔";
+    return "✔";
   };
 
   // -------------------- Bubble styles --------------------
@@ -121,8 +113,8 @@ export default function MessageItem({
 
   const replyArrowStyle = {
     position: "absolute",
-    left: isMine ? "auto" : -30,
-    right: isMine ? -30 : "auto",
+    left: isMine ? undefined : -30,
+    right: isMine ? -30 : undefined,
     top: "50%",
     transform: "translateY(-50%)",
     fontSize: 18,
@@ -135,16 +127,16 @@ export default function MessageItem({
     <>
       <div
         id={message.id}
-        ref={containerRef}
+        ref={(el) => { containerRef.current = el; registerRef?.(el); }}
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
         style={bubbleStyle}
       >
-        {/* Swipe reply indicator */}
+        {/* Swipe arrow */}
         <span style={replyArrowStyle}>↪</span>
 
-        {/* Reply Preview */}
+        {/* Reply preview */}
         {message.replyTo && (
           <div
             onClick={scrollToOriginal}
@@ -192,21 +184,24 @@ export default function MessageItem({
           (message.mediaType === "image" ? (
             <img
               src={message.mediaUrl}
-              onClick={() => onMediaClick?.(message)}
               alt="media"
               style={{ width: "100%", marginTop: 8, borderRadius: 10, cursor: "pointer" }}
+              onClick={() => onMediaClick?.(message)}
             />
           ) : (
-            <video src={message.mediaUrl} controls style={{ width: "100%", marginTop: 8, borderRadius: 10 }} />
+            <video
+              src={message.mediaUrl}
+              controls
+              style={{ width: "100%", marginTop: 8, borderRadius: 10 }}
+            />
           ))}
 
         {/* Reactions */}
-        <div style={{ marginTop: 4, display: "flex", gap: 4, flexWrap: "wrap" }}>
-          {message.reactions &&
-            Object.entries(message.reactions).map(([emoji, users]) => (
+        {message.reactions && Object.keys(message.reactions).length > 0 && (
+          <div style={{ marginTop: 4, display: "flex", gap: 4, flexWrap: "wrap" }}>
+            {Object.entries(message.reactions).map(([emoji, users]) => (
               <span
                 key={emoji}
-                onClick={() => onReact?.(emoji)}
                 style={{
                   fontSize: 14,
                   padding: "2px 6px",
@@ -216,13 +211,13 @@ export default function MessageItem({
                   display: "flex",
                   alignItems: "center",
                   gap: 2,
-                  cursor: "pointer",
                 }}
               >
                 {emoji} {users.length > 1 ? users.length : ""}
               </span>
             ))}
-        </div>
+          </div>
+        )}
 
         {/* Status */}
         {isMine && (
@@ -232,7 +227,7 @@ export default function MessageItem({
         )}
       </div>
 
-      {/* Long Press Modal */}
+      {/* Long press modal */}
       {showLongPress && (
         <LongPressMessageModal
           isDark={isDark}
