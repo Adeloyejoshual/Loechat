@@ -4,7 +4,7 @@ import LongPressMessageModal from "./LongPressMessageModal";
 
 const READ_MORE_STEP = 450;
 const LONG_PRESS_DELAY = 500;
-const SWIPE_TRIGGER_DISTANCE = -70;
+const SWIPE_TRIGGER_DISTANCE = 60; // swipe right distance to trigger reply
 
 export default function MessageItem({
   message,
@@ -29,9 +29,9 @@ export default function MessageItem({
   // -------------------- Swipe --------------------
   const swipeStartX = useRef(0);
   const [swipeX, setSwipeX] = useState(0);
-  const swipeTimer = useRef(null);
+  const [swipeTriggered, setSwipeTriggered] = useState(false);
 
-  // -------------------- Events --------------------
+  // -------------------- Long press events --------------------
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -51,28 +51,33 @@ export default function MessageItem({
       cancelPress();
       el.removeEventListener("mousedown", startPress);
       el.removeEventListener("mouseup", cancelPress);
-      el.removeEventListener("mouseleave", cancelPress);
+      el.removeEventListener("mouseleave", startPress);
       el.removeEventListener("touchstart", startPress);
       el.removeEventListener("touchend", cancelPress);
     };
   }, []);
 
+  // -------------------- Swipe handlers --------------------
   const handleTouchStart = (e) => {
     swipeStartX.current = e.touches[0].clientX;
-    swipeTimer.current = setTimeout(() => {}, 500);
+    setSwipeTriggered(false);
   };
 
   const handleTouchMove = (e) => {
     const diff = e.touches[0].clientX - swipeStartX.current;
-    if (diff < 0) setSwipeX(diff);
+    if (!isMine && diff > 0) {
+      setSwipeX(diff > 120 ? 120 : diff); // max swipe distance
+      if (diff > SWIPE_TRIGGER_DISTANCE) setSwipeTriggered(true);
+    }
   };
 
   const handleTouchEnd = () => {
-    clearTimeout(swipeTimer.current);
-    if (swipeX < SWIPE_TRIGGER_DISTANCE) setReplyTo(message);
+    if (!isMine && swipeTriggered) setReplyTo(message);
     setSwipeX(0);
+    setSwipeTriggered(false);
   };
 
+  // -------------------- Scroll to original --------------------
   const scrollToOriginal = () => {
     if (!message.replyTo?.id) return;
     const el = document.getElementById(message.replyTo.id);
@@ -82,33 +87,38 @@ export default function MessageItem({
   // -------------------- Delivered / Seen --------------------
   const renderStatus = () => {
     if (!isMine) return null;
-
-    const totalParticipants = message.totalParticipants || 2; // default 2
+    const totalParticipants = message.totalParticipants || 2;
     const deliveredCount = message.deliveredTo?.length || 0;
     const seenCount = message.seenBy?.length || 0;
-
-    if (seenCount >= totalParticipants - 1) {
-      return "✔✔"; // seen (blue)
-    } else if (deliveredCount >= totalParticipants - 1) {
-      return "✔✔"; // delivered (gray)
-    } else {
-      return "✔"; // sent
-    }
+    if (seenCount >= totalParticipants - 1) return "✔✔"; // seen
+    if (deliveredCount >= totalParticipants - 1) return "✔✔"; // delivered
+    return "✔"; // sent
   };
 
-  // -------------------- Styles --------------------
+  // -------------------- Bubble styles --------------------
   const bubbleStyle = {
     alignSelf: isMine ? "flex-end" : "flex-start",
     maxWidth: "75%",
     margin: "6px 0",
     padding: 10,
     borderRadius: 14,
-    backgroundColor: isMine ? (isDark ? "#1976d2" : "#d0e7ff") : isDark ? "#2a2a2a" : "#fff",
+    backgroundColor: isMine ? "#007bff" : isDark ? "#2a2a2a" : "#fff",
     color: isMine ? "#fff" : isDark ? "#fff" : "#000",
     transform: `translateX(${swipeX}px)`,
     transition: swipeX ? "none" : "transform 0.2s ease",
     wordBreak: "break-word",
     position: "relative",
+  };
+
+  const replyArrowStyle = {
+    position: "absolute",
+    left: -30,
+    top: "50%",
+    transform: "translateY(-50%)",
+    fontSize: 18,
+    opacity: swipeTriggered ? 1 : 0.4,
+    color: "#4caf50",
+    transition: "opacity 0.2s",
   };
 
   return (
@@ -121,6 +131,9 @@ export default function MessageItem({
         onTouchEnd={handleTouchEnd}
         style={bubbleStyle}
       >
+        {/* Swipe reply indicator */}
+        {!isMine && <span style={replyArrowStyle}>↪</span>}
+
         {/* Reply Preview */}
         {message.replyTo && (
           <div
@@ -132,7 +145,7 @@ export default function MessageItem({
               gap: 6,
               fontSize: 12,
               opacity: 0.8,
-              borderLeft: "3px solid #4caf50",
+              borderLeft: `3px solid ${isMine ? "#0056b3" : "#4caf50"}`,
               paddingLeft: 6,
               marginBottom: 6,
             }}
@@ -181,7 +194,19 @@ export default function MessageItem({
         {message.reactions && Object.keys(message.reactions).length > 0 && (
           <div style={{ marginTop: 4, display: "flex", gap: 4, flexWrap: "wrap" }}>
             {Object.entries(message.reactions).map(([emoji, users]) => (
-              <span key={emoji} style={{ fontSize: 14 }}>
+              <span
+                key={emoji}
+                style={{
+                  fontSize: 14,
+                  padding: "2px 6px",
+                  borderRadius: 12,
+                  background: isMine ? "rgba(255,255,255,0.2)" : "#eee",
+                  color: isMine ? "#fff" : "#000",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 2,
+                }}
+              >
                 {emoji} {users.length > 1 ? users.length : ""}
               </span>
             ))}
