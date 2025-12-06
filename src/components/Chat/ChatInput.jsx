@@ -2,8 +2,6 @@
 import React, { useState, useRef, useEffect } from "react";
 import { Paperclip, Send, X } from "lucide-react";
 import ImagePreviewModal from "./ImagePreviewModal";
-import { addDoc, collection, doc, updateDoc, serverTimestamp } from "firebase/firestore";
-import { db, auth } from "../../firebaseConfig";
 
 export default function ChatInput({
   text,
@@ -13,15 +11,13 @@ export default function ChatInput({
   isDark,
   replyTo,
   setReplyTo,
-  addMessages,
-  uploadFiles,
-  chatId,
+  sendTextMessage,  // from ChatConversationPage
+  sendMediaMessage, // from ChatConversationPage
+  setShowPreview,
+  disabled,
 }) {
   const fileInputRef = useRef(null);
   const textareaRef = useRef(null);
-  const [showPreview, setShowPreview] = useState(false);
-  const typingTimeout = useRef(null);
-  const myUid = auth.currentUser?.uid;
 
   // -----------------------------
   // FILE SELECTION
@@ -46,88 +42,16 @@ export default function ChatInput({
   const handleAddMoreFiles = () => fileInputRef.current.click();
 
   // -----------------------------
-  // TYPING INDICATOR
-  // -----------------------------
-  const handleTyping = async (value) => {
-    setText(value);
-
-    if (!chatId || !myUid) return;
-    const chatRef = doc(db, "chats", chatId);
-    await updateDoc(chatRef, { [`typing.${myUid}`]: true });
-
-    clearTimeout(typingTimeout.current);
-    typingTimeout.current = setTimeout(async () => {
-      await updateDoc(chatRef, { [`typing.${myUid}`]: false });
-    }, 1200);
-  };
-
-  // -----------------------------
-  // SEND TEXT
-  // -----------------------------
-  const handleSendText = async () => {
-    if (!text.trim()) return;
-
-    const tempId = `temp-text-${Date.now()}`;
-    const tempMessage = {
-      id: tempId,
-      text: text.trim(),
-      createdAt: new Date(),
-      senderId: myUid,
-      status: "sending",
-      replyTo: replyTo ? replyTo.id : null,
-    };
-
-    addMessages([tempMessage]);
-    setText("");
-    setReplyTo(null);
-
-    try {
-      const docRef = await addDoc(collection(db, "chats", chatId, "messages"), {
-        text: tempMessage.text,
-        createdAt: serverTimestamp(),
-        senderId: myUid,
-        status: "sent",
-        replyTo: replyTo ? replyTo.id : null,
-        seenBy: [myUid],
-      });
-
-      addMessages([{ ...tempMessage, id: docRef.id, status: "sent" }], tempId);
-    } catch (err) {
-      console.error("Text send failed:", err);
-    }
-  };
-
-  // -----------------------------
-  // SEND FILES
-  // -----------------------------
-  const handleSendFiles = async () => {
-    if (!selectedFiles.length) return;
-
-    setSelectedFiles([]);
-    setShowPreview(false);
-    setText("");
-    setReplyTo(null);
-
-    for (const file of selectedFiles) {
-      try {
-        await uploadFiles(file, replyTo);
-      } catch (err) {
-        console.error("Upload failed", err);
-      }
-    }
-  };
-
-  // -----------------------------
   // MAIN SEND HANDLER
   // -----------------------------
   const handleSend = () => {
-    if (selectedFiles.length > 0) handleSendFiles();
-    else handleSendText();
+    if (disabled) return;
+    if (selectedFiles.length > 0) sendMediaMessage(selectedFiles);
+    else if (text.trim()) sendTextMessage();
   };
 
   // -----------------------------
-  // ENTER = NEW LINE | SHIFT+ENTER = NEW LINE
-  // Send is only via button now
+  // ENTER = NEW LINE, SHIFT+ENTER = NEW LINE
   // -----------------------------
   const handleKeyDown = (e) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -142,16 +66,6 @@ export default function ChatInput({
       }, 0);
     }
   };
-
-  // -----------------------------
-  // CLEAR TYPING ON UNMOUNT
-  // -----------------------------
-  useEffect(() => {
-    return async () => {
-      if (!chatId || !myUid) return;
-      await updateDoc(doc(db, "chats", chatId), { [`typing.${myUid}`]: false });
-    };
-  }, [chatId, myUid]);
 
   return (
     <>
@@ -206,7 +120,14 @@ export default function ChatInput({
           zIndex: 25,
         }}
       >
-        <input type="file" multiple hidden ref={fileInputRef} onChange={handleFileChange} accept="image/*,video/*" />
+        <input
+          type="file"
+          multiple
+          hidden
+          ref={fileInputRef}
+          onChange={handleFileChange}
+          accept="image/*,video/*"
+        />
 
         <button onClick={() => fileInputRef.current.click()} style={{ background: "transparent", border: "none" }}>
           <Paperclip size={22} />
@@ -215,13 +136,7 @@ export default function ChatInput({
         <textarea
           ref={textareaRef}
           value={text}
-          onChange={(e) => {
-            handleTyping(e.target.value);
-
-            // Auto resize textarea
-            textareaRef.current.style.height = "auto";
-            textareaRef.current.style.height = textareaRef.current.scrollHeight + "px";
-          }}
+          onChange={(e) => setText(e.target.value)}
           placeholder="Type a message..."
           rows={1}
           onKeyDown={handleKeyDown}
@@ -239,19 +154,18 @@ export default function ChatInput({
           }}
         />
 
-        <button onClick={handleSend} style={{ background: "transparent", border: "none" }}>
+        <button onClick={handleSend} style={{ background: "transparent", border: "none" }} disabled={disabled}>
           <Send size={22} />
         </button>
       </div>
 
       {/* MEDIA PREVIEW */}
-      {showPreview && selectedFiles.length > 0 && (
+      {selectedFiles.length > 0 && (
         <ImagePreviewModal
-          previews={selectedFiles.map((file) => ({ file, url: URL.createObjectURL(file) }))}
-          currentIndex={0}
+          files={selectedFiles}
           onRemove={handleRemoveFile}
           onClose={handleCancelPreview}
-          onSend={handleSendFiles}
+          onSend={() => sendMediaMessage(selectedFiles)}
           onAddFiles={handleAddMoreFiles}
           isDark={isDark}
         />
