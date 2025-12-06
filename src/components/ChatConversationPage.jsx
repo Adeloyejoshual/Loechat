@@ -1,4 +1,5 @@
-// src/components/Chat/ChatConversationPage.jsx
+
+// src/components/ChatConversationPage.jsx
 import React, { useEffect, useState, useRef, useContext } from "react";
 import { useParams } from "react-router-dom";
 import {
@@ -38,7 +39,7 @@ export default function ChatConversationPage() {
   const [messages, setMessages] = useState([]);
   const [text, setText] = useState("");
   const [selectedFiles, setSelectedFiles] = useState([]);
-  const [caption, setCaption] = useState(""); // caption for media
+  const [caption, setCaption] = useState("");
   const [replyTo, setReplyTo] = useState(null);
   const [pinnedMessage, setPinnedMessage] = useState(null);
   const [isAtBottom, setIsAtBottom] = useState(true);
@@ -59,7 +60,6 @@ export default function ChatConversationPage() {
       setChatInfo({ id: snap.id, ...data });
       setIsBlocked(data.blocked || false);
 
-      // Friend info
       const friendId = data.participants?.find((p) => p !== myUid);
       if (friendId) {
         const userRef = doc(db, "users", friendId);
@@ -67,7 +67,6 @@ export default function ChatConversationPage() {
         unsubFriend = onSnapshot(userRef, (s) => s.exists() && setFriendInfo({ id: s.id, ...s.data() }));
       }
 
-      // Pinned message
       if (data.pinnedMessageId) {
         const pinnedRef = doc(db, "chats", chatId, "messages", data.pinnedMessageId);
         unsubPinned?.();
@@ -142,14 +141,14 @@ export default function ChatConversationPage() {
     if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
   };
 
-  // -------------------- Send messages (text + media + caption) --------------------
-  const sendMessage = async (textMsg = "", files = [], captionText = "") => {
+  // -------------------- Send messages (text + media) --------------------
+  const sendMessage = async (textMsg = "", files = []) => {
     if (isBlocked) return toast.error("You cannot send messages to this user");
     if (!textMsg && files.length === 0) return;
 
     const messagesCol = collection(db, "chats", chatId, "messages");
 
-    // ----- Media files first -----
+    // ----- Media messages -----
     if (files.length > 0) {
       await Promise.all(
         files.map(async (f) => {
@@ -160,8 +159,7 @@ export default function ChatConversationPage() {
           const tempMessage = {
             id: tempId,
             senderId: myUid,
-            text: f.name,
-            caption: captionText, // save caption
+            text: textMsg || "", // use caption here
             mediaUrl: URL.createObjectURL(f),
             mediaType: type,
             createdAt: new Date(),
@@ -189,8 +187,7 @@ export default function ChatConversationPage() {
 
             const payload = {
               senderId: myUid,
-              text: f.name,
-              caption: captionText,
+              text: textMsg || "", // use caption
               mediaUrl,
               mediaType: type,
               createdAt: serverTimestamp(),
@@ -207,7 +204,7 @@ export default function ChatConversationPage() {
             console.error(err);
             toast.error(`Failed to send ${f.name}`);
             setMessages((prev) =>
-              prev.map((m) => m.id === tempId ? { ...m, status: "failed" } : m)
+              prev.map((m) => (m.id === tempId ? { ...m, status: "failed" } : m))
             );
           }
         })
@@ -215,13 +212,12 @@ export default function ChatConversationPage() {
     }
 
     // ----- Text message -----
-    if (textMsg.trim()) {
+    if (textMsg.trim() && files.length === 0) {
       const tempId = `temp-${Date.now()}-${Math.random()}`;
       const tempMessage = {
         id: tempId,
         senderId: myUid,
         text: textMsg.trim(),
-        caption: "", // optional caption for text-only messages
         mediaUrl: "",
         mediaType: null,
         createdAt: new Date(),
@@ -237,7 +233,7 @@ export default function ChatConversationPage() {
         const payload = { ...tempMessage, createdAt: serverTimestamp(), status: "sent" };
         const docRef = await addDoc(messagesCol, payload);
         setMessages((prev) =>
-          prev.map((m) => m.id === tempId ? { ...payload, id: docRef.id, createdAt: new Date() } : m)
+          prev.map((m) => (m.id === tempId ? { ...payload, id: docRef.id, createdAt: new Date() } : m))
         );
       } catch (err) {
         console.error(err);
@@ -263,24 +259,15 @@ export default function ChatConversationPage() {
 
     setText("");
     setSelectedFiles([]);
-    setCaption("");
+    setCaption(""); // clear caption
     setReplyTo(null);
-    setShowPreview(false);
+    setShowPreview(false); // close modal
   };
 
   if (loading) return <div style={{ padding: 20 }}>Loading chat...</div>;
 
   return (
-    <div
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        height: "100vh",
-        backgroundColor: wallpaper || (isDark ? "#0b0b0b" : "#f5f5f5"),
-        color: isDark ? "#fff" : "#000",
-        position: "relative",
-      }}
-    >
+    <div style={{ display: "flex", flexDirection: "column", height: "100vh", backgroundColor: wallpaper || (isDark ? "#0b0b0b" : "#f5f5f5"), color: isDark ? "#fff" : "#000", position: "relative" }}>
       <ChatHeader
         friendId={friendInfo?.id}
         chatId={chatId}
@@ -320,12 +307,10 @@ export default function ChatConversationPage() {
       <ChatInput
         text={text}
         setText={setText}
-        sendTextMessage={() => sendMessage(text, selectedFiles, caption)}
-        sendMediaMessage={(files) => sendMessage("", files, caption)}
+        sendTextMessage={() => sendMessage(text, selectedFiles)}
+        sendMediaMessage={(files) => sendMessage(caption, files)}
         selectedFiles={selectedFiles}
         setSelectedFiles={setSelectedFiles}
-        caption={caption}
-        setCaption={setCaption}
         isDark={isDark}
         setShowPreview={setShowPreview}
         replyTo={replyTo}
@@ -339,7 +324,11 @@ export default function ChatConversationPage() {
           caption={caption}
           setCaption={setCaption}
           onRemove={(i) => setSelectedFiles((prev) => prev.filter((_, idx) => idx !== i))}
-          onSend={() => sendMessage("", selectedFiles, caption)}
+          onSend={async () => {
+            await sendMessage(caption, selectedFiles);
+            setShowPreview(false);
+            setCaption("");
+          }}
           onClose={() => setShowPreview(false)}
           isDark={isDark}
         />
