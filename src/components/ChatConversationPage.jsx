@@ -1,4 +1,4 @@
-// src/components/ChatConversationPage.jsx
+// src/components/Chat/ChatConversationPage.jsx
 import React, { useEffect, useState, useRef, useContext } from "react";
 import { useParams } from "react-router-dom";
 import {
@@ -96,7 +96,7 @@ export default function ChatConversationPage() {
       const docs = snap.docs.map((d) => ({
         id: d.id,
         ...d.data(),
-        createdAt: d.data().createdAt?.toDate ? d.data().createdAt.toDate() : new Date(),
+        createdAt: d.data().createdAt?.toDate?.() || new Date(),
         status: "sent",
       }));
       setMessages(docs);
@@ -116,7 +116,7 @@ export default function ChatConversationPage() {
     return () => el.removeEventListener("scroll", onScroll);
   }, []);
 
-  // -------------------- Date helpers --------------------
+  // -------------------- Format dates --------------------
   const formatDateSeparator = (date) => {
     if (!date) return "";
     const msgDate = new Date(date.toDate?.() || date);
@@ -141,11 +141,6 @@ export default function ChatConversationPage() {
     return acc;
   }, []);
 
-  const scrollToMessage = (id) => {
-    const el = document.getElementById(id);
-    if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
-  };
-
   // -------------------- Send messages --------------------
   const sendMessage = async (textMsg = "", files = []) => {
     if (isBlocked) return toast.error("You cannot send messages to this user");
@@ -153,12 +148,8 @@ export default function ChatConversationPage() {
 
     const messagesCol = collection(db, "chats", chatId, "messages");
 
-    // Disable further clicks while sending
-    let sending = true;
-
     try {
       if (files.length > 0) {
-        // Media messages
         await Promise.all(
           files.map(async (f) => {
             const type = f.type.startsWith("image/")
@@ -185,6 +176,7 @@ export default function ChatConversationPage() {
             setMessages((prev) => [...prev, tempMessage]);
             endRef.current?.scrollIntoView({ behavior: "smooth" });
 
+            // Upload to Cloudinary
             let mediaUrl = "";
             if (type !== "file") {
               const formData = new FormData();
@@ -225,7 +217,6 @@ export default function ChatConversationPage() {
           })
         );
       } else if (textMsg.trim()) {
-        // Text-only message
         const tempId = `temp-${Date.now()}-${Math.random()}`;
         const tempMessage = {
           id: tempId,
@@ -253,7 +244,7 @@ export default function ChatConversationPage() {
         );
       }
 
-      // Update chat last message
+      // Update last message info
       const chatRef = doc(db, "chats", chatId);
       await updateDoc(chatRef, {
         lastMessage: textMsg || files[0]?.name,
@@ -266,13 +257,12 @@ export default function ChatConversationPage() {
       toast.error("Failed to send message");
     }
 
-    // Clear states
+    // Reset states
     setText("");
     setSelectedFiles([]);
     setCaption("");
     setReplyTo(null);
     setShowPreview(false);
-    sending = false;
   };
 
   if (loading) return <div style={{ padding: 20 }}>Loading chat...</div>;
@@ -293,15 +283,6 @@ export default function ChatConversationPage() {
         chatId={chatId}
         pinnedMessage={pinnedMessage}
         setBlockedStatus={setIsBlocked}
-        onClearChat={async () => {
-          if (!window.confirm("Clear this chat?")) return;
-          await Promise.all(
-            messages.map((m) =>
-              updateDoc(doc(db, "chats", chatId, "messages", m.id), { deleted: true })
-            )
-          );
-          toast.success("Chat cleared");
-        }}
       />
 
       <div
@@ -312,7 +293,12 @@ export default function ChatConversationPage() {
           item.type === "date-separator" ? (
             <div
               key={item.key}
-              style={{ textAlign: "center", margin: "10px 0", fontSize: 12, color: isDark ? "#aaa" : "#555" }}
+              style={{
+                textAlign: "center",
+                margin: "10px 0",
+                fontSize: 12,
+                color: isDark ? "#aaa" : "#555",
+              }}
             >
               {item.date}
             </div>
@@ -322,12 +308,9 @@ export default function ChatConversationPage() {
               message={item.data}
               myUid={myUid}
               isDark={isDark}
-              chatId={chatId}
               setReplyTo={setReplyTo}
               pinnedMessage={pinnedMessage}
               setPinnedMessage={setPinnedMessage}
-              friendInfo={friendInfo}
-              onOpenMediaViewer={() => {}}
             />
           )
         )}
