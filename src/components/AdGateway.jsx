@@ -6,10 +6,10 @@ export const useAd = () => useContext(AdContext);
 
 export default function AdGateway({ children }) {
   const [adVisible, setAdVisible] = useState(false);
-  const [adDuration, setAdDuration] = useState(15); // default 15 seconds
+  const [adDuration, setAdDuration] = useState(15);
   const [timeLeft, setTimeLeft] = useState(0);
   const [onComplete, setOnComplete] = useState(null);
-  const [zoneId, setZoneId] = useState(10287794); // Default zone (Popunder)
+  const [zoneId, setZoneId] = useState(10287794); // default rewarded Popunder
 
   // -----------------------------
   // Load Monetag Script Once
@@ -20,8 +20,38 @@ export default function AdGateway({ children }) {
       script.src = "https://3nbf4.com/act/files/multitag.min.js";
       script.async = true;
       document.body.appendChild(script);
+      script.onload = () => {
+        console.log("Monetag script loaded");
+        // Automatically render passive ad zones
+        renderPassiveZones();
+      };
+    } else {
+      renderPassiveZones();
     }
   }, []);
+
+  // -----------------------------
+  // Render Passive Ad Zones
+  // -----------------------------
+  const passiveZones = [
+    { id: 10287795, container: "monetag-inline-wallet" }, // In-Page Push / Banner
+    { id: 10287798, container: "monetag-push-notif" },   // Push Notifications
+    { id: 10287797, container: "monetag-vignette-home" }, // Vignette Banner
+  ];
+
+  const renderPassiveZones = () => {
+    if (!window.Monetag) return;
+    passiveZones.forEach((zone) => {
+      const container = document.getElementById(zone.container);
+      if (container) {
+        try {
+          window.Monetag.loadZone({ zoneId: zone.id, container: zone.container });
+        } catch (err) {
+          console.error(`Failed to load Monetag passive zone ${zone.id}:`, err);
+        }
+      }
+    });
+  };
 
   // -----------------------------
   // Rewarded Timer Logic
@@ -38,17 +68,14 @@ export default function AdGateway({ children }) {
   }, [adVisible, timeLeft, onComplete]);
 
   // -----------------------------
-  // Load Monetag Ad When Visible
+  // Load Rewarded Ad When Visible
   // -----------------------------
   useEffect(() => {
     if (adVisible && window.Monetag) {
       try {
-        window.Monetag.loadZone({
-          zoneId: zoneId,
-          container: "monetag-ad-container",
-        });
+        window.Monetag.loadZone({ zoneId: zoneId, container: "monetag-ad-container" });
       } catch (err) {
-        console.error("Failed to load Monetag ad:", err);
+        console.error("Failed to load rewarded Monetag ad:", err);
       }
     }
   }, [adVisible, zoneId]);
@@ -80,6 +107,7 @@ export default function AdGateway({ children }) {
     <AdContext.Provider value={{ showRewarded }}>
       {children}
 
+      {/* Rewarded Ad Modal */}
       {adVisible && (
         <div
           style={{
@@ -111,7 +139,7 @@ export default function AdGateway({ children }) {
             <h2>Advertisement</h2>
             <p>Watch this ad to claim your reward!</p>
 
-            {/* Monetag Multitag Container */}
+            {/* Rewarded ad container */}
             <div
               id="monetag-ad-container"
               data-zone={zoneId}
@@ -150,6 +178,11 @@ export default function AdGateway({ children }) {
           </div>
         </div>
       )}
+
+      {/* Passive ad containers anywhere in your pages */}
+      <div id="monetag-inline-wallet" style={{ display: "none" }}></div>
+      <div id="monetag-push-notif" style={{ display: "none" }}></div>
+      <div id="monetag-vignette-home" style={{ display: "none" }}></div>
     </AdContext.Provider>
   );
 }
