@@ -3,8 +3,8 @@ import React, { useState, useRef, useEffect } from "react";
 import LongPressMessageModal from "./LongPressMessageModal";
 
 const READ_MORE_STEP = 450;
-const LONG_PRESS_DELAY = 500;
-const SWIPE_TRIGGER_DISTANCE = 60; // swipe right distance to trigger reply
+const LONG_PRESS_DELAY = 400; // faster long press
+const SWIPE_TRIGGER_DISTANCE = 60; // swipe distance to trigger reply
 
 export default function MessageItem({
   message,
@@ -14,6 +14,7 @@ export default function MessageItem({
   setPinnedMessage,
   friendInfo,
   onMediaClick,
+  onReact, // callback for adding reactions
 }) {
   const isMine = message.senderId === myUid;
   const containerRef = useRef(null);
@@ -31,7 +32,7 @@ export default function MessageItem({
   const [swipeX, setSwipeX] = useState(0);
   const [swipeTriggered, setSwipeTriggered] = useState(false);
 
-  // -------------------- Long press events --------------------
+  // -------------------- Long press --------------------
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -51,7 +52,7 @@ export default function MessageItem({
       cancelPress();
       el.removeEventListener("mousedown", startPress);
       el.removeEventListener("mouseup", cancelPress);
-      el.removeEventListener("mouseleave", startPress);
+      el.removeEventListener("mouseleave", cancelPress);
       el.removeEventListener("touchstart", startPress);
       el.removeEventListener("touchend", cancelPress);
     };
@@ -65,14 +66,22 @@ export default function MessageItem({
 
   const handleTouchMove = (e) => {
     const diff = e.touches[0].clientX - swipeStartX.current;
+
+    // Swipe right for reply
     if (!isMine && diff > 0) {
-      setSwipeX(diff > 120 ? 120 : diff); // max swipe distance
+      setSwipeX(Math.min(diff, 120));
       if (diff > SWIPE_TRIGGER_DISTANCE) setSwipeTriggered(true);
+    }
+
+    // Swipe left for sender
+    if (isMine && diff < 0) {
+      setSwipeX(Math.max(diff, -120));
+      if (Math.abs(diff) > SWIPE_TRIGGER_DISTANCE) setSwipeTriggered(true);
     }
   };
 
   const handleTouchEnd = () => {
-    if (!isMine && swipeTriggered) setReplyTo(message);
+    if (swipeTriggered) setReplyTo(message);
     setSwipeX(0);
     setSwipeTriggered(false);
   };
@@ -112,7 +121,8 @@ export default function MessageItem({
 
   const replyArrowStyle = {
     position: "absolute",
-    left: -30,
+    left: isMine ? "auto" : -30,
+    right: isMine ? -30 : "auto",
     top: "50%",
     transform: "translateY(-50%)",
     fontSize: 18,
@@ -132,7 +142,7 @@ export default function MessageItem({
         style={bubbleStyle}
       >
         {/* Swipe reply indicator */}
-        {!isMine && <span style={replyArrowStyle}>↪</span>}
+        <span style={replyArrowStyle}>↪</span>
 
         {/* Reply Preview */}
         {message.replyTo && (
@@ -191,11 +201,12 @@ export default function MessageItem({
           ))}
 
         {/* Reactions */}
-        {message.reactions && Object.keys(message.reactions).length > 0 && (
-          <div style={{ marginTop: 4, display: "flex", gap: 4, flexWrap: "wrap" }}>
-            {Object.entries(message.reactions).map(([emoji, users]) => (
+        <div style={{ marginTop: 4, display: "flex", gap: 4, flexWrap: "wrap" }}>
+          {message.reactions &&
+            Object.entries(message.reactions).map(([emoji, users]) => (
               <span
                 key={emoji}
+                onClick={() => onReact?.(emoji)}
                 style={{
                   fontSize: 14,
                   padding: "2px 6px",
@@ -205,13 +216,13 @@ export default function MessageItem({
                   display: "flex",
                   alignItems: "center",
                   gap: 2,
+                  cursor: "pointer",
                 }}
               >
                 {emoji} {users.length > 1 ? users.length : ""}
               </span>
             ))}
-          </div>
-        )}
+        </div>
 
         {/* Status */}
         {isMine && (
