@@ -22,7 +22,7 @@ export default function ChatHeader({
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef(null);
 
-  // ✅ FRIEND INFO
+  // -------------------- Load Friend Info --------------------
   useEffect(() => {
     if (!friendId) return;
     return onSnapshot(doc(db, "users", friendId), (snap) => {
@@ -30,53 +30,47 @@ export default function ChatHeader({
     });
   }, [friendId]);
 
-  // ✅ CHAT INFO
+  // -------------------- Load Chat Info --------------------
   useEffect(() => {
     if (!chatId) return;
     return onSnapshot(doc(db, "chats", chatId), (snap) => {
-      if (!snap.exists()) return;
-      const data = snap.data();
-      setChatInfo(data);
-      setBlockedStatus?.(data.blocked);
+      if (snap.exists()) {
+        const data = snap.data();
+        setChatInfo(data);
+        setBlockedStatus?.(data.blocked);
+      }
     });
   }, [chatId, setBlockedStatus]);
 
-  // ✅ CLOSE MENU ON OUTSIDE CLICK
+  // -------------------- Close Menu on Outside Click --------------------
   useEffect(() => {
     const close = (e) => {
-      if (menuRef.current && !menuRef.current.contains(e.target)) {
-        setMenuOpen(false);
-      }
+      if (menuRef.current && !menuRef.current.contains(e.target)) setMenuOpen(false);
     };
     document.addEventListener("mousedown", close);
     return () => document.removeEventListener("mousedown", close);
   }, []);
 
-  // ✅ BLOCK USER
+  // -------------------- Block & Mute --------------------
   const toggleBlock = async () => {
-    if (!chatInfo || !chatId) return;
-
+    if (!chatInfo) return;
     const newBlocked = !chatInfo.blocked;
     await updateDoc(doc(db, "chats", chatId), { blocked: newBlocked });
-
-    setChatInfo((prev) => ({ ...prev, blocked: newBlocked }));
+    setChatInfo((p) => ({ ...p, blocked: newBlocked }));
     setBlockedStatus?.(newBlocked);
     setMenuOpen(false);
   };
 
-  // ✅ MUTE USER
   const toggleMute = async () => {
-    if (!chatInfo || !chatId) return;
-
-    const isMuted = chatInfo.mutedUntil > Date.now();
+    if (!chatInfo) return;
+    const isMuted = chatInfo.mutedUntil && chatInfo.mutedUntil > Date.now();
     const mutedUntil = isMuted ? 0 : Date.now() + 24 * 60 * 60 * 1000;
-
     await updateDoc(doc(db, "chats", chatId), { mutedUntil });
-    setChatInfo((prev) => ({ ...prev, mutedUntil }));
+    setChatInfo((p) => ({ ...p, mutedUntil }));
     setMenuOpen(false);
   };
 
-  // ✅ UTILITIES
+  // -------------------- Utilities --------------------
   const getInitials = (name) => {
     if (!name) return "U";
     const parts = name.trim().split(" ");
@@ -86,31 +80,30 @@ export default function ChatHeader({
   };
 
   const formatLastSeen = (timestamp) => {
-    if (!timestamp) return "Offline";
-
+    if (!timestamp) return "offline";
     const last = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
-    const diff = Date.now() - last.getTime();
-
-    if (diff < 60_000) return "Online";
-
+    const now = new Date();
+    const diff = now - last;
+    if (diff < 60000) return "Online";
     return last.toLocaleString([], {
-      day: "numeric",
-      month: "short",
       hour: "2-digit",
       minute: "2-digit",
+      day: "numeric",
+      month: "short",
     });
   };
 
+  // -------------------- Calls --------------------
+  const startVoiceCall = () => onVoiceCall?.(chatId);
+  const startVideoCall = () => onVideoCall?.(chatId);
+
+  // -------------------- Render --------------------
   return (
     <>
       <div className="chat-header">
         <div className="chat-back" onClick={() => navigate("/chat")}>←</div>
 
-        {/* ✅ AVATAR → FRIEND PROFILE */}
-        <div
-          className="chat-avatar"
-          onClick={() => navigate(`/friend/${friendId}`)}
-        >
+        <div className="chat-avatar" onClick={() => navigate(`/friend/${friendId}`)}>
           {friendInfo?.profilePic ? (
             <img src={friendInfo.profilePic} alt="avatar" />
           ) : (
@@ -118,56 +111,137 @@ export default function ChatHeader({
           )}
         </div>
 
-        {/* ✅ NAME → FRIEND PROFILE */}
-        <div
-          className="chat-info"
-          onClick={() => navigate(`/friend/${friendId}`)}
-        >
-          <span className="chat-name">
-            {friendInfo?.name || "Loading..."}
-          </span>
-          <span className="chat-lastseen">
-            {formatLastSeen(friendInfo?.lastSeen)}
-          </span>
+        <div className="chat-info" onClick={() => navigate(`/friend/${friendId}`)}>
+          <span className="chat-name">{friendInfo?.name || "Loading..."}</span>
+          <span className="chat-lastseen">{formatLastSeen(friendInfo?.lastSeen)}</span>
         </div>
 
-        {/* ✅ CALLS */}
         <div className="chat-actions">
-          <FiPhone size={20} onClick={() => onVoiceCall?.(chatId)} />
-          <FiVideo size={20} onClick={() => onVideoCall?.(chatId)} />
+          <FiPhone size={21} onClick={startVoiceCall} />
+          <FiVideo size={21} onClick={startVideoCall} />
         </div>
 
-        {/* ✅ MENU */}
         <div ref={menuRef} className="chat-menu">
           <FiMoreVertical size={22} onClick={() => setMenuOpen((p) => !p)} />
           {menuOpen && (
             <div className="menu-dropdown">
               <div onClick={() => { setMenuOpen(false); onSearch?.(); }}>Search</div>
               <div onClick={() => { setMenuOpen(false); onClearChat?.(); }}>Clear Chat</div>
-              <div onClick={toggleMute}>
-                {chatInfo?.mutedUntil > Date.now() ? "Unmute" : "Mute"}
-              </div>
-              <div onClick={toggleBlock} className="danger">
-                {chatInfo?.blocked ? "Unblock" : "Block"}
-              </div>
+              <div onClick={toggleMute}>{chatInfo?.mutedUntil > Date.now() ? "Unmute" : "Mute"}</div>
+              <div onClick={toggleBlock} className="danger">{chatInfo?.blocked ? "Unblock" : "Block"}</div>
             </div>
           )}
         </div>
       </div>
 
-      {/* ✅ PIN BAR */}
       {pinnedMessage && (
-        <div
-          className="pinned-message"
-          onClick={() => onGoToPinned?.(pinnedMessage.id)}
-        >
-          📌{" "}
-          {pinnedMessage.text ||
-            (pinnedMessage.mediaType === "image"
-              ? "Photo"
-              : "Pinned message")}
+        <div className="pinned-message" onClick={() => onGoToPinned?.(pinnedMessage.id)}>
+          📌 {pinnedMessage.text || (pinnedMessage.mediaType === "image" ? "Photo" : "Pinned message")}
         </div>
       )}
+
+      <style jsx>{`
+        .chat-header {
+          display: flex;
+          align-items: center;
+          padding: 8px 12px;
+          background-color: #075e54;
+          position: sticky;
+          top: 0;
+          z-index: 1000;
+          gap: 10px;
+        }
+        .chat-back {
+          width: 38px;
+          height: 38px;
+          border-radius: 50%;
+          background: rgba(255, 255, 255, 0.15);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 20px;
+          font-weight: bold;
+          color: white;
+          cursor: pointer;
+        }
+        .chat-avatar {
+          width: 46px;
+          height: 46px;
+          border-radius: 50%;
+          overflow: hidden;
+          background: #ddd;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          cursor: pointer;
+        }
+        .chat-avatar img {
+          width: 100%;
+          height: 100%;
+          object-fit: cover;
+        }
+        .chat-info {
+          flex: 1;
+          color: white;
+          cursor: pointer;
+          overflow: hidden;
+        }
+        .chat-name {
+          font-size: 15px;
+          font-weight: 600;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+        .chat-lastseen {
+          font-size: 12px;
+          opacity: 0.85;
+        }
+        .chat-actions {
+          display: flex;
+          gap: 12px;
+          color: white;
+        }
+        .chat-menu {
+          position: relative;
+          color: white;
+        }
+        .menu-dropdown {
+          position: absolute;
+          top: 34px;
+          right: 0;
+          background: #fff;
+          color: #000;
+          border-radius: 10px;
+          width: 170px;
+          box-shadow: 0 4px 14px rgba(0,0,0,.3);
+          overflow: hidden;
+        }
+        .menu-dropdown div {
+          padding: 12px 16px;
+          cursor: pointer;
+        }
+        .menu-dropdown div:hover {
+          background: #f0f0f0;
+        }
+        .menu-dropdown .danger {
+          color: red;
+          font-weight: 600;
+        }
+        .pinned-message {
+          position: sticky;
+          top: 56px;
+          background: #f4f4f4;
+          border-bottom: 1px solid #ddd;
+          padding: 6px 12px;
+          font-size: 13px;
+          cursor: pointer;
+          z-index: 999;
+          display: flex;
+          align-items: center;
+          gap: 6px;
+        }
+      `}</style>
     </>
   );
 }
