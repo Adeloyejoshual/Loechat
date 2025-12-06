@@ -19,6 +19,7 @@ import ChatHeader from "./Chat/ChatHeader";
 import MessageItem from "./Chat/MessageItem";
 import ChatInput from "./Chat/ChatInput";
 import ImagePreviewModal from "./Chat/ImagePreviewModal";
+import MediaViewer from "./Chat/MediaViewer";
 import { toast, ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import axios from "axios";
@@ -45,6 +46,7 @@ export default function ChatConversationPage() {
   const [showPreview, setShowPreview] = useState(false);
   const [isBlocked, setIsBlocked] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [mediaViewer, setMediaViewer] = useState({ open: false, startIndex: 0 });
 
   // -------------------- Load chat & friend info --------------------
   useEffect(() => {
@@ -96,15 +98,16 @@ export default function ChatConversationPage() {
       const docs = snap.docs.map((d) => ({
         id: d.id,
         ...d.data(),
-        createdAt: d.data().createdAt?.toDate?.() || new Date(),
+        createdAt: d.data().createdAt?.toDate ? d.data().createdAt.toDate() : new Date(),
         status: "sent",
       }));
       setMessages(docs);
-      if (isAtBottom) endRef.current?.scrollIntoView({ behavior: "smooth" });
+      // Scroll to bottom after messages load
+      endRef.current?.scrollIntoView({ behavior: "auto" });
     });
 
     return () => unsub();
-  }, [chatId, isAtBottom]);
+  }, [chatId]);
 
   // -------------------- Scroll detection --------------------
   useEffect(() => {
@@ -116,7 +119,7 @@ export default function ChatConversationPage() {
     return () => el.removeEventListener("scroll", onScroll);
   }, []);
 
-  // -------------------- Format dates --------------------
+  // -------------------- Date helpers --------------------
   const formatDateSeparator = (date) => {
     if (!date) return "";
     const msgDate = new Date(date.toDate?.() || date);
@@ -141,6 +144,15 @@ export default function ChatConversationPage() {
     return acc;
   }, []);
 
+  const mediaItems = messages
+    .filter((m) => m.mediaUrl)
+    .map((m) => ({ url: m.mediaUrl, type: m.mediaType }));
+
+  const scrollToMessage = (id) => {
+    const el = document.getElementById(id);
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+  };
+
   // -------------------- Send messages --------------------
   const sendMessage = async (textMsg = "", files = []) => {
     if (isBlocked) return toast.error("You cannot send messages to this user");
@@ -150,6 +162,7 @@ export default function ChatConversationPage() {
 
     try {
       if (files.length > 0) {
+        // Media messages
         await Promise.all(
           files.map(async (f) => {
             const type = f.type.startsWith("image/")
@@ -176,7 +189,6 @@ export default function ChatConversationPage() {
             setMessages((prev) => [...prev, tempMessage]);
             endRef.current?.scrollIntoView({ behavior: "smooth" });
 
-            // Upload to Cloudinary
             let mediaUrl = "";
             if (type !== "file") {
               const formData = new FormData();
@@ -244,7 +256,7 @@ export default function ChatConversationPage() {
         );
       }
 
-      // Update last message info
+      // Update chat last message
       const chatRef = doc(db, "chats", chatId);
       await updateDoc(chatRef, {
         lastMessage: textMsg || files[0]?.name,
@@ -257,7 +269,6 @@ export default function ChatConversationPage() {
       toast.error("Failed to send message");
     }
 
-    // Reset states
     setText("");
     setSelectedFiles([]);
     setCaption("");
@@ -283,22 +294,26 @@ export default function ChatConversationPage() {
         chatId={chatId}
         pinnedMessage={pinnedMessage}
         setBlockedStatus={setIsBlocked}
+        onClearChat={async () => {
+          if (!window.confirm("Clear this chat?")) return;
+          await Promise.all(
+            messages.map((m) =>
+              updateDoc(doc(db, "chats", chatId, "messages", m.id), { deleted: true })
+            )
+          );
+          toast.success("Chat cleared");
+        }}
       />
 
       <div
         ref={messagesRefEl}
         style={{ flex: 1, overflowY: "auto", padding: 8, display: "flex", flexDirection: "column" }}
       >
-        {groupedMessages.map((item) =>
+        {groupedMessages.map((item, idx) =>
           item.type === "date-separator" ? (
             <div
               key={item.key}
-              style={{
-                textAlign: "center",
-                margin: "10px 0",
-                fontSize: 12,
-                color: isDark ? "#aaa" : "#555",
-              }}
+              style={{ textAlign: "center", margin: "10px 0", fontSize: 12, color: isDark ? "#aaa" : "#555" }}
             >
               {item.date}
             </div>
@@ -308,9 +323,15 @@ export default function ChatConversationPage() {
               message={item.data}
               myUid={myUid}
               isDark={isDark}
+              chatId={chatId}
               setReplyTo={setReplyTo}
               pinnedMessage={pinnedMessage}
               setPinnedMessage={setPinnedMessage}
+              friendInfo={friendInfo}
+              onMediaClick={(index) =>
+                setMediaViewer({ open: true, startIndex: index })
+              }
+              mediaItems={mediaItems}
             />
           )
         )}
@@ -344,6 +365,14 @@ export default function ChatConversationPage() {
           }}
           onClose={() => setShowPreview(false)}
           isDark={isDark}
+        />
+      )}
+
+      {mediaViewer.open && (
+        <MediaViewer
+          items={mediaItems}
+          startIndex={mediaViewer.startIndex}
+          onClose={() => setMediaViewer({ open: false, startIndex: 0 })}
         />
       )}
 
