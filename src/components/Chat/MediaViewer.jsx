@@ -1,180 +1,157 @@
 import React, { useState, useEffect, useRef } from "react";
-import { createPortal } from "react-dom";
-import { FaTimes, FaDownload, FaChevronLeft, FaChevronRight } from "react-icons/fa";
 
 export default function MediaViewer({ items = [], startIndex = 0, onClose }) {
-  const [currentIndex, setCurrentIndex] = useState(startIndex);
+  const [index, setIndex] = useState(startIndex);
+  const [scale, setScale] = useState(1);
   const touchStartX = useRef(0);
-  const touchEndX = useRef(0);
 
   useEffect(() => {
-    const handleKey = (e) => {
-      if (e.key === "Escape") onClose();
-      if (e.key === "ArrowLeft") prev();
-      if (e.key === "ArrowRight") next();
-    };
-    window.addEventListener("keydown", handleKey);
-    return () => window.removeEventListener("keydown", handleKey);
-  }, [currentIndex]);
+    setIndex(startIndex);
+  }, [startIndex]);
 
   if (!items.length) return null;
 
-  const prev = () => setCurrentIndex((i) => (i > 0 ? i - 1 : i));
-  const next = () => setCurrentIndex((i) => (i < items.length - 1 ? i + 1 : i));
+  const current = items[index];
 
+  // ------------------ SWIPE LEFT / RIGHT ------------------
   const handleTouchStart = (e) => {
     touchStartX.current = e.touches[0].clientX;
   };
 
-  const handleTouchMove = (e) => {
-    touchEndX.current = e.touches[0].clientX;
+  const handleTouchEnd = (e) => {
+    const diff = e.changedTouches[0].clientX - touchStartX.current;
+
+    if (diff > 80 && index > 0) {
+      setIndex((p) => p - 1);
+      setScale(1);
+    } else if (diff < -80 && index < items.length - 1) {
+      setIndex((p) => p + 1);
+      setScale(1);
+    }
   };
 
-  const handleTouchEnd = () => {
-    const distance = touchEndX.current - touchStartX.current;
-    const threshold = 50; // minimum swipe distance
-    if (distance > threshold) prev();
-    else if (distance < -threshold) next();
+  // ------------------ DOUBLE TAP ZOOM ------------------
+  const handleDoubleClick = () => {
+    setScale((p) => (p === 1 ? 2 : 1));
   };
 
-  const current = items[currentIndex];
+  // ------------------ SAVE TO DEVICE ------------------
+  const handleSave = async () => {
+    try {
+      const response = await fetch(current.url);
+      const blob = await response.blob();
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(blob);
+      link.download = "media";
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } catch (err) {
+      alert("Failed to save file");
+    }
+  };
 
-  return createPortal(
+  return (
     <div
       style={{
         position: "fixed",
-        top: 0,
-        left: 0,
-        width: "100vw",
-        height: "100vh",
-        backgroundColor: "rgba(0,0,0,0.95)",
-        display: "flex",
-        justifyContent: "center",
-        alignItems: "center",
+        inset: 0,
+        background: "rgba(0,0,0,0.95)",
         zIndex: 9999,
+        display: "flex",
         flexDirection: "column",
       }}
-      onTouchStart={handleTouchStart}
-      onTouchMove={handleTouchMove}
-      onTouchEnd={handleTouchEnd}
+      onClick={onClose}
     >
-      {/* Close button */}
-      <button
-        onClick={onClose}
-        style={{
-          position: "absolute",
-          top: 20,
-          right: 20,
-          fontSize: 24,
-          background: "none",
-          border: "none",
-          color: "#fff",
-          cursor: "pointer",
-        }}
-      >
-        <FaTimes />
-      </button>
-
-      {/* Download button */}
-      <a
-        href={current.url}
-        download
-        style={{
-          position: "absolute",
-          top: 20,
-          left: 20,
-          fontSize: 20,
-          color: "#fff",
-          textDecoration: "none",
-        }}
-      >
-        <FaDownload />
-      </a>
-
-      {/* Media */}
+      {/* HEADER */}
       <div
         style={{
-          maxWidth: "90vw",
-          maxHeight: "80vh",
+          height: 56,
+          padding: "0 14px",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          color: "#fff",
+          background: "rgba(0,0,0,0.5)",
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <span>
+          {index + 1} / {items.length}
+        </span>
+
+        <div style={{ display: "flex", gap: 16 }}>
+          <button onClick={handleSave} style={iconBtn}>⭳</button>
+          <button onClick={onClose} style={iconBtn}>✕</button>
+        </div>
+      </div>
+
+      {/* MEDIA BODY */}
+      <div
+        style={{
+          flex: 1,
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          position: "relative",
+          overflow: "hidden",
         }}
+        onTouchStart={handleTouchStart}
+        onTouchEnd={handleTouchEnd}
+        onDoubleClick={handleDoubleClick}
       >
-        {current.type === "image" ? (
-          <img
-            src={current.url}
-            alt="media"
-            style={{
-              maxWidth: "100%",
-              maxHeight: "100%",
-              borderRadius: 12,
-              objectFit: "contain",
-            }}
-          />
-        ) : (
+        {current.type === "video" ? (
           <video
             src={current.url}
             controls
+            autoPlay
             style={{
               maxWidth: "100%",
               maxHeight: "100%",
-              borderRadius: 12,
             }}
+            onClick={(e) => e.stopPropagation()}
+          />
+        ) : (
+          <img
+            src={current.url}
+            alt=""
+            style={{
+              maxWidth: "100%",
+              maxHeight: "100%",
+              transform: `scale(${scale})`,
+              transition: "transform 0.2s ease",
+            }}
+            onClick={(e) => e.stopPropagation()}
           />
         )}
-
-        {/* Previous */}
-        {currentIndex > 0 && (
-          <button
-            onClick={prev}
-            style={{
-              position: "absolute",
-              left: 10,
-              top: "50%",
-              transform: "translateY(-50%)",
-              fontSize: 28,
-              background: "rgba(0,0,0,0.3)",
-              border: "none",
-              color: "#fff",
-              padding: 8,
-              borderRadius: "50%",
-              cursor: "pointer",
-            }}
-          >
-            <FaChevronLeft />
-          </button>
-        )}
-
-        {/* Next */}
-        {currentIndex < items.length - 1 && (
-          <button
-            onClick={next}
-            style={{
-              position: "absolute",
-              right: 10,
-              top: "50%",
-              transform: "translateY(-50%)",
-              fontSize: 28,
-              background: "rgba(0,0,0,0.3)",
-              border: "none",
-              color: "#fff",
-              padding: 8,
-              borderRadius: "50%",
-              cursor: "pointer",
-            }}
-          >
-            <FaChevronRight />
-          </button>
-        )}
       </div>
 
-      {/* Counter */}
-      <div style={{ marginTop: 12, color: "#fff", fontSize: 14 }}>
-        {currentIndex + 1} / {items.length}
+      {/* BOTTOM NAV */}
+      <div
+        style={{
+          height: 50,
+          display: "flex",
+          justifyContent: "space-between",
+          padding: "0 18px",
+          alignItems: "center",
+          color: "#aaa",
+        }}
+      >
+        <span onClick={() => index > 0 && setIndex(index - 1)}>
+          ◀ Prev
+        </span>
+
+        <span onClick={() => index < items.length - 1 && setIndex(index + 1)}>
+          Next ▶
+        </span>
       </div>
-    </div>,
-    document.body
+    </div>
   );
 }
+
+const iconBtn = {
+  background: "none",
+  color: "#fff",
+  border: "none",
+  fontSize: 22,
+  cursor: "pointer",
+};
