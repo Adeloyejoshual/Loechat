@@ -1,7 +1,7 @@
 // src/components/VoiceCall.jsx
 import React, { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { auth, db } from "../firebaseConfig"; // <- updated
+import { auth, db } from "../firebaseConfig";
 import { doc, collection, setDoc, addDoc, onSnapshot } from "firebase/firestore";
 
 // ---------------- CONFIG ----------------
@@ -17,11 +17,14 @@ export default function VoiceCall() {
   const { chatId, friendId } = useParams();
   const navigate = useNavigate();
 
+  // --- refs ---
   const pcRef = useRef(null);
   const localStreamRef = useRef(null);
   const remoteStreamRef = useRef(null);
   const callDocRef = useRef(null);
+  const remoteAudioRef = useRef(null);
 
+  // --- state ---
   const [user, setUser] = useState(null);
   const [connected, setConnected] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
@@ -47,7 +50,9 @@ export default function VoiceCall() {
         setLiveBalance(data.balance ?? null);
         if (data.activeCall?.status === "ended") handleRemoteEnd();
       }
-    } catch {}
+    } catch (err) {
+      console.error("Live balance error:", err);
+    }
   };
 
   // ---------------- AUTH ----------------
@@ -57,7 +62,7 @@ export default function VoiceCall() {
       else setUser(u);
     });
     return () => unsub();
-  }, []);
+  }, [navigate]);
 
   // ---------------- LIVE WALLET POLLING ----------------
   useEffect(() => {
@@ -95,19 +100,22 @@ export default function VoiceCall() {
     const callerCandidatesRef = collection(db, `calls/${chatId}/callerCandidates`);
 
     pcRef.current.onicecandidate = (event) => {
-      if (!event.candidate) return;
-      addDoc(callerCandidatesRef, event.candidate.toJSON()).catch(console.error);
+      if (event.candidate) addDoc(callerCandidatesRef, event.candidate.toJSON()).catch(console.error);
     };
 
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
     localStreamRef.current = stream;
     stream.getTracks().forEach((t) => pcRef.current.addTrack(t, stream));
 
+    // Attach remote stream to audio element safely
+    if (remoteAudioRef.current) remoteAudioRef.current.srcObject = remoteStream;
+
     return { pc: pcRef.current, localStream: stream, remoteStream };
   };
 
   // ---------------- START CALL ----------------
   const startCall = async () => {
+    if (!chatId || !friendId) return alert("Missing chat or friend ID");
     if (!user) return alert("Not signed in");
     setIsStarting(true);
     setStatusMessage("Starting call...");
@@ -125,10 +133,12 @@ export default function VoiceCall() {
       setConnected(true);
 
       await preparePeerConnection();
+
       const offer = await pcRef.current.createOffer();
       await pcRef.current.setLocalDescription(offer);
       await setDoc(callDocRef.current, { offer: { type: offer.type, sdp: offer.sdp }, status: "offer" });
 
+      // Listen for remote answer
       const unsubscribeAnswer = onSnapshot(callDocRef.current, (snap) => {
         const callData = snap.data();
         if (callData?.answer && !pcRef.current.currentRemoteDescription) {
@@ -138,15 +148,13 @@ export default function VoiceCall() {
         if (callData?.status === "ended") handleRemoteEnd();
       });
 
+      // Listen for callee ICE candidates
       const calleeCandidatesRef = collection(db, `calls/${chatId}/calleeCandidates`);
       const unsubscribeCallee = onSnapshot(calleeCandidatesRef, (snap) => {
         snap.docChanges().forEach((change) => {
           if (change.type === "added") pcRef.current.addIceCandidate(change.doc.data()).catch(console.error);
         });
       });
-
-      const audioEl = document.getElementById("remoteAudio");
-      if (audioEl) audioEl.srcObject = remoteStreamRef.current;
 
       pcRef.current._cleanup = () => {
         unsubscribeAnswer();
@@ -169,7 +177,9 @@ export default function VoiceCall() {
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
         body: JSON.stringify({ callId: chatId }),
       });
-    } catch {}
+    } catch (err) {
+      console.error(err);
+    }
     cleanResources();
     navigate("/chat");
   };
@@ -198,6 +208,9 @@ export default function VoiceCall() {
     localStreamRef.current?.getAudioTracks().forEach((t) => (t.enabled = !t.enabled));
     setIsMuted((m) => !m);
   };
+
+  // ---------------- RENDER ----------------
+  if (!chatId || !friendId) return <div>Error: missing chat or friend ID</div>;
 
   return (
     <div style={{ padding: 20 }}>
@@ -232,7 +245,7 @@ export default function VoiceCall() {
 
       {liveBalance !== null && <div>Wallet balance: ${liveBalance.toFixed(2)}</div>}
 
-      <audio id="remoteAudio" autoPlay playsInline />
+      <audio ref={remoteAudioRef} autoPlay playsInline />
     </div>
   );
 }
