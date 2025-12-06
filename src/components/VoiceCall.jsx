@@ -2,10 +2,9 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { auth, db } from "../firebaseConfig";
-import { doc, collection, setDoc, addDoc, onSnapshot } from "firebase/firestore";
+import { doc, collection, setDoc, addDoc, onSnapshot, updateDoc } from "firebase/firestore";
 
 // ---------------- CONFIG ----------------
-const BACKEND = "https://smart-talk-zlxe.onrender.com";
 const RATE_PER_SECOND = 0.0021;
 const FREE_SECONDS = 10;
 
@@ -17,58 +16,28 @@ export default function VoiceCall() {
   const { chatId, friendId } = useParams();
   const navigate = useNavigate();
 
-  // --- refs ---
   const pcRef = useRef(null);
   const localStreamRef = useRef(null);
   const remoteStreamRef = useRef(null);
   const callDocRef = useRef(null);
-  const remoteAudioRef = useRef(null);
 
-  // --- state ---
   const [user, setUser] = useState(null);
   const [connected, setConnected] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [duration, setDuration] = useState(0);
   const [cost, setCost] = useState(0);
   const [freeRemaining, setFreeRemaining] = useState(FREE_SECONDS);
-  const [liveBalance, setLiveBalance] = useState(null);
-  const [statusMessage, setStatusMessage] = useState("Ready");
+  const [statusMessage, setStatusMessage] = useState("Connecting...");
   const [isStarting, setIsStarting] = useState(false);
-
-  // ---------------- HELPERS ----------------
-  const getToken = async () => auth.currentUser && (await auth.currentUser.getIdToken(true));
-
-  const updateLiveBalance = async () => {
-    if (!user) return;
-    try {
-      const token = await getToken();
-      const res = await fetch(`${BACKEND}/api/wallet/live/${user.uid}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setLiveBalance(data.balance ?? null);
-        if (data.activeCall?.status === "ended") handleRemoteEnd();
-      }
-    } catch (err) {
-      console.error("Live balance error:", err);
-    }
-  };
 
   // ---------------- AUTH ----------------
   useEffect(() => {
     const unsub = auth.onAuthStateChanged((u) => {
-      if (!u) navigate("/");
+      if (!u) navigate("/chat");
       else setUser(u);
     });
     return () => unsub();
-  }, [navigate]);
-
-  // ---------------- LIVE WALLET POLLING ----------------
-  useEffect(() => {
-    const iv = setInterval(updateLiveBalance, 1000);
-    return () => clearInterval(iv);
-  }, [user]);
+  }, []);
 
   // ---------------- TIMER ----------------
   useEffect(() => {
@@ -107,54 +76,50 @@ export default function VoiceCall() {
     localStreamRef.current = stream;
     stream.getTracks().forEach((t) => pcRef.current.addTrack(t, stream));
 
-    // Attach remote stream to audio element safely
-    if (remoteAudioRef.current) remoteAudioRef.current.srcObject = remoteStream;
-
     return { pc: pcRef.current, localStream: stream, remoteStream };
   };
 
   // ---------------- START CALL ----------------
+  useEffect(() => {
+    if (!user) return;
+    startCall();
+  }, [user]);
+
   const startCall = async () => {
-    if (!chatId || !friendId) return alert("Missing chat or friend ID");
-    if (!user) return alert("Not signed in");
     setIsStarting(true);
     setStatusMessage("Starting call...");
 
     try {
-      const token = await getToken();
-      const res = await fetch(`${BACKEND}/api/call/start`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ receiverId: friendId }),
-      });
-      if (!res.ok) throw new Error("Failed to start call");
-
-      const data = await res.json();
-      setConnected(true);
-
       await preparePeerConnection();
 
       const offer = await pcRef.current.createOffer();
       await pcRef.current.setLocalDescription(offer);
+
       await setDoc(callDocRef.current, { offer: { type: offer.type, sdp: offer.sdp }, status: "offer" });
 
-      // Listen for remote answer
-      const unsubscribeAnswer = onSnapshot(callDocRef.current, (snap) => {
-        const callData = snap.data();
-        if (callData?.answer && !pcRef.current.currentRemoteDescription) {
-          pcRef.current.setRemoteDescription(callData.answer).catch(console.error);
+      // ---------------- Auto-answer / listen for callee ----------------
+      const unsubscribeAnswer = onSnapshot(callDocRef.current, async (snap) => {
+        const data = snap.data();
+        if (!data) return;
+
+        if (data.answer && !pcRef.current.currentRemoteDescription) {
+          await pcRef.current.setRemoteDescription(data.answer);
+          setConnected(true);
           setStatusMessage("Connected");
         }
-        if (callData?.status === "ended") handleRemoteEnd();
+
+        if (data.status === "ended") handleRemoteEnd();
       });
 
-      // Listen for callee ICE candidates
       const calleeCandidatesRef = collection(db, `calls/${chatId}/calleeCandidates`);
       const unsubscribeCallee = onSnapshot(calleeCandidatesRef, (snap) => {
         snap.docChanges().forEach((change) => {
           if (change.type === "added") pcRef.current.addIceCandidate(change.doc.data()).catch(console.error);
         });
       });
+
+      const audioEl = document.getElementById("remoteAudio");
+      if (audioEl) audioEl.srcObject = remoteStreamRef.current;
 
       pcRef.current._cleanup = () => {
         unsubscribeAnswer();
@@ -163,6 +128,8 @@ export default function VoiceCall() {
     } catch (err) {
       console.error(err);
       setStatusMessage("Failed to start call");
+      await addMissedCallMessage();
+      setTimeout(() => navigate("/chat"), 2000);
     } finally {
       setIsStarting(false);
     }
@@ -171,15 +138,8 @@ export default function VoiceCall() {
   // ---------------- END CALL ----------------
   const endCall = async () => {
     try {
-      const token = await getToken();
-      await fetch(`${BACKEND}/api/call/end`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ callId: chatId }),
-      });
-    } catch (err) {
-      console.error(err);
-    }
+      await updateDoc(callDocRef.current, { status: "ended" });
+    } catch {}
     cleanResources();
     navigate("/chat");
   };
@@ -197,11 +157,30 @@ export default function VoiceCall() {
     remoteStreamRef.current = null;
   };
 
-  const handleRemoteEnd = () => {
+  const handleRemoteEnd = async () => {
     setStatusMessage("Call ended");
+
+    // If never connected, mark as missed
+    if (!connected) await addMissedCallMessage();
+
     setConnected(false);
     cleanResources();
     setTimeout(() => navigate("/chat"), 2000);
+  };
+
+  const addMissedCallMessage = async () => {
+    if (!chatId || !friendId) return;
+    try {
+      const msgRef = collection(db, `chats/${chatId}/messages`);
+      await addDoc(msgRef, {
+        senderId: friendId,
+        type: "missed_call",
+        timestamp: new Date(),
+        read: false,
+      });
+    } catch (err) {
+      console.error("Failed to add missed call:", err);
+    }
   };
 
   const toggleMute = () => {
@@ -209,18 +188,12 @@ export default function VoiceCall() {
     setIsMuted((m) => !m);
   };
 
-  // ---------------- RENDER ----------------
-  if (!chatId || !friendId) return <div>Error: missing chat or friend ID</div>;
-
   return (
     <div style={{ padding: 20 }}>
       <h2>Voice Call {friendId ? `→ ${friendId}` : ""}</h2>
 
       <div style={{ marginBottom: 10 }}>
-        <button onClick={startCall} disabled={isStarting || connected}>
-          {isStarting ? "Starting..." : connected ? "In Call" : "Start Call"}
-        </button>
-        <button onClick={endCall} disabled={!connected}>
+        <button onClick={endCall} disabled={!connected && !isStarting}>
           End Call
         </button>
         <button onClick={toggleMute} disabled={!connected}>
@@ -243,9 +216,7 @@ export default function VoiceCall() {
         )}
       </div>
 
-      {liveBalance !== null && <div>Wallet balance: ${liveBalance.toFixed(2)}</div>}
-
-      <audio ref={remoteAudioRef} autoPlay playsInline />
+      <audio id="remoteAudio" autoPlay playsInline />
     </div>
   );
 }
