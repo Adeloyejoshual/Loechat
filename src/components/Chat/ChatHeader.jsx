@@ -13,6 +13,8 @@ export default function ChatHeader({
   onClearChat,
   onSearch,
   setBlockedStatus,
+  onVoiceCall,
+  onVideoCall,
 }) {
   const navigate = useNavigate();
   const [friendInfo, setFriendInfo] = useState(null);
@@ -53,8 +55,10 @@ export default function ChatHeader({
   // ✅ BLOCK USER
   const toggleBlock = async () => {
     if (!chatInfo || !chatId) return;
+
     const newBlocked = !chatInfo.blocked;
     await updateDoc(doc(db, "chats", chatId), { blocked: newBlocked });
+
     setChatInfo((prev) => ({ ...prev, blocked: newBlocked }));
     setBlockedStatus?.(newBlocked);
     setMenuOpen(false);
@@ -63,8 +67,10 @@ export default function ChatHeader({
   // ✅ MUTE USER
   const toggleMute = async () => {
     if (!chatInfo || !chatId) return;
+
     const isMuted = chatInfo.mutedUntil > Date.now();
     const mutedUntil = isMuted ? 0 : Date.now() + 24 * 60 * 60 * 1000;
+
     await updateDoc(doc(db, "chats", chatId), { mutedUntil });
     setChatInfo((prev) => ({ ...prev, mutedUntil }));
     setMenuOpen(false);
@@ -81,26 +87,18 @@ export default function ChatHeader({
 
   const formatLastSeen = (timestamp) => {
     if (!timestamp) return "Offline";
+
     const last = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
     const diff = Date.now() - last.getTime();
+
     if (diff < 60_000) return "Online";
+
     return last.toLocaleString([], {
       day: "numeric",
       month: "short",
       hour: "2-digit",
       minute: "2-digit",
     });
-  };
-
-  // ------------------ NAVIGATE TO CALL ------------------
-  const handleVoiceCall = () => {
-    if (!chatId || !friendId) return alert("Missing chat or friend ID");
-    navigate(`/voice-call/${chatId}/${friendId}`);
-  };
-
-  const handleVideoCall = () => {
-    if (!chatId || !friendId) return alert("Missing chat or friend ID");
-    navigate(`/video-call/${chatId}/${friendId}`);
   };
 
   return (
@@ -125,7 +123,9 @@ export default function ChatHeader({
           className="chat-info"
           onClick={() => navigate(`/friend/${friendId}`)}
         >
-          <span className="chat-name">{friendInfo?.name || "Loading..."}</span>
+          <span className="chat-name">
+            {friendInfo?.name || "Loading..."}
+          </span>
           <span className="chat-lastseen">
             {formatLastSeen(friendInfo?.lastSeen)}
           </span>
@@ -133,8 +133,8 @@ export default function ChatHeader({
 
         {/* ✅ CALLS */}
         <div className="chat-actions">
-          <FiPhone size={20} onClick={handleVoiceCall} />
-          <FiVideo size={20} onClick={handleVideoCall} />
+          <FiPhone size={20} onClick={() => onVoiceCall?.(chatId)} />
+          <FiVideo size={20} onClick={() => onVideoCall?.(chatId)} />
         </div>
 
         {/* ✅ MENU */}
@@ -163,7 +163,9 @@ export default function ChatHeader({
         >
           📌{" "}
           {pinnedMessage.text ||
-            (pinnedMessage.mediaType === "image" ? "Photo" : "Pinned message")}
+            (pinnedMessage.mediaType === "image"
+              ? "Photo"
+              : "Pinned message")}
         </div>
       )}
     </>
