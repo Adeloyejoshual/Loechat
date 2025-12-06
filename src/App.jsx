@@ -1,3 +1,4 @@
+
 // App.jsx
 import React, { useEffect, useState } from "react";
 import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
@@ -154,7 +155,7 @@ export default function App() {
 
                   {/* Voice / Video Calls (both chatId and friendId required) */}
                   <Route
-                    path="/voicecall/:chatId/:friendId"
+                    path="/voice-call/:chatId/:friendId"
                     element={
                       <ProtectedRoute>
                         <VoiceCall />
@@ -162,7 +163,7 @@ export default function App() {
                     }
                   />
                   <Route
-                    path="/videocall/:chatId/:friendId"
+                    path="/video-call/:chatId/:friendId"
                     element={
                       <ProtectedRoute>
                         <VideoCall />
