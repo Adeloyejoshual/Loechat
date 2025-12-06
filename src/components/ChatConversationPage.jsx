@@ -11,7 +11,6 @@ import {
   doc,
   updateDoc,
   arrayUnion,
-  arrayRemove,
 } from "firebase/firestore";
 import { db, auth } from "../firebaseConfig";
 import { ThemeContext } from "../context/ThemeContext";
@@ -56,7 +55,7 @@ export default function ChatConversationPage() {
     if (!chatId) return;
     const chatRef = doc(db, "chats", chatId);
 
-    const unsubChat = onSnapshot(chatRef, async (snap) => {
+    const unsubChat = onSnapshot(chatRef, (snap) => {
       if (!snap.exists()) return;
       const data = snap.data();
       setChatInfo({ id: snap.id, ...data });
@@ -76,7 +75,8 @@ export default function ChatConversationPage() {
       } else setPinnedMessage(null);
 
       // Typing indicator
-      setFriendTyping(data.typing?.[friendId] || false);
+      const friendIdForTyping = data.participants?.find((p) => p !== myUid);
+      setFriendTyping(data.typing?.[friendIdForTyping] || false);
     });
 
     return () => unsubChat();
@@ -88,7 +88,7 @@ export default function ChatConversationPage() {
     const messagesRef = collection(db, "chats", chatId, "messages");
     const q = query(messagesRef, orderBy("createdAt", "asc"));
 
-    const unsub = onSnapshot(q, async (snap) => {
+    const unsub = onSnapshot(q, (snap) => {
       const docs = snap.docs.map((d) => ({
         id: d.id,
         ...d.data(),
@@ -97,19 +97,22 @@ export default function ChatConversationPage() {
 
       setMessages(docs);
 
-      // Mark messages delivered (throttle to batch)
+      // Mark messages delivered
       const undelivered = docs.filter(
         (m) => m.senderId !== myUid && !(m.deliveredTo || []).includes(myUid)
       );
       if (undelivered.length) {
-        const batchUpdate = undelivered.map((m) =>
-          updateDoc(doc(db, "chats", chatId, "messages", m.id), { deliveredTo: arrayUnion(myUid) })
+        undelivered.forEach((m) =>
+          updateDoc(doc(db, "chats", chatId, "messages", m.id), {
+            deliveredTo: arrayUnion(myUid),
+          })
         );
-        await Promise.all(batchUpdate);
       }
 
-      // Auto-scroll if at bottom
-      if (isAtBottom) endRef.current?.scrollIntoView({ behavior: "auto" });
+      // Auto-scroll
+      if (isAtBottom) {
+        endRef.current?.scrollIntoView({ behavior: "auto" });
+      }
     });
 
     return () => unsub();
@@ -124,10 +127,11 @@ export default function ChatConversationPage() {
     );
 
     if (unseen.length) {
-      const batchUpdate = unseen.map((m) =>
-        updateDoc(doc(db, "chats", chatId, "messages", m.id), { seenBy: arrayUnion(myUid) })
+      unseen.forEach((m) =>
+        updateDoc(doc(db, "chats", chatId, "messages", m.id), {
+          seenBy: arrayUnion(myUid),
+        })
       );
-      Promise.all(batchUpdate);
       updateDoc(doc(db, "chats", chatId), { [`lastSeen.${myUid}`]: serverTimestamp() });
     }
   }, [messages, chatId, myUid]);
@@ -141,41 +145,6 @@ export default function ChatConversationPage() {
     el.addEventListener("scroll", onScroll);
     return () => el.removeEventListener("scroll", onScroll);
   }, []);
-
-  // -------------------- Date helpers --------------------
-  const formatDateSeparator = (date) => {
-    if (!date) return "";
-    const msgDate = new Date(date.toDate?.() || date);
-    const now = new Date();
-    const yesterday = new Date();
-    yesterday.setDate(now.getDate() - 1);
-
-    if (msgDate.toDateString() === now.toDateString()) return "Today";
-    if (msgDate.toDateString() === yesterday.toDateString()) return "Yesterday";
-
-    const options = { month: "short", day: "numeric" };
-    if (msgDate.getFullYear() !== now.getFullYear()) options.year = "numeric";
-    return msgDate.toLocaleDateString(undefined, options);
-  };
-
-  const groupedMessages = messages.reduce((acc, msg) => {
-    const dateStr = formatDateSeparator(msg.createdAt);
-    const lastDate = acc.length ? acc[acc.length - 1].date : null;
-    if (dateStr !== lastDate) acc.push({ type: "date-separator", date: dateStr, key: dateStr });
-    acc.push({ type: "message", data: msg });
-    return acc;
-  }, []);
-
-  const mediaItems = messages.filter((m) => m.mediaUrl).map((m) => ({ url: m.mediaUrl, type: m.mediaType }));
-
-  const scrollToMessage = (id) => {
-    const el = messageRefs.current[id];
-    if (el) {
-      el.scrollIntoView({ behavior: "smooth", block: "center" });
-      el.classList.add("flash-highlight");
-      setTimeout(() => el.classList.remove("flash-highlight"), 1200);
-    }
-  };
 
   // -------------------- Send messages --------------------
   const sendMessage = async (textMsg = "", files = []) => {
@@ -198,8 +167,8 @@ export default function ChatConversationPage() {
           reactions: {},
           seenBy: [],
           deliveredTo: [],
-          status: "sending",
           replyTo: replyTo ? { id: replyTo.id, text: replyTo.text, senderId: replyTo.senderId } : null,
+          status: "sending",
         };
         setMessages((prev) => [...prev, tempMessage]);
         if (isAtBottom) endRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -243,45 +212,65 @@ export default function ChatConversationPage() {
     setShowPreview(false);
   };
 
-  if (!chatInfo || !friendInfo) return <div style={{ padding: 20 }}>Loading chat...</div>;
+  // -------------------- Helpers --------------------
+  const mediaItems = messages.filter((m) => m.mediaUrl).map((m) => ({
+    url: m.mediaUrl,
+    type: m.mediaType,
+  }));
+
+  const scrollToMessage = (id) => {
+    const el = messageRefs.current[id];
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+      el.classList.add("flash-highlight");
+      setTimeout(() => el.classList.remove("flash-highlight"), 1200);
+    }
+  };
 
   return (
-    <div style={{
-      display: "flex",
-      flexDirection: "column",
-      height: "100vh",
-      backgroundColor: wallpaper || (isDark ? "#0b0b0b" : "#f5f5f5"),
-      color: isDark ? "#fff" : "#000",
-      position: "relative",
-    }}>
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        height: "100vh",
+        backgroundColor: wallpaper || (isDark ? "#0b0b0b" : "#f5f5f5"),
+        color: isDark ? "#fff" : "#000",
+        position: "relative",
+      }}
+    >
       <ChatHeader
-        friendId={friendInfo.id}
+        friendId={friendInfo?.id}
         chatId={chatId}
         pinnedMessage={pinnedMessage}
         setBlockedStatus={setIsBlocked}
         onGoToPinned={() => pinnedMessage && scrollToMessage(pinnedMessage.id)}
       />
 
-      <div ref={messagesRefEl} style={{ flex: 1, overflowY: "auto", padding: 8, display: "flex", flexDirection: "column" }}>
-        {groupedMessages.map((item) =>
-          item.type === "date-separator" ? (
-            <div key={item.key} style={{ textAlign: "center", margin: "10px 0", fontSize: 12, color: isDark ? "#aaa" : "#555" }}>{item.date}</div>
-          ) : (
-            <MessageItem
-              key={item.data.id}
-              message={item.data}
-              myUid={myUid}
-              isDark={isDark}
-              setReplyTo={setReplyTo}
-              setPinnedMessage={setPinnedMessage}
-              friendInfo={friendInfo}
-              onMediaClick={(index) => setMediaViewer({ open: true, startIndex: index })}
-              registerRef={(el) => { if (el) messageRefs.current[item.data.id] = el; }}
-            />
-          )
-        )}
+      <div
+        ref={messagesRefEl}
+        style={{ flex: 1, overflowY: "auto", padding: 8, display: "flex", flexDirection: "column" }}
+      >
+        {messages.map((msg, index) => (
+          <MessageItem
+            key={msg.id}
+            message={msg}
+            myUid={myUid}
+            isDark={isDark}
+            setReplyTo={setReplyTo}
+            setPinnedMessage={setPinnedMessage}
+            friendInfo={friendInfo}
+            onMediaClick={() => setMediaViewer({ open: true, startIndex: index })}
+            registerRef={(el) => { if (el) messageRefs.current[msg.id] = el; }}
+          />
+        ))}
         <div ref={endRef} />
       </div>
+
+      {friendTyping && (
+        <div style={{ padding: "0 12px 6px 12px", fontSize: 12, color: isDark ? "#ccc" : "#555" }}>
+          {friendInfo?.name} is typing...
+        </div>
+      )}
 
       <ChatInput
         text={text}
@@ -304,14 +293,22 @@ export default function ChatConversationPage() {
           caption={caption}
           setCaption={setCaption}
           onRemove={(i) => setSelectedFiles((prev) => prev.filter((_, idx) => idx !== i))}
-          onSend={async () => { await sendMessage(caption, selectedFiles); setShowPreview(false); setCaption(""); }}
+          onSend={async () => {
+            await sendMessage(caption, selectedFiles);
+            setShowPreview(false);
+            setCaption("");
+          }}
           onClose={() => setShowPreview(false)}
           isDark={isDark}
         />
       )}
 
       {mediaViewer.open && (
-        <MediaViewer items={mediaItems} startIndex={mediaViewer.startIndex} onClose={() => setMediaViewer({ open: false, startIndex: 0 })} />
+        <MediaViewer
+          items={mediaItems}
+          startIndex={mediaViewer.startIndex}
+          onClose={() => setMediaViewer({ open: false, startIndex: 0 })}
+        />
       )}
 
       <ToastContainer position="top-center" autoClose={1500} hideProgressBar />
