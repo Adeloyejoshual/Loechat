@@ -1,0 +1,1 @@
+https://www.loechat.com/monetag-verification.js
