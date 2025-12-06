@@ -11,6 +11,7 @@ import {
   doc,
   updateDoc,
   arrayUnion,
+  arrayRemove,
 } from "firebase/firestore";
 import { db, auth } from "../firebaseConfig";
 import { ThemeContext } from "../context/ThemeContext";
@@ -48,43 +49,37 @@ export default function ChatConversationPage() {
   const [showPreview, setShowPreview] = useState(false);
   const [mediaViewer, setMediaViewer] = useState({ open: false, startIndex: 0 });
   const [friendTyping, setFriendTyping] = useState(false);
+  const [isAtBottom, setIsAtBottom] = useState(true);
 
   // -------------------- Load chat & friend info --------------------
   useEffect(() => {
     if (!chatId) return;
     const chatRef = doc(db, "chats", chatId);
-    let unsubFriend = null;
-    let unsubPinned = null;
 
-    const unsubChat = onSnapshot(chatRef, (snap) => {
+    const unsubChat = onSnapshot(chatRef, async (snap) => {
       if (!snap.exists()) return;
       const data = snap.data();
       setChatInfo({ id: snap.id, ...data });
       setIsBlocked(data.blocked || false);
 
+      // Friend info
       const friendId = data.participants?.find((p) => p !== myUid);
       if (friendId) {
         const userRef = doc(db, "users", friendId);
-        unsubFriend?.();
-        unsubFriend = onSnapshot(userRef, (s) =>
-          s.exists() && setFriendInfo({ id: s.id, ...s.data() })
-        );
+        onSnapshot(userRef, (s) => s.exists() && setFriendInfo({ id: s.id, ...s.data() }));
       }
 
+      // Pinned message
       if (data.pinnedMessageId) {
         const pinnedRef = doc(db, "chats", chatId, "messages", data.pinnedMessageId);
-        unsubPinned?.();
-        unsubPinned = onSnapshot(pinnedRef, (s) =>
-          s.exists() && setPinnedMessage({ id: s.id, ...s.data() })
-        );
+        onSnapshot(pinnedRef, (s) => s.exists() && setPinnedMessage({ id: s.id, ...s.data() }));
       } else setPinnedMessage(null);
+
+      // Typing indicator
+      setFriendTyping(data.typing?.[friendId] || false);
     });
 
-    return () => {
-      unsubChat();
-      unsubFriend?.();
-      unsubPinned?.();
-    };
+    return () => unsubChat();
   }, [chatId, myUid]);
 
   // -------------------- Real-time messages --------------------
@@ -99,46 +94,42 @@ export default function ChatConversationPage() {
         ...d.data(),
         createdAt: d.data().createdAt?.toDate ? d.data().createdAt.toDate() : new Date(),
       }));
+
       setMessages(docs);
 
-      // Mark messages delivered
+      // Mark messages delivered (throttle to batch)
       const undelivered = docs.filter(
         (m) => m.senderId !== myUid && !(m.deliveredTo || []).includes(myUid)
       );
       if (undelivered.length) {
-        await Promise.all(
-          undelivered.map((m) =>
-            updateDoc(doc(db, "chats", chatId, "messages", m.id), {
-              deliveredTo: arrayUnion(myUid),
-            })
-          )
+        const batchUpdate = undelivered.map((m) =>
+          updateDoc(doc(db, "chats", chatId, "messages", m.id), { deliveredTo: arrayUnion(myUid) })
         );
+        await Promise.all(batchUpdate);
       }
 
-      endRef.current?.scrollIntoView({ behavior: "auto" });
+      // Auto-scroll if at bottom
+      if (isAtBottom) endRef.current?.scrollIntoView({ behavior: "auto" });
     });
 
     return () => unsub();
-  }, [chatId, myUid]);
+  }, [chatId, myUid, isAtBottom]);
 
   // -------------------- Mark seen --------------------
   useEffect(() => {
     if (!chatId || !myUid || !messages.length) return;
+
     const unseen = messages.filter(
       (m) => m.senderId !== myUid && !(m.seenBy || []).includes(myUid)
     );
-    unseen.forEach(async (m) => {
-      try {
-        await updateDoc(doc(db, "chats", chatId, "messages", m.id), {
-          seenBy: arrayUnion(myUid),
-        });
-      } catch (err) {
-        console.error(err);
-      }
-    });
-    updateDoc(doc(db, "chats", chatId), {
-      [`lastSeen.${myUid}`]: serverTimestamp(),
-    });
+
+    if (unseen.length) {
+      const batchUpdate = unseen.map((m) =>
+        updateDoc(doc(db, "chats", chatId, "messages", m.id), { seenBy: arrayUnion(myUid) })
+      );
+      Promise.all(batchUpdate);
+      updateDoc(doc(db, "chats", chatId), { [`lastSeen.${myUid}`]: serverTimestamp() });
+    }
   }, [messages, chatId, myUid]);
 
   // -------------------- Scroll detection --------------------
@@ -194,65 +185,15 @@ export default function ChatConversationPage() {
     const messagesCol = collection(db, "chats", chatId, "messages");
 
     try {
-      if (files.length > 0) {
-        // Media messages
-        await Promise.all(
-          files.map(async (f) => {
-            const type = f.type.startsWith("image/") ? "image" : "video";
-            const tempId = `temp-${Date.now()}-${Math.random()}`;
-            const tempMessage = {
-              id: tempId,
-              senderId: myUid,
-              text: textMsg || "",
-              mediaUrl: URL.createObjectURL(f),
-              mediaType: type,
-              createdAt: new Date(),
-              reactions: {},
-              seenBy: [],
-              deliveredTo: [],
-              status: "sending",
-              replyTo: replyTo ? { id: replyTo.id, text: replyTo.text, senderId: replyTo.senderId } : null,
-            };
-            setMessages((prev) => [...prev, tempMessage]);
-            endRef.current?.scrollIntoView({ behavior: "smooth" });
-
-            // Upload to Cloudinary
-            let mediaUrl = "";
-            const formData = new FormData();
-            formData.append("file", f);
-            formData.append("upload_preset", import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET);
-            const res = await axios.post(
-              `https://api.cloudinary.com/v1_1/${import.meta.env.VITE_CLOUDINARY_CLOUD_NAME}/auto/upload`,
-              formData
-            );
-            mediaUrl = res.data.secure_url;
-
-            const payload = {
-              senderId: myUid,
-              text: textMsg || "",
-              mediaUrl,
-              mediaType: type,
-              createdAt: serverTimestamp(),
-              reactions: {},
-              seenBy: [],
-              deliveredTo: [],
-              replyTo: replyTo ? { id: replyTo.id, text: replyTo.text, senderId: replyTo.senderId } : null,
-            };
-            const docRef = await addDoc(messagesCol, payload);
-            setMessages((prev) =>
-              prev.map((m) => (m.id === tempId ? { ...payload, id: docRef.id, status: "sent", createdAt: new Date() } : m))
-            );
-          })
-        );
-      } else if (textMsg.trim()) {
-        // Text-only message
+      for (const f of files.length ? files : [null]) {
+        const type = f ? (f.type.startsWith("image/") ? "image" : "video") : null;
         const tempId = `temp-${Date.now()}-${Math.random()}`;
         const tempMessage = {
           id: tempId,
           senderId: myUid,
-          text: textMsg.trim(),
-          mediaUrl: "",
-          mediaType: null,
+          text: f ? caption || "" : textMsg.trim(),
+          mediaUrl: f ? URL.createObjectURL(f) : "",
+          mediaType: type,
           createdAt: new Date(),
           reactions: {},
           seenBy: [],
@@ -261,10 +202,22 @@ export default function ChatConversationPage() {
           replyTo: replyTo ? { id: replyTo.id, text: replyTo.text, senderId: replyTo.senderId } : null,
         };
         setMessages((prev) => [...prev, tempMessage]);
-        endRef.current?.scrollIntoView({ behavior: "smooth" });
+        if (isAtBottom) endRef.current?.scrollIntoView({ behavior: "smooth" });
+
+        if (f) {
+          const formData = new FormData();
+          formData.append("file", f);
+          formData.append("upload_preset", import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET);
+          const res = await axios.post(
+            `https://api.cloudinary.com/v1_1/${import.meta.env.VITE_CLOUDINARY_CLOUD_NAME}/auto/upload`,
+            formData
+          );
+          tempMessage.mediaUrl = res.data.secure_url;
+        }
 
         const payload = { ...tempMessage, createdAt: serverTimestamp(), status: "sent" };
         const docRef = await addDoc(messagesCol, payload);
+
         setMessages((prev) =>
           prev.map((m) => (m.id === tempId ? { ...payload, id: docRef.id, createdAt: new Date() } : m))
         );
@@ -273,7 +226,7 @@ export default function ChatConversationPage() {
       // Update chat last message
       const chatRef = doc(db, "chats", chatId);
       await updateDoc(chatRef, {
-        lastMessage: textMsg || files[0]?.name || "Media",
+        lastMessage: textMsg || selectedFiles[0]?.name || "Media",
         lastMessageSender: myUid,
         lastMessageAt: serverTimestamp(),
         lastMessageStatus: "delivered",
@@ -293,7 +246,14 @@ export default function ChatConversationPage() {
   if (!chatInfo || !friendInfo) return <div style={{ padding: 20 }}>Loading chat...</div>;
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100vh", backgroundColor: wallpaper || (isDark ? "#0b0b0b" : "#f5f5f5"), color: isDark ? "#fff" : "#000", position: "relative" }}>
+    <div style={{
+      display: "flex",
+      flexDirection: "column",
+      height: "100vh",
+      backgroundColor: wallpaper || (isDark ? "#0b0b0b" : "#f5f5f5"),
+      color: isDark ? "#fff" : "#000",
+      position: "relative",
+    }}>
       <ChatHeader
         friendId={friendInfo.id}
         chatId={chatId}
@@ -312,13 +272,10 @@ export default function ChatConversationPage() {
               message={item.data}
               myUid={myUid}
               isDark={isDark}
-              chatId={chatId}
               setReplyTo={setReplyTo}
-              pinnedMessage={pinnedMessage}
               setPinnedMessage={setPinnedMessage}
               friendInfo={friendInfo}
               onMediaClick={(index) => setMediaViewer({ open: true, startIndex: index })}
-              mediaItems={mediaItems}
               registerRef={(el) => { if (el) messageRefs.current[item.data.id] = el; }}
             />
           )
@@ -338,6 +295,7 @@ export default function ChatConversationPage() {
         replyTo={replyTo}
         setReplyTo={setReplyTo}
         disabled={isBlocked}
+        friendTyping={friendTyping}
       />
 
       {showPreview && selectedFiles.length > 0 && (
