@@ -8,12 +8,13 @@ import { FiMoreVertical, FiPhone, FiVideo } from "react-icons/fi";
 export default function ChatHeader({
   friendId,
   chatId,
+  pinnedMessage,     // ✅ FROM ChatConversationPage
+  onGoToPinned,      // ✅ scroll callback
   onClearChat,
   onSearch,
-  onGoToPinned,
   setBlockedStatus,
-  onVoiceCall,   // <-- ADDED
-  onVideoCall,   // <-- ADDED
+  onVoiceCall,
+  onVideoCall,
 }) {
   const navigate = useNavigate();
   const [friendInfo, setFriendInfo] = useState(null);
@@ -24,32 +25,32 @@ export default function ChatHeader({
   // -------------------- Load Friend Info --------------------
   useEffect(() => {
     if (!friendId) return;
-    const unsub = onSnapshot(doc(db, "users", friendId), (snap) => {
+    return onSnapshot(doc(db, "users", friendId), (snap) => {
       if (snap.exists()) setFriendInfo(snap.data());
     });
-    return () => unsub();
   }, [friendId]);
 
   // -------------------- Load Chat Info --------------------
   useEffect(() => {
     if (!chatId) return;
-    const unsub = onSnapshot(doc(db, "chats", chatId), (snap) => {
+    return onSnapshot(doc(db, "chats", chatId), (snap) => {
       if (snap.exists()) {
         const data = snap.data();
         setChatInfo(data);
-        setBlockedStatus && setBlockedStatus(data.blocked);
+        setBlockedStatus?.(data.blocked);
       }
     });
-    return () => unsub();
   }, [chatId, setBlockedStatus]);
 
   // -------------------- Close Menu on Outside Click --------------------
   useEffect(() => {
-    const handleClickOutside = (e) => {
-      if (menuRef.current && !menuRef.current.contains(e.target)) setMenuOpen(false);
+    const close = (e) => {
+      if (menuRef.current && !menuRef.current.contains(e.target)) {
+        setMenuOpen(false);
+      }
     };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
   }, []);
 
   // -------------------- Block & Mute --------------------
@@ -57,17 +58,17 @@ export default function ChatHeader({
     if (!chatInfo) return;
     const newBlocked = !chatInfo.blocked;
     await updateDoc(doc(db, "chats", chatId), { blocked: newBlocked });
-    setChatInfo((prev) => ({ ...prev, blocked: newBlocked }));
-    setBlockedStatus && setBlockedStatus(newBlocked);
+    setChatInfo((p) => ({ ...p, blocked: newBlocked }));
+    setBlockedStatus?.(newBlocked);
     setMenuOpen(false);
   };
 
   const toggleMute = async () => {
     if (!chatInfo) return;
     const isMuted = chatInfo.mutedUntil && chatInfo.mutedUntil > Date.now();
-    const newMutedUntil = isMuted ? 0 : Date.now() + 24 * 60 * 60 * 1000; // 24 hours
-    await updateDoc(doc(db, "chats", chatId), { mutedUntil: newMutedUntil });
-    setChatInfo((prev) => ({ ...prev, mutedUntil: newMutedUntil }));
+    const mutedUntil = isMuted ? 0 : Date.now() + 24 * 60 * 60 * 1000;
+    await updateDoc(doc(db, "chats", chatId), { mutedUntil });
+    setChatInfo((p) => ({ ...p, mutedUntil }));
     setMenuOpen(false);
   };
 
@@ -81,83 +82,70 @@ export default function ChatHeader({
   };
 
   const formatLastSeen = (timestamp) => {
-    if (!timestamp) return "";
-    const lastSeenDate = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+    if (!timestamp) return "offline";
+
+    const last = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
     const now = new Date();
-    if (now - lastSeenDate <= 60 * 1000) return "Online";
+    const diff = now - last;
 
-    const hours = lastSeenDate.getHours();
-    const minutes = lastSeenDate.getMinutes();
-    const ampm = hours >= 12 ? "pm" : "am";
-    const formattedHour = hours % 12 || 12;
-    const formattedMinutes = minutes.toString().padStart(2, "0");
-    const timeString = `${formattedHour}:${formattedMinutes} ${ampm}`;
+    if (diff < 60000) return "Online";
 
-    const today = new Date();
-    if (lastSeenDate.toDateString() === today.toDateString()) return `Today at ${timeString}`;
-
-    const yesterday = new Date();
-    yesterday.setDate(today.getDate() - 1);
-    if (lastSeenDate.toDateString() === yesterday.toDateString())
-      return `Yesterday at ${timeString}`;
-
-    if (lastSeenDate.getFullYear() === now.getFullYear()) {
-      return `${lastSeenDate.toLocaleDateString([], { month: "short", day: "numeric" })} at ${timeString}`;
-    }
-
-    return `${lastSeenDate.toLocaleDateString([], {
-      month: "short",
+    return last.toLocaleString([], {
+      hour: "2-digit",
+      minute: "2-digit",
       day: "numeric",
-      year: "numeric",
-    })} at ${timeString}`;
+      month: "short",
+    });
   };
 
-  // -------------------- Prevent Redirect — Use Callback --------------------
-  const startVoiceCall = () => {
-    if (typeof onVoiceCall === "function") onVoiceCall(chatId);
-  };
-
-  const startVideoCall = () => {
-    if (typeof onVideoCall === "function") onVideoCall(chatId);
-  };
-
-  const pinned = chatInfo?.pinnedMessage || null;
+  // -------------------- Calls --------------------
+  const startVoiceCall = () => onVoiceCall?.(chatId);
+  const startVideoCall = () => onVideoCall?.(chatId);
 
   // -------------------- Render --------------------
   return (
     <>
       <div className="chat-header">
-        {/* Back Button */}
         <div className="chat-back" onClick={() => navigate("/chat")}>←</div>
 
-        {/* Avatar */}
-        <div className="chat-avatar" onClick={() => navigate(`/friend/${friendId}`)}>
+        <div
+          className="chat-avatar"
+          onClick={() => navigate(`/friend/${friendId}`)}
+        >
           {friendInfo?.profilePic ? (
-            <img src={friendInfo.profilePic} alt={friendInfo?.name || "User"} />
+            <img src={friendInfo.profilePic} alt="avatar" />
           ) : (
             <span>{getInitials(friendInfo?.name)}</span>
           )}
         </div>
 
-        {/* Name + Last Seen */}
-        <div className="chat-info" onClick={() => navigate(`/friend/${friendId}`)}>
-          <span className="chat-name">{friendInfo?.name || "Loading..."}</span>
-          <span className="chat-lastseen">{formatLastSeen(friendInfo?.lastSeen)}</span>
+        <div
+          className="chat-info"
+          onClick={() => navigate(`/friend/${friendId}`)}
+        >
+          <span className="chat-name">
+            {friendInfo?.name || "Loading..."}
+          </span>
+          <span className="chat-lastseen">
+            {formatLastSeen(friendInfo?.lastSeen)}
+          </span>
         </div>
 
-        {/* Call Buttons */}
         <div className="chat-actions">
-          <FiPhone size={22} className="action-btn" onClick={startVoiceCall} />
-          <FiVideo size={22} className="action-btn" onClick={startVideoCall} />
+          <FiPhone size={21} onClick={startVoiceCall} />
+          <FiVideo size={21} onClick={startVideoCall} />
         </div>
 
-        {/* Menu */}
         <div ref={menuRef} className="chat-menu">
-          <FiMoreVertical size={24} onClick={() => setMenuOpen(!menuOpen)} className="action-btn" />
+          <FiMoreVertical size={22} onClick={() => setMenuOpen((p) => !p)} />
           {menuOpen && (
             <div className="menu-dropdown">
-              <div onClick={() => { setMenuOpen(false); onSearch(); }}>Search</div>
-              <div onClick={() => { setMenuOpen(false); onClearChat(); }}>Clear Chat</div>
+              <div onClick={() => { setMenuOpen(false); onSearch?.(); }}>
+                Search
+              </div>
+              <div onClick={() => { setMenuOpen(false); onClearChat?.(); }}>
+                Clear Chat
+              </div>
               <div onClick={toggleMute}>
                 {chatInfo?.mutedUntil > Date.now() ? "Unmute" : "Mute"}
               </div>
@@ -169,14 +157,21 @@ export default function ChatHeader({
         </div>
       </div>
 
-      {/* Pinned Message */}
-      {pinned && (
-        <div className="pinned-message" onClick={() => onGoToPinned(pinned.messageId)}>
-          📌 <span>{pinned.text || "Pinned message"}</span>
+      {/* ✅ PIN BAR – controlled from ChatConversationPage */}
+      {pinnedMessage && (
+        <div
+          className="pinned-message"
+          onClick={() => onGoToPinned?.(pinnedMessage.id)}
+        >
+          📌{" "}
+          {pinnedMessage.text ||
+            (pinnedMessage.mediaType === "image"
+              ? "Photo"
+              : "Pinned message")}
         </div>
       )}
 
-      {/* Styles */}
+      {/* -------------------- Styles -------------------- */}
       <style jsx>{`
         .chat-header {
           display: flex;
@@ -185,39 +180,32 @@ export default function ChatHeader({
           background-color: #075e54;
           position: sticky;
           top: 0;
-          z-index: 999;
+          z-index: 1000;
           gap: 10px;
         }
         .chat-back {
-          width: 40px;
-          height: 40px;
+          width: 38px;
+          height: 38px;
           border-radius: 50%;
           background: rgba(255, 255, 255, 0.15);
           display: flex;
-          justify-content: center;
           align-items: center;
-          cursor: pointer;
+          justify-content: center;
+          font-size: 20px;
+          font-weight: bold;
           color: white;
-          font-size: 22px;
-          font-weight: 600;
-          transition: background 0.2s;
-        }
-        .chat-back:hover {
-          background: rgba(255, 255, 255, 0.25);
+          cursor: pointer;
         }
         .chat-avatar {
-          width: 50px;
-          height: 50px;
+          width: 46px;
+          height: 46px;
           border-radius: 50%;
           overflow: hidden;
-          cursor: pointer;
+          background: #ddd;
           display: flex;
-          justify-content: center;
           align-items: center;
-          font-weight: 600;
-          font-size: 18px;
-          color: #333;
-          background-color: #e0e0e0;
+          justify-content: center;
+          cursor: pointer;
         }
         .chat-avatar img {
           width: 100%;
@@ -226,56 +214,44 @@ export default function ChatHeader({
         }
         .chat-info {
           flex: 1;
-          display: flex;
-          flex-direction: column;
-          overflow: hidden;
+          color: white;
           cursor: pointer;
-          color: #fff;
+          overflow: hidden;
         }
         .chat-name {
-          font-size: 16px;
+          font-size: 15px;
           font-weight: 600;
           white-space: nowrap;
           overflow: hidden;
           text-overflow: ellipsis;
         }
         .chat-lastseen {
-          font-size: 13px;
-          opacity: 0.9;
+          font-size: 12px;
+          opacity: 0.85;
         }
         .chat-actions {
           display: flex;
-          gap: 10px;
-        }
-        .action-btn {
-          cursor: pointer;
-          transition: opacity 0.2s;
-        }
-        .action-btn:hover {
-          opacity: 0.7;
+          gap: 12px;
+          color: white;
         }
         .chat-menu {
           position: relative;
-          margin-left: 8px;
+          color: white;
         }
         .menu-dropdown {
           position: absolute;
-          top: 36px;
+          top: 34px;
           right: 0;
           background: #fff;
           color: #000;
           border-radius: 10px;
-          padding: 8px 0;
           width: 170px;
-          box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
-          z-index: 999;
+          box-shadow: 0 4px 14px rgba(0,0,0,.3);
+          overflow: hidden;
         }
         .menu-dropdown div {
           padding: 12px 16px;
           cursor: pointer;
-          font-size: 15px;
-          white-space: nowrap;
-          transition: background 0.2s;
         }
         .menu-dropdown div:hover {
           background: #f0f0f0;
@@ -287,17 +263,15 @@ export default function ChatHeader({
         .pinned-message {
           position: sticky;
           top: 56px;
-          width: 100%;
-          background: #f7f7f7;
-          padding: 6px 12px;
+          background: #f4f4f4;
           border-bottom: 1px solid #ddd;
-          font-size: 14px;
+          padding: 6px 12px;
+          font-size: 13px;
+          cursor: pointer;
+          z-index: 999;
           display: flex;
           align-items: center;
           gap: 6px;
-          cursor: pointer;
-          color: #444;
-          z-index: 998;
         }
       `}</style>
     </>
