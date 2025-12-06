@@ -1,4 +1,3 @@
-
 // App.jsx
 import React, { useEffect, useState } from "react";
 import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
@@ -64,6 +63,24 @@ export default function App() {
     const userRef = doc(db, "users", uid);
     await updateDoc(userRef, { coins: increment(amount) });
   };
+
+  // -----------------------------
+  // Monetag Service Worker Registration
+  // -----------------------------
+  useEffect(() => {
+    if ("serviceWorker" in navigator) {
+      window.addEventListener("load", () => {
+        navigator.serviceWorker
+          .register("/monetag-sw.js")
+          .then((registration) => {
+            console.log("Monetag SW registered:", registration);
+          })
+          .catch((err) => {
+            console.error("Monetag SW registration failed:", err);
+          });
+      });
+    }
+  }, []);
 
   // -----------------------------
   // Loading Screen
@@ -153,7 +170,7 @@ export default function App() {
                     }
                   />
 
-                  {/* Voice / Video Calls (both chatId and friendId required) */}
+                  {/* Voice / Video Calls */}
                   <Route
                     path="/voice-call/:chatId/:friendId"
                     element={
