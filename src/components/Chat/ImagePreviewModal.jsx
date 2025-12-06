@@ -1,7 +1,10 @@
+// src/components/Chat/ImagePreviewModal.jsx
 import React, { useState, useEffect, useRef } from "react";
 
 export default function ImagePreviewModal({
-  files = [],            // Array of File objects
+  previews = [],            // Array of { file, url }
+  caption = "",
+  setCaption = () => {},
   currentIndex = 0,
   onRemove = () => {},
   onClose = () => {},
@@ -12,17 +15,16 @@ export default function ImagePreviewModal({
   const [index, setIndex] = useState(currentIndex);
   const [translateY, setTranslateY] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
-  const [caption, setCaption] = useState(""); // single caption for all images
   const startY = useRef(0);
 
   useEffect(() => setIndex(currentIndex), [currentIndex]);
 
-  if (!files.length) return null;
+  if (!previews.length) return null;
 
-  const current = { file: files[index], url: URL.createObjectURL(files[index]) };
+  const current = previews[index];
 
   // Next / Prev
-  const handleNext = () => setIndex((p) => (p + 1 < files.length ? p + 1 : p));
+  const handleNext = () => setIndex((p) => (p + 1 < previews.length ? p + 1 : p));
   const handlePrev = () => setIndex((p) => (p - 1 >= 0 ? p - 1 : p));
 
   // Swipe-down handlers
@@ -39,11 +41,6 @@ export default function ImagePreviewModal({
     setIsDragging(false);
     if (translateY > 120) onClose();
     setTranslateY(0);
-  };
-
-  const handleSend = () => {
-    onSend(files, caption); // pass all files + single caption
-    onClose(); // close modal after sending
   };
 
   return (
@@ -83,7 +80,7 @@ export default function ImagePreviewModal({
           display: "flex",
           alignItems: "center",
           maxWidth: "90%",
-          maxHeight: "70%",
+          maxHeight: "60%",
           transform: `translateY(${translateY}px)`,
           transition: isDragging ? "none" : "transform 0.25s ease",
           touchAction: "none",
@@ -113,13 +110,13 @@ export default function ImagePreviewModal({
           <video
             src={current.url}
             controls
-            style={{ maxHeight: "70vh", maxWidth: "70vw", borderRadius: 8 }}
+            style={{ maxHeight: "60vh", maxWidth: "80vw", borderRadius: 8 }}
           />
         ) : (
           <img
             src={current.url}
             alt="preview"
-            style={{ maxHeight: "70vh", maxWidth: "70vw", borderRadius: 8, userSelect: "none" }}
+            style={{ maxHeight: "60vh", maxWidth: "80vw", borderRadius: 8, userSelect: "none" }}
             draggable={false}
           />
         )}
@@ -127,13 +124,13 @@ export default function ImagePreviewModal({
         {/* Next */}
         <button
           onClick={handleNext}
-          disabled={index === files.length - 1}
+          disabled={index === previews.length - 1}
           style={{
             background: "transparent",
             border: "none",
             fontSize: 32,
             color: isDark ? "#fff" : "#000",
-            cursor: index === files.length - 1 ? "not-allowed" : "pointer",
+            cursor: index === previews.length - 1 ? "not-allowed" : "pointer",
             marginLeft: 8,
           }}
         >
@@ -141,19 +138,20 @@ export default function ImagePreviewModal({
         </button>
       </div>
 
-      {/* Caption Input */}
+      {/* Caption input */}
       <input
         type="text"
-        placeholder="Add a caption for all images..."
+        placeholder="Write a caption..."
         value={caption}
         onChange={(e) => setCaption(e.target.value)}
         style={{
           marginTop: 12,
           padding: "8px 12px",
-          borderRadius: 6,
-          border: "1px solid #ccc",
           width: "80%",
-          outline: "none",
+          borderRadius: 6,
+          border: `1px solid ${isDark ? "#555" : "#ccc"}`,
+          backgroundColor: isDark ? "#222" : "#fff",
+          color: isDark ? "#fff" : "#000",
         }}
       />
 
@@ -173,7 +171,7 @@ export default function ImagePreviewModal({
           Remove
         </button>
         <button
-          onClick={handleSend}
+          onClick={onSend}
           style={{
             padding: "8px 16px",
             backgroundColor: isDark ? "#4caf50" : "#1976d2",
@@ -201,9 +199,9 @@ export default function ImagePreviewModal({
       </div>
 
       {/* Pagination */}
-      {files.length > 1 && (
+      {previews.length > 1 && (
         <div style={{ marginTop: 12, color: isDark ? "#fff" : "#000", fontSize: 14 }}>
-          {index + 1} / {files.length}
+          {index + 1} / {previews.length}
         </div>
       )}
     </div>
