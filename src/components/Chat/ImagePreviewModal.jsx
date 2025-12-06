@@ -1,4 +1,3 @@
-// src/components/Chat/ImagePreviewModal.jsx
 import React, { useState, useEffect, useRef } from "react";
 
 export default function ImagePreviewModal({
@@ -13,6 +12,7 @@ export default function ImagePreviewModal({
   const [index, setIndex] = useState(currentIndex);
   const [translateY, setTranslateY] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
+  const [caption, setCaption] = useState(""); // single caption for all images
   const startY = useRef(0);
 
   useEffect(() => setIndex(currentIndex), [currentIndex]);
@@ -39,6 +39,11 @@ export default function ImagePreviewModal({
     setIsDragging(false);
     if (translateY > 120) onClose();
     setTranslateY(0);
+  };
+
+  const handleSend = () => {
+    onSend(files, caption); // pass all files + single caption
+    onClose(); // close modal after sending
   };
 
   return (
@@ -78,7 +83,7 @@ export default function ImagePreviewModal({
           display: "flex",
           alignItems: "center",
           maxWidth: "90%",
-          maxHeight: "80%",
+          maxHeight: "70%",
           transform: `translateY(${translateY}px)`,
           transition: isDragging ? "none" : "transform 0.25s ease",
           touchAction: "none",
@@ -108,13 +113,13 @@ export default function ImagePreviewModal({
           <video
             src={current.url}
             controls
-            style={{ maxHeight: "80vh", maxWidth: "80vw", borderRadius: 8 }}
+            style={{ maxHeight: "70vh", maxWidth: "70vw", borderRadius: 8 }}
           />
         ) : (
           <img
             src={current.url}
             alt="preview"
-            style={{ maxHeight: "80vh", maxWidth: "80vw", borderRadius: 8, userSelect: "none" }}
+            style={{ maxHeight: "70vh", maxWidth: "70vw", borderRadius: 8, userSelect: "none" }}
             draggable={false}
           />
         )}
@@ -136,6 +141,22 @@ export default function ImagePreviewModal({
         </button>
       </div>
 
+      {/* Caption Input */}
+      <input
+        type="text"
+        placeholder="Add a caption for all images..."
+        value={caption}
+        onChange={(e) => setCaption(e.target.value)}
+        style={{
+          marginTop: 12,
+          padding: "8px 12px",
+          borderRadius: 6,
+          border: "1px solid #ccc",
+          width: "80%",
+          outline: "none",
+        }}
+      />
+
       {/* Controls */}
       <div style={{ marginTop: 16, display: "flex", gap: 12 }}>
         <button
@@ -152,7 +173,7 @@ export default function ImagePreviewModal({
           Remove
         </button>
         <button
-          onClick={onSend}
+          onClick={handleSend}
           style={{
             padding: "8px 16px",
             backgroundColor: isDark ? "#4caf50" : "#1976d2",
