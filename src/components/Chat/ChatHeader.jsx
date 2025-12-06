@@ -1,4 +1,3 @@
-// src/components/Chat/ChatHeader.jsx
 import React, { useEffect, useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { doc, onSnapshot, updateDoc } from "firebase/firestore";
@@ -22,7 +21,7 @@ export default function ChatHeader({
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef(null);
 
-  // -------------------- Load Friend Info --------------------
+  // Load friend info
   useEffect(() => {
     if (!friendId) return;
     return onSnapshot(doc(db, "users", friendId), (snap) => {
@@ -30,7 +29,7 @@ export default function ChatHeader({
     });
   }, [friendId]);
 
-  // -------------------- Load Chat Info --------------------
+  // Load chat info
   useEffect(() => {
     if (!chatId) return;
     return onSnapshot(doc(db, "chats", chatId), (snap) => {
@@ -42,16 +41,16 @@ export default function ChatHeader({
     });
   }, [chatId, setBlockedStatus]);
 
-  // -------------------- Close Menu on Outside Click --------------------
+  // Close menu on outside click
   useEffect(() => {
-    const close = (e) => {
+    const closeMenu = (e) => {
       if (menuRef.current && !menuRef.current.contains(e.target)) setMenuOpen(false);
     };
-    document.addEventListener("mousedown", close);
-    return () => document.removeEventListener("mousedown", close);
+    document.addEventListener("mousedown", closeMenu);
+    return () => document.removeEventListener("mousedown", closeMenu);
   }, []);
 
-  // -------------------- Block & Mute --------------------
+  // Toggle block
   const toggleBlock = async () => {
     if (!chatInfo) return;
     const newBlocked = !chatInfo.blocked;
@@ -61,6 +60,7 @@ export default function ChatHeader({
     setMenuOpen(false);
   };
 
+  // Toggle mute (24h)
   const toggleMute = async () => {
     if (!chatInfo) return;
     const isMuted = chatInfo.mutedUntil && chatInfo.mutedUntil > Date.now();
@@ -70,7 +70,7 @@ export default function ChatHeader({
     setMenuOpen(false);
   };
 
-  // -------------------- Utilities --------------------
+  // Utilities
   const getInitials = (name) => {
     if (!name) return "U";
     const parts = name.trim().split(" ");
@@ -93,15 +93,16 @@ export default function ChatHeader({
     });
   };
 
-  // -------------------- Calls --------------------
+  // Calls
   const startVoiceCall = () => onVoiceCall?.(chatId);
   const startVideoCall = () => onVideoCall?.(chatId);
 
-  // -------------------- Render --------------------
   return (
     <>
       <div className="chat-header">
-        <div className="chat-back" onClick={() => navigate("/chat")}>←</div>
+        <div className="chat-back" onClick={() => navigate("/chat")}>
+          ←
+        </div>
 
         <div className="chat-avatar" onClick={() => navigate(`/friend/${friendId}`)}>
           {friendInfo?.profilePic ? (
@@ -185,6 +186,8 @@ export default function ChatHeader({
           color: white;
           cursor: pointer;
           overflow: hidden;
+          display: flex;
+          flex-direction: column;
         }
         .chat-name {
           font-size: 15px;
