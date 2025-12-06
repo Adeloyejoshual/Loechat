@@ -10,10 +10,12 @@ import {
 } from "firebase/auth";
 import { doc, setDoc, serverTimestamp } from "firebase/firestore";
 import { app, db } from "../firebaseConfig";
+import { useAd } from "./AdGateway"; // Import Monetag Ad hook
 
-export default function HomePage() {
+export default function HomePage({ rewardCoins }) {
   const auth = getAuth(app);
   const navigate = useNavigate();
+  const { showRewarded } = useAd(); // Hook to show ads
 
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -33,13 +35,8 @@ export default function HomePage() {
     e.preventDefault();
     try {
       if (isRegister) {
-        // 🆕 Register user
         const { user } = await createUserWithEmailAndPassword(auth, email, password);
-
-        // Set display name in Firebase Auth
         await updateProfile(user, { displayName: name });
-
-        // Save user profile in Firestore
         await setDoc(doc(db, "users", user.uid), {
           uid: user.uid,
           name,
@@ -47,27 +44,21 @@ export default function HomePage() {
           createdAt: serverTimestamp(),
           balance: 0,
         });
-
         alert("✅ Account created successfully!");
       } else {
-        // 🔑 Login
         await signInWithEmailAndPassword(auth, email, password);
       }
+
+      // Show Vignette Banner on HomePage after login/register
+      showRewarded(10287797, 15, () => {
+        console.log("Vignette Banner finished");
+      });
 
       navigate("/chat");
     } catch (error) {
       alert(error.message);
     }
   };
-
-  // 📰 Load AdSense
-  useEffect(() => {
-    try {
-      (window.adsbygoogle = window.adsbygoogle || []).push({});
-    } catch (e) {
-      console.error("Adsense error", e);
-    }
-  }, []);
 
   return (
     <div style={styles.container}>
@@ -79,15 +70,26 @@ export default function HomePage() {
             : "Welcome back! Login to continue chatting"}
         </p>
 
-        {/* AdSense placeholder */}
-        <ins
-          className="adsbygoogle"
-          style={{ display: "block", width: "320px", height: "100px", margin: "20px auto" }}
-          data-ad-client="ca-pub-3218753156748504" // Replace with your AdSense client ID
-          data-ad-slot="1234567890" // Replace with your Ad slot ID
-          data-ad-format="auto"
-          data-full-width-responsive="true"
-        ></ins>
+        {/* Show Monetag ad directly if you want inline banner on HomePage */}
+        <div
+          id="monetag-ad-homepage"
+          data-zone="10287797" // Vignette Banner Zone ID
+          style={{
+            width: "100%",
+            height: 100,
+            margin: "20px 0",
+            borderRadius: 12,
+            background: "linear-gradient(135deg, #3b82f6, #8b5cf6)",
+            display: "flex",
+            justifyContent: "center",
+            alignItems: "center",
+            fontSize: 18,
+            fontWeight: "bold",
+            color: "#fff",
+          }}
+        >
+          Loading Ad...
+        </div>
 
         <form onSubmit={handleAuth} style={styles.form}>
           {isRegister && (
