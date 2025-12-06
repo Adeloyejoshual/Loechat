@@ -49,25 +49,38 @@ export default function ChatConversationPage() {
     if (!chatId) return;
     const chatRef = doc(db, "chats", chatId);
 
+    let unsubFriend = null;
+    let unsubPinned = null;
+
     const unsubChat = onSnapshot(chatRef, (snap) => {
       if (!snap.exists()) return;
       const data = snap.data();
       setChatInfo({ id: snap.id, ...data });
       setIsBlocked(data.blocked || false);
 
+      // Friend info
       const friendId = data.participants?.find((p) => p !== myUid);
       if (friendId) {
         const userRef = doc(db, "users", friendId);
-        onSnapshot(userRef, (s) => s.exists() && setFriendInfo({ id: s.id, ...s.data() }));
+        unsubFriend?.();
+        unsubFriend = onSnapshot(userRef, (s) => s.exists() && setFriendInfo({ id: s.id, ...s.data() }));
       }
 
+      // Pinned message
       if (data.pinnedMessageId) {
         const pinnedRef = doc(db, "chats", chatId, "messages", data.pinnedMessageId);
-        onSnapshot(pinnedRef, (s) => s.exists() && setPinnedMessage({ id: s.id, ...s.data() }));
+        unsubPinned?.();
+        unsubPinned = onSnapshot(pinnedRef, (s) => s.exists() && setPinnedMessage({ id: s.id, ...s.data() }));
+      } else {
+        setPinnedMessage(null);
       }
     });
 
-    return () => unsubChat();
+    return () => {
+      unsubChat();
+      unsubFriend?.();
+      unsubPinned?.();
+    };
   }, [chatId, myUid]);
 
   // -------------------- Real-time messages --------------------
@@ -77,7 +90,12 @@ export default function ChatConversationPage() {
     const q = query(messagesRef, orderBy("createdAt", "asc"));
 
     const unsub = onSnapshot(q, (snap) => {
-      const docs = snap.docs.map((d) => ({ id: d.id, ...d.data(), status: "sent" }));
+      const docs = snap.docs.map((d) => ({
+        id: d.id,
+        ...d.data(),
+        createdAt: d.data().createdAt?.toDate ? d.data().createdAt.toDate() : new Date(),
+        status: "sent",
+      }));
       setMessages(docs);
 
       if (isAtBottom) endRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -114,7 +132,7 @@ export default function ChatConversationPage() {
   const groupedMessages = messages.reduce((acc, msg) => {
     const dateStr = formatDateSeparator(msg.createdAt);
     const lastDate = acc.length ? acc[acc.length - 1].date : null;
-    if (dateStr !== lastDate) acc.push({ type: "date-separator", date: dateStr });
+    if (dateStr !== lastDate) acc.push({ type: "date-separator", date: dateStr, key: dateStr });
     acc.push({ type: "message", data: msg });
     return acc;
   }, []);
@@ -131,75 +149,80 @@ export default function ChatConversationPage() {
 
     const messagesCol = collection(db, "chats", chatId, "messages");
 
-    for (let f of files) {
-      const type = f.type.startsWith("image/")
-        ? "image"
-        : f.type.startsWith("video/")
-          ? "video"
-          : f.type.startsWith("audio/")
-            ? "audio"
-            : "file";
+    // -------------------- Media messages (parallel) --------------------
+    if (files.length > 0) {
+      await Promise.all(
+        files.map(async (f) => {
+          const type = f.type.startsWith("image/")
+            ? "image"
+            : f.type.startsWith("video/")
+              ? "video"
+              : f.type.startsWith("audio/")
+                ? "audio"
+                : "file";
 
-      const tempId = `temp-${Date.now()}-${Math.random()}`;
+          const tempId = `temp-${Date.now()}-${Math.random()}`;
+          const tempMessage = {
+            id: tempId,
+            senderId: myUid,
+            text: f.name,
+            mediaUrl: URL.createObjectURL(f),
+            mediaType: type,
+            createdAt: new Date(),
+            reactions: {},
+            seenBy: [],
+            status: "sending",
+            replyTo: replyTo ? { id: replyTo.id, text: replyTo.text, senderId: replyTo.senderId } : null,
+          };
+          setMessages((prev) => [...prev, tempMessage]);
+          endRef.current?.scrollIntoView({ behavior: "smooth" });
 
-      const tempMessage = {
-        id: tempId,
-        senderId: myUid,
-        text: f.name,
-        mediaUrl: URL.createObjectURL(f),
-        mediaType: type,
-        createdAt: new Date(),
-        reactions: {},
-        seenBy: [],
-        status: "sending",
-        replyTo: replyTo ? { id: replyTo.id, text: replyTo.text, senderId: replyTo.senderId } : null,
-      };
-      setMessages((prev) => [...prev, tempMessage]);
-      endRef.current?.scrollIntoView({ behavior: "smooth" });
+          try {
+            let mediaUrl = "";
+            if (type !== "file") {
+              const formData = new FormData();
+              formData.append("file", f);
+              formData.append("upload_preset", import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET);
 
-      // Upload to Cloudinary
-      try {
-        let mediaUrl = "";
-        if (type !== "file") {
-          const formData = new FormData();
-          formData.append("file", f);
-          formData.append("upload_preset", import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET);
+              const res = await axios.post(
+                `https://api.cloudinary.com/v1_1/${import.meta.env.VITE_CLOUDINARY_CLOUD_NAME}/auto/upload`,
+                formData
+              );
+              mediaUrl = res.data.secure_url;
+            }
 
-          const res = await axios.post(
-            `https://api.cloudinary.com/v1_1/${import.meta.env.VITE_CLOUDINARY_CLOUD_NAME}/auto/upload`,
-            formData
-          );
-          mediaUrl = res.data.secure_url;
-        }
+            const payload = {
+              senderId: myUid,
+              text: f.name,
+              mediaUrl,
+              mediaType: type,
+              createdAt: serverTimestamp(),
+              reactions: {},
+              seenBy: [],
+              replyTo: replyTo ? { id: replyTo.id, text: replyTo.text, senderId: replyTo.senderId } : null,
+            };
 
-        const payload = {
-          senderId: myUid,
-          text: f.name,
-          mediaUrl,
-          mediaType: type,
-          createdAt: serverTimestamp(),
-          reactions: {},
-          seenBy: [],
-          replyTo: replyTo ? { id: replyTo.id, text: replyTo.text, senderId: replyTo.senderId } : null,
-        };
+            const docRef = await addDoc(messagesCol, payload);
 
-        const docRef = await addDoc(messagesCol, payload);
-
-        setMessages((prev) =>
-          prev.map((m) =>
-            m.id === tempId ? { ...payload, id: docRef.id, status: "sent", createdAt: new Date() } : m
-          )
-        );
-      } catch (err) {
-        console.error(err);
-        toast.error(`Failed to send ${f.name}`);
-        setMessages((prev) =>
-          prev.map((m) => (m.id === tempId ? { ...m, status: "failed" } : m))
-        );
-      }
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === tempId
+                  ? { ...payload, id: docRef.id, status: "sent", createdAt: new Date() }
+                  : m
+              )
+            );
+          } catch (err) {
+            console.error(err);
+            toast.error(`Failed to send ${f.name}`);
+            setMessages((prev) =>
+              prev.map((m) => (m.id === tempId ? { ...m, status: "failed" } : m))
+            );
+          }
+        })
+      );
     }
 
-    // -------------------- Text messages --------------------
+    // -------------------- Text message --------------------
     if (textMsg.trim()) {
       const tempId = `temp-${Date.now()}-${Math.random()}`;
       const tempMessage = {
@@ -220,7 +243,6 @@ export default function ChatConversationPage() {
       try {
         const payload = { ...tempMessage, createdAt: serverTimestamp(), status: "sent" };
         const docRef = await addDoc(messagesCol, payload);
-
         setMessages((prev) =>
           prev.map((m) =>
             m.id === tempId ? { ...payload, id: docRef.id, createdAt: new Date() } : m
@@ -236,18 +258,38 @@ export default function ChatConversationPage() {
     }
 
     // -------------------- Update chat last message --------------------
-    const chatRef = doc(db, "chats", chatId);
-    await updateDoc(chatRef, {
-      lastMessage: textMsg || files[0]?.name,
-      lastMessageSender: myUid,
-      lastMessageAt: serverTimestamp(),
-      lastMessageStatus: "delivered",
-    });
+    try {
+      const chatRef = doc(db, "chats", chatId);
+      await updateDoc(chatRef, {
+        lastMessage: textMsg || files[0]?.name,
+        lastMessageSender: myUid,
+        lastMessageAt: serverTimestamp(),
+        lastMessageStatus: "delivered",
+      });
+    } catch (err) {
+      console.error(err);
+    }
 
     setText("");
     setSelectedFiles([]);
     setReplyTo(null);
     setShowPreview(false);
+  };
+
+  // -------------------- Clear chat --------------------
+  const clearChat = async () => {
+    if (!window.confirm("Clear this chat?")) return;
+    try {
+      await Promise.all(
+        messages.map((msg) =>
+          updateDoc(doc(db, "chats", chatId, "messages", msg.id), { deleted: true })
+        )
+      );
+      toast.success("Chat cleared");
+    } catch (err) {
+      console.error(err);
+      toast.error("Failed to clear some messages");
+    }
   };
 
   return (
@@ -266,18 +308,13 @@ export default function ChatConversationPage() {
         chatId={chatId}
         pinnedMessage={pinnedMessage}
         setBlockedStatus={setIsBlocked}
-        onClearChat={async () => {
-          if (!window.confirm("Clear this chat?")) return;
-          messages.forEach(async (msg) => {
-            const msgRef = doc(db, "chats", chatId, "messages", msg.id);
-            await updateDoc(msgRef, { deleted: true });
-          });
-          toast.success("Chat cleared");
-        }}
+        onClearChat={clearChat}
         onSearch={() => {
           const q = prompt("Search text:");
           if (!q) return;
-          const results = messages.filter((m) => m.text?.toLowerCase().includes(q.toLowerCase()));
+          const results = messages.filter((m) =>
+            m.text?.toLowerCase().includes(q.toLowerCase())
+          );
           if (!results.length) return toast.info("No messages found");
           scrollToMessage(results[0].id);
         }}
@@ -293,10 +330,10 @@ export default function ChatConversationPage() {
           flexDirection: "column",
         }}
       >
-        {groupedMessages.map((item, idx) =>
+        {groupedMessages.map((item) =>
           item.type === "date-separator" ? (
             <div
-              key={idx}
+              key={item.key}
               style={{
                 textAlign: "center",
                 margin: "10px 0",
