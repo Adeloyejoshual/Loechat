@@ -1,72 +1,110 @@
+// src/components/Chat/MediaViewer.jsx
 import React, { useState, useEffect, useRef } from "react";
 import { FiX, FiChevronLeft, FiChevronRight, FiDownload } from "react-icons/fi";
 
 export default function MediaViewer({ items = [], startIndex = 0, onClose }) {
   const [currentIndex, setCurrentIndex] = useState(startIndex);
-  const [translateY, setTranslateY] = useState(0);
+  const [translate, setTranslate] = useState({ x: 0, y: 0 });
   const [scale, setScale] = useState(1);
   const [opacity, setOpacity] = useState(1);
   const [isDragging, setIsDragging] = useState(false);
+  const lastTouchDistance = useRef(null);
+  const lastTap = useRef(0);
 
-  const startX = useRef(0);
-  const startY = useRef(0);
-  const deltaX = useRef(0);
-  const deltaY = useRef(0);
+  const startPos = useRef({ x: 0, y: 0 });
+  const delta = useRef({ x: 0, y: 0 });
 
-  useEffect(() => setCurrentIndex(startIndex), [startIndex, items]);
+  useEffect(() => setCurrentIndex(startIndex), [startIndex]);
 
   if (!items.length) return null;
   const currentItem = items[currentIndex];
 
-  const handleNext = () => setCurrentIndex((i) => Math.min(i + 1, items.length - 1));
-  const handlePrev = () => setCurrentIndex((i) => Math.max(i - 1, 0));
+  // ---------------- Navigation ----------------
+  const handleNext = () => {
+    resetTransform();
+    setCurrentIndex((i) => Math.min(i + 1, items.length - 1));
+  };
+  const handlePrev = () => {
+    resetTransform();
+    setCurrentIndex((i) => Math.max(i - 1, 0));
+  };
 
-  // ---------------- Touch Events ----------------
+  // ---------------- Transform Helpers ----------------
+  const resetTransform = () => {
+    setScale(1);
+    setTranslate({ x: 0, y: 0 });
+    lastTouchDistance.current = null;
+  };
+
+  // ---------------- Touch Handlers ----------------
   const handleTouchStart = (e) => {
-    startX.current = e.touches[0].clientX;
-    startY.current = e.touches[0].clientY;
-    deltaX.current = 0;
-    deltaY.current = 0;
-    setIsDragging(true);
+    if (e.touches.length === 1) {
+      startPos.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+      delta.current = { x: 0, y: 0 };
+      setIsDragging(true);
+
+      // Double-tap zoom
+      const now = Date.now();
+      if (now - lastTap.current < 300) {
+        setScale((prev) => (prev === 1 ? 2 : 1));
+        setTranslate({ x: 0, y: 0 });
+      }
+      lastTap.current = now;
+    } else if (e.touches.length === 2) {
+      const dx = e.touches[0].clientX - e.touches[1].clientX;
+      const dy = e.touches[0].clientY - e.touches[1].clientY;
+      lastTouchDistance.current = Math.hypot(dx, dy);
+    }
   };
 
   const handleTouchMove = (e) => {
-    deltaX.current = e.touches[0].clientX - startX.current;
-    deltaY.current = e.touches[0].clientY - startY.current;
-
-    if (deltaY.current > 0) {
-      setTranslateY(deltaY.current);
-      setOpacity(Math.max(1 - deltaY.current / 300, 0.3));
-      setScale(Math.max(1 - deltaY.current / 1000, 0.95));
+    if (e.touches.length === 1 && scale > 1) {
+      // Drag image when zoomed
+      delta.current = {
+        x: e.touches[0].clientX - startPos.current.x,
+        y: e.touches[0].clientY - startPos.current.y,
+      };
+      setTranslate({ x: delta.current.x, y: delta.current.y });
+    } else if (e.touches.length === 2) {
+      // Pinch-to-zoom
+      const dx = e.touches[0].clientX - e.touches[1].clientX;
+      const dy = e.touches[0].clientY - e.touches[1].clientY;
+      const distance = Math.hypot(dx, dy);
+      if (lastTouchDistance.current) {
+        let newScale = (scale * distance) / lastTouchDistance.current;
+        if (newScale < 1) newScale = 1;
+        if (newScale > 4) newScale = 4;
+        setScale(newScale);
+      }
+      lastTouchDistance.current = distance;
     }
   };
 
   const handleTouchEnd = () => {
     setIsDragging(false);
+    lastTouchDistance.current = null;
 
-    // Horizontal swipe (prev/next)
-    if (Math.abs(deltaX.current) > 50 && Math.abs(deltaY.current) < 50) {
-      deltaX.current > 0 ? handlePrev() : handleNext();
+    // Swipe left/right to navigate
+    if (Math.abs(delta.current.x) > 50 && Math.abs(delta.current.y) < 50 && scale === 1) {
+      if (delta.current.x > 0) handlePrev();
+      else handleNext();
     }
 
     // Swipe down to close
-    if (deltaY.current > 100) {
-      setTranslateY(500);
+    if (delta.current.y > 120 && scale === 1) {
       setOpacity(0);
-      setScale(0.95);
       setTimeout(onClose, 200);
-    } else {
-      setTranslateY(0);
-      setOpacity(1);
-      setScale(1);
     }
+
+    // Reset translation if not zoomed
+    if (scale === 1) setTranslate({ x: 0, y: 0 });
   };
 
-  // ---------------- Save media ----------------
-  const handleSave = () => {
+  // ---------------- Download ----------------
+  const handleDownload = () => {
     const link = document.createElement("a");
     link.href = currentItem.url;
-    link.download = currentItem.type === "video" ? "video.mp4" : "image.jpg";
+    link.download = currentItem.url.split("/").pop();
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -85,15 +123,15 @@ export default function MediaViewer({ items = [], startIndex = 0, onClose }) {
         justifyContent: "center",
         alignItems: "center",
         zIndex: 9999,
+        touchAction: "none",
         opacity: opacity,
-        transition: isDragging ? "none" : "opacity 0.2s ease",
-        touchAction: "pan-y",
+        transition: "opacity 0.2s ease",
       }}
       onTouchStart={handleTouchStart}
       onTouchMove={handleTouchMove}
       onTouchEnd={handleTouchEnd}
     >
-      {/* Close Button */}
+      {/* Close */}
       <button
         onClick={onClose}
         style={{
@@ -101,32 +139,33 @@ export default function MediaViewer({ items = [], startIndex = 0, onClose }) {
           top: 20,
           right: 20,
           background: "rgba(0,0,0,0.5)",
-          border: "none",
           borderRadius: "50%",
           padding: 8,
-          cursor: "pointer",
           color: "#fff",
           fontSize: 24,
+          border: "none",
+          cursor: "pointer",
         }}
       >
         <FiX />
       </button>
 
-      {/* Save Button */}
+      {/* Download */}
       <button
-        onClick={handleSave}
+        onClick={handleDownload}
         style={{
           position: "absolute",
           top: 20,
-          left: 20,
+          right: 70,
           background: "rgba(0,0,0,0.5)",
-          border: "none",
           borderRadius: "50%",
           padding: 8,
-          cursor: "pointer",
           color: "#fff",
           fontSize: 24,
+          border: "none",
+          cursor: "pointer",
         }}
+        title="Download"
       >
         <FiDownload />
       </button>
@@ -141,12 +180,12 @@ export default function MediaViewer({ items = [], startIndex = 0, onClose }) {
             top: "50%",
             transform: "translateY(-50%)",
             background: "rgba(0,0,0,0.5)",
-            border: "none",
             borderRadius: "50%",
             padding: 8,
-            cursor: "pointer",
             color: "#fff",
             fontSize: 24,
+            border: "none",
+            cursor: "pointer",
           }}
         >
           <FiChevronLeft />
@@ -161,12 +200,12 @@ export default function MediaViewer({ items = [], startIndex = 0, onClose }) {
             top: "50%",
             transform: "translateY(-50%)",
             background: "rgba(0,0,0,0.5)",
-            border: "none",
             borderRadius: "50%",
             padding: 8,
-            cursor: "pointer",
             color: "#fff",
             fontSize: 24,
+            border: "none",
+            cursor: "pointer",
           }}
         >
           <FiChevronRight />
@@ -178,21 +217,20 @@ export default function MediaViewer({ items = [], startIndex = 0, onClose }) {
         style={{
           maxWidth: "90%",
           maxHeight: "90%",
-          transform: `translateY(${translateY}px) scale(${scale})`,
-          transition: isDragging ? "none" : "transform 0.25s cubic-bezier(0.25, 1.5, 0.5, 1)",
+          transform: `translate(${translate.x}px, ${translate.y}px) scale(${scale})`,
+          transition: isDragging ? "none" : "transform 0.2s ease",
+          borderRadius: 12,
+          textAlign: "center",
         }}
       >
-        {currentItem.type === "image" && (
+        {currentItem.type === "image" ? (
           <img
-            key={currentIndex}
             src={currentItem.url}
             alt="media"
             style={{ maxWidth: "100%", maxHeight: "100%", borderRadius: 12 }}
           />
-        )}
-        {currentItem.type === "video" && (
+        ) : (
           <video
-            key={currentIndex}
             src={currentItem.url}
             controls
             autoPlay
