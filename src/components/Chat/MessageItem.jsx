@@ -2,9 +2,9 @@
 import React, { useState, useRef, useEffect } from "react";
 import LongPressMessageModal from "./LongPressMessageModal";
 
-const READ_MORE_STEP = 450; // ~6–7 lines like WhatsApp
+const READ_MORE_STEP = 450;
 const LONG_PRESS_DELAY = 500;
-const SWIPE_TRIGGER_DISTANCE = -70; // LEFT only
+const SWIPE_TRIGGER_DISTANCE = -70;
 
 export default function MessageItem({
   message,
@@ -24,10 +24,9 @@ export default function MessageItem({
 
   // -------------------- Read more --------------------
   const [visibleChars, setVisibleChars] = useState(READ_MORE_STEP);
-
   const isLongText = message.text?.length > visibleChars;
 
-  // -------------------- Swipe to reply (LEFT only) --------------------
+  // -------------------- Swipe --------------------
   const swipeStartX = useRef(0);
   const [swipeX, setSwipeX] = useState(0);
   const swipeTimer = useRef(null);
@@ -38,12 +37,8 @@ export default function MessageItem({
     if (!el) return;
 
     const startPress = () => {
-      longPressTimer.current = setTimeout(
-        () => setShowLongPress(true),
-        LONG_PRESS_DELAY
-      );
+      longPressTimer.current = setTimeout(() => setShowLongPress(true), LONG_PRESS_DELAY);
     };
-
     const cancelPress = () => clearTimeout(longPressTimer.current);
 
     el.addEventListener("mousedown", startPress);
@@ -62,39 +57,43 @@ export default function MessageItem({
     };
   }, []);
 
-  // -------------------- Swipe LEFT only --------------------
   const handleTouchStart = (e) => {
     swipeStartX.current = e.touches[0].clientX;
-
-    swipeTimer.current = setTimeout(() => {
-      // enables swipe after 500ms
-    }, 500);
+    swipeTimer.current = setTimeout(() => {}, 500);
   };
 
   const handleTouchMove = (e) => {
     const diff = e.touches[0].clientX - swipeStartX.current;
-
-    if (diff < 0) {
-      // LEFT only
-      setSwipeX(diff);
-    }
+    if (diff < 0) setSwipeX(diff);
   };
 
   const handleTouchEnd = () => {
     clearTimeout(swipeTimer.current);
-
-    if (swipeX < SWIPE_TRIGGER_DISTANCE) {
-      setReplyTo(message);
-    }
-
+    if (swipeX < SWIPE_TRIGGER_DISTANCE) setReplyTo(message);
     setSwipeX(0);
   };
 
-  // -------------------- Scroll to original message --------------------
   const scrollToOriginal = () => {
     if (!message.replyTo?.id) return;
     const el = document.getElementById(message.replyTo.id);
     if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+  };
+
+  // -------------------- Delivered / Seen --------------------
+  const renderStatus = () => {
+    if (!isMine) return null;
+
+    const totalParticipants = message.totalParticipants || 2; // default 2
+    const deliveredCount = message.deliveredTo?.length || 0;
+    const seenCount = message.seenBy?.length || 0;
+
+    if (seenCount >= totalParticipants - 1) {
+      return "✔✔"; // seen (blue)
+    } else if (deliveredCount >= totalParticipants - 1) {
+      return "✔✔"; // delivered (gray)
+    } else {
+      return "✔"; // sent
+    }
   };
 
   // -------------------- Styles --------------------
@@ -104,17 +103,12 @@ export default function MessageItem({
     margin: "6px 0",
     padding: 10,
     borderRadius: 14,
-    backgroundColor: isMine
-      ? isDark
-        ? "#1976d2"
-        : "#d0e7ff"
-      : isDark
-      ? "#2a2a2a"
-      : "#fff",
+    backgroundColor: isMine ? (isDark ? "#1976d2" : "#d0e7ff") : isDark ? "#2a2a2a" : "#fff",
     color: isMine ? "#fff" : isDark ? "#fff" : "#000",
     transform: `translateX(${swipeX}px)`,
     transition: swipeX ? "none" : "transform 0.2s ease",
     wordBreak: "break-word",
+    position: "relative",
   };
 
   return (
@@ -127,7 +121,7 @@ export default function MessageItem({
         onTouchEnd={handleTouchEnd}
         style={bubbleStyle}
       >
-        {/* ------------------ Reply Preview ------------------ */}
+        {/* Reply Preview */}
         {message.replyTo && (
           <div
             onClick={scrollToOriginal}
@@ -147,12 +141,7 @@ export default function MessageItem({
               <img
                 src={message.replyTo.mediaUrl}
                 alt="reply"
-                style={{
-                  width: 32,
-                  height: 32,
-                  borderRadius: 6,
-                  objectFit: "cover",
-                }}
+                style={{ width: 32, height: 32, borderRadius: 6, objectFit: "cover" }}
               />
             ) : (
               <span>{message.replyTo.text?.slice(0, 60) || "Message"}</span>
@@ -160,19 +149,14 @@ export default function MessageItem({
           </div>
         )}
 
-        {/* ------------------ Text ------------------ */}
+        {/* Text */}
         {message.text && (
           <div>
             {message.text.slice(0, visibleChars)}
             {isLongText && (
               <span
                 onClick={() => setVisibleChars((p) => p + READ_MORE_STEP)}
-                style={{
-                  marginLeft: 6,
-                  fontWeight: 500,
-                  cursor: "pointer",
-                  opacity: 0.9,
-                }}
+                style={{ marginLeft: 6, fontWeight: 500, cursor: "pointer", opacity: 0.9 }}
               >
                 Read more
               </span>
@@ -180,44 +164,39 @@ export default function MessageItem({
           </div>
         )}
 
-        {/* ------------------ Media ------------------ */}
+        {/* Media */}
         {message.mediaUrl &&
           (message.mediaType === "image" ? (
             <img
               src={message.mediaUrl}
               onClick={() => onMediaClick?.(message)}
               alt="media"
-              style={{
-                width: "100%",
-                marginTop: 8,
-                borderRadius: 10,
-                cursor: "pointer",
-              }}
+              style={{ width: "100%", marginTop: 8, borderRadius: 10, cursor: "pointer" }}
             />
           ) : (
-            <video
-              src={message.mediaUrl}
-              controls
-              style={{ width: "100%", marginTop: 8, borderRadius: 10 }}
-            />
+            <video src={message.mediaUrl} controls style={{ width: "100%", marginTop: 8, borderRadius: 10 }} />
           ))}
 
-        {/* ------------------ Status ------------------ */}
+        {/* Reactions */}
+        {message.reactions && Object.keys(message.reactions).length > 0 && (
+          <div style={{ marginTop: 4, display: "flex", gap: 4, flexWrap: "wrap" }}>
+            {Object.entries(message.reactions).map(([emoji, users]) => (
+              <span key={emoji} style={{ fontSize: 14 }}>
+                {emoji} {users.length > 1 ? users.length : ""}
+              </span>
+            ))}
+          </div>
+        )}
+
+        {/* Status */}
         {isMine && (
-          <div
-            style={{
-              fontSize: 10,
-              opacity: 0.7,
-              textAlign: "right",
-              marginTop: 4,
-            }}
-          >
-            {message.status}
+          <div style={{ fontSize: 10, opacity: 0.7, textAlign: "right", marginTop: 4 }}>
+            {renderStatus()}
           </div>
         )}
       </div>
 
-      {/* ------------------ Long Press Modal ------------------ */}
+      {/* Long Press Modal */}
       {showLongPress && (
         <LongPressMessageModal
           isDark={isDark}
