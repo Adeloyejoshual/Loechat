@@ -56,7 +56,7 @@ export default function FriendProfilePage() {
   const [showReport, setShowReport] = useState(false);
   const [reportReason, setReportReason] = useState("");
 
-  const backend = "https://www.loechat.com"; // Updated backend
+  const backend = "https://www.loechat.com";
 
   useEffect(() => {
     if (!uid) return;
@@ -135,10 +135,10 @@ export default function FriendProfilePage() {
     <div className={`min-h-screen p-4 bg-gray-100 dark:bg-gray-900 transition-colors duration-300`}>
       <div className="max-w-md mx-auto bg-white dark:bg-gray-800 rounded-xl shadow-lg p-6">
 
-        {/* Profile Picture */}
-        <div className="flex justify-center mb-4">
+        {/* Profile Picture (smaller now) */}
+        <div className="flex justify-center mb-6">
           <div
-            className="w-20 h-20 rounded-full overflow-hidden border-2 border-gray-300 dark:border-gray-600 cursor-pointer transition-transform hover:scale-105"
+            className="w-20 h-20 rounded-full overflow-hidden border-2 border-gray-300 dark:border-gray-600 cursor-pointer transition-transform hover:scale-105 shadow-md"
             onClick={() => setShowImage(true)}
           >
             {friend.profilePic ? (
@@ -157,7 +157,7 @@ export default function FriendProfilePage() {
 
         {/* Name & Status */}
         <div className="text-center mb-6">
-          <h3 className="text-2xl font-semibold text-gray-900 dark:text-gray-100">{friend.name}</h3>
+          <h3 className="text-xl font-semibold text-gray-900 dark:text-gray-100">{friend.name}</h3>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
             {formatLastSeen(friend.lastSeen)}
           </p>
@@ -177,7 +177,7 @@ export default function FriendProfilePage() {
             <button
               key={idx}
               onClick={btn.action}
-              className="flex flex-col items-center justify-center py-3 px-2 bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-100 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition transform hover:scale-105"
+              className="flex flex-col items-center justify-center py-3 px-2 bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-100 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition transform hover:scale-105 shadow-sm"
               title={btn.label}
             >
               {btn.icon}
@@ -188,23 +188,23 @@ export default function FriendProfilePage() {
           {/* Block button spans full row */}
           <button
             onClick={toggleBlock}
-            className="col-span-3 flex items-center justify-center gap-2 py-3 px-4 bg-red-600 text-white rounded-lg hover:bg-red-700 transition transform hover:scale-105 mt-2"
+            className="col-span-3 flex items-center justify-center gap-2 py-3 px-4 bg-red-600 text-white rounded-lg hover:bg-red-700 transition transform hover:scale-105 mt-2 shadow-sm"
           >
             <FiSlash /> {isBlocked ? "Unblock" : "Block"}
           </button>
         </div>
       </div>
 
-      {/* Fullscreen Image */}
+      {/* Fullscreen Profile Image */}
       {showImage && friend.profilePic && (
-        <div className="fixed inset-0 bg-black flex items-center justify-center z-50">
+        <div className="fixed inset-0 bg-black bg-opacity-95 flex items-center justify-center z-50">
           <FiX
             onClick={() => setShowImage(false)}
-            className="absolute top-5 right-5 text-white text-3xl cursor-pointer"
+            className="absolute top-5 right-5 text-white text-4xl cursor-pointer hover:text-red-500 transition"
           />
           <img
             src={friend.profilePic}
-            className="max-h-full max-w-full rounded-lg"
+            className="max-h-full max-w-full rounded-lg shadow-2xl animate-fadeIn"
             alt="Profile Fullscreen"
           />
         </div>
