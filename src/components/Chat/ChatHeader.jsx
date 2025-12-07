@@ -22,27 +22,37 @@ export default function ChatHeader({
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef(null);
 
+  // ---------------------------
   // Load friend info
+  // ---------------------------
   useEffect(() => {
     if (!friendId) return;
-    return onSnapshot(doc(db, "users", friendId), (snap) => {
-      if (snap.exists()) setFriendInfo(snap.data());
+    const ref = doc(db, "users", friendId);
+    const unsub = onSnapshot(ref, (snap) => {
+      if (snap.exists()) setFriendInfo({ id: snap.id, ...snap.data() });
     });
+    return () => unsub();
   }, [friendId]);
 
+  // ---------------------------
   // Load chat info
+  // ---------------------------
   useEffect(() => {
     if (!chatId) return;
-    return onSnapshot(doc(db, "chats", chatId), (snap) => {
+    const ref = doc(db, "chats", chatId);
+    const unsub = onSnapshot(ref, (snap) => {
       if (snap.exists()) {
         const data = snap.data();
         setChatInfo(data);
         setBlockedStatus?.(data.blocked);
       }
     });
+    return () => unsub();
   }, [chatId, setBlockedStatus]);
 
+  // ---------------------------
   // Close menu on outside click
+  // ---------------------------
   useEffect(() => {
     const closeMenu = (e) => {
       if (menuRef.current && !menuRef.current.contains(e.target)) setMenuOpen(false);
@@ -51,7 +61,9 @@ export default function ChatHeader({
     return () => document.removeEventListener("mousedown", closeMenu);
   }, []);
 
+  // ---------------------------
   // Toggle block
+  // ---------------------------
   const toggleBlock = async () => {
     if (!chatInfo) return;
     const newBlocked = !chatInfo.blocked;
@@ -61,7 +73,9 @@ export default function ChatHeader({
     setMenuOpen(false);
   };
 
+  // ---------------------------
   // Toggle mute (24h)
+  // ---------------------------
   const toggleMute = async () => {
     if (!chatInfo) return;
     const isMuted = chatInfo.mutedUntil && chatInfo.mutedUntil > Date.now();
@@ -71,7 +85,9 @@ export default function ChatHeader({
     setMenuOpen(false);
   };
 
+  // ---------------------------
   // Utilities
+  // ---------------------------
   const getInitials = (name) => {
     if (!name) return "U";
     const parts = name.trim().split(" ");
@@ -93,9 +109,19 @@ export default function ChatHeader({
     return `Last seen on ${last.toLocaleDateString()} at ${last.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
   };
 
+  // ---------------------------
   // Calls
+  // ---------------------------
   const startVoiceCall = () => onVoiceCall?.(chatId);
   const startVideoCall = () => onVideoCall?.(chatId);
+
+  // ---------------------------
+  // Safe navigation to friend profile
+  // ---------------------------
+  const goToFriendProfile = () => {
+    if (!friendId) return; // Guard against undefined
+    navigate(`/friend/${friendId}`);
+  };
 
   return (
     <>
@@ -104,16 +130,16 @@ export default function ChatHeader({
         <div className="chat-back" onClick={() => navigate("/chat")}>←</div>
 
         {/* Avatar */}
-        <div className="chat-avatar" onClick={() => navigate(`/friend/${friendId}`)}>
+        <div className="chat-avatar" onClick={goToFriendProfile}>
           {friendInfo?.profilePic ? (
             <img src={friendInfo.profilePic} alt="avatar" />
           ) : (
-            <span>{getInitials(friendInfo?.name)}</span>
+            <span>{getInitials(friendInfo?.name || "U")}</span>
           )}
         </div>
 
         {/* Name & Last Seen */}
-        <div className="chat-info" onClick={() => navigate(`/friend/${friendId}`)}>
+        <div className="chat-info" onClick={goToFriendProfile}>
           <span className="chat-name">{friendInfo?.name || "Loading..."}</span>
           <span className="chat-lastseen">{formatLastSeen(friendInfo?.lastSeen)}</span>
         </div>
