@@ -1,10 +1,10 @@
-// src/components/FriendProfilePage.jsx
-import React, { useEffect, useState, useContext, useRef } from "react";
+import React, { useEffect, useState, useContext } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { auth, db } from "../firebaseConfig";
-import { doc, onSnapshot, updateDoc, collection, query, orderBy, getDocs } from "firebase/firestore";
+import { doc, onSnapshot, updateDoc } from "firebase/firestore";
 import { ThemeContext } from "../context/ThemeContext";
 import { UserContext } from "../context/UserContext";
+import { FiCamera, FiVideo, FiImage } from "react-icons/fi";
 
 // ---------------- UTILITY ----------------
 const stringToColor = (str) => {
@@ -17,9 +17,7 @@ const stringToColor = (str) => {
 const getInitials = (name) => {
   if (!name) return "NA";
   const parts = name.trim().split(" ");
-  return parts.length === 1
-    ? parts[0][0].toUpperCase()
-    : (parts[0][0] + parts[1][0]).toUpperCase();
+  return parts.length === 1 ? parts[0][0].toUpperCase() : (parts[0][0] + parts[1][0]).toUpperCase();
 };
 
 const formatLastSeen = (ts) => {
@@ -40,9 +38,9 @@ const formatLastSeen = (ts) => {
   return `Last seen: ${d.toLocaleDateString(undefined, options)} at ${d.toLocaleTimeString([], { hour: "numeric", minute: "numeric", hour12: true })}`;
 };
 
-const getCloudinaryUrl = (path, type = "image") =>
+const getCloudinaryUrl = (path) =>
   path
-    ? `https://res.cloudinary.com/${import.meta.env.VITE_CLOUDINARY_CLOUD_NAME}/image/upload/${type === "image" ? "w_600,h_600,c_thumb" : "w_800,h_450,c_fill"}/${path}.jpg`
+    ? `https://res.cloudinary.com/${import.meta.env.VITE_CLOUDINARY_CLOUD_NAME}/image/upload/w_300,h_300,c_thumb/${path}.jpg`
     : null;
 
 // ---------------- COMPONENT ----------------
@@ -56,13 +54,6 @@ export default function FriendProfilePage() {
   const [friend, setFriend] = useState(null);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
-
-  // Shared media state
-  const [sharedMedia, setSharedMedia] = useState([]);
-  const [modalOpen, setModalOpen] = useState(false);
-  const [modalIndex, setModalIndex] = useState(0);
-  const touchStartX = useRef(0);
-  const touchEndX = useRef(0);
 
   // ---------------- REAL-TIME FRIEND DATA ----------------
   useEffect(() => {
@@ -104,44 +95,9 @@ export default function FriendProfilePage() {
     alert(`You reported ${friend?.displayName || "this user"}.`);
   };
 
-  // ---------------- SHARED MEDIA ----------------
-  const fetchSharedMedia = async () => {
-    if (!currentUser || !uid) return;
-    try {
-      const mediaRef = collection(db, "messages");
-      const q = query(mediaRef, orderBy("createdAt", "desc"));
-      const snap = await getDocs(q);
-      const media = [];
-      snap.forEach((doc) => {
-        const data = doc.data();
-        if (
-          (data.senderId === currentUser.uid && data.receiverId === uid) ||
-          (data.senderId === uid && data.receiverId === currentUser.uid)
-        ) {
-          if (data.mediaPath) media.push({ mediaPath: data.mediaPath, type: data.mediaType || "image" });
-        }
-      });
-      setSharedMedia(media);
-      if (media.length) {
-        setModalIndex(0);
-        setModalOpen(true);
-      }
-    } catch (err) {
-      console.error("Failed to fetch shared media:", err);
-      alert("Failed to load shared media.");
-    }
-  };
-
-  const closeModal = () => setModalOpen(false);
-  const nextMedia = () => setModalIndex((prev) => (prev + 1) % sharedMedia.length);
-  const prevMedia = () => setModalIndex((prev) => (prev - 1 + sharedMedia.length) % sharedMedia.length);
-
-  const handleTouchStart = (e) => { touchStartX.current = e.changedTouches[0].screenX; };
-  const handleTouchMove = (e) => { touchEndX.current = e.changedTouches[0].screenX; };
-  const handleTouchEnd = () => {
-    const diff = touchStartX.current - touchEndX.current;
-    if (diff > 50) nextMedia();
-    else if (diff < -50) prevMedia();
+  const viewSharedMedia = () => {
+    if (!friend) return;
+    navigate(`/chat/${[currentUser.uid, uid].sort().join("_")}/media`);
   };
 
   if (loading || !friend) {
@@ -175,6 +131,8 @@ export default function FriendProfilePage() {
             {getInitials(friend.displayName)}
           </span>
         )}
+
+        {/* ONLINE DOT */}
         <span
           className={`absolute bottom-2 right-2 w-4 h-4 rounded-full border-2 border-white ${friend.isOnline ? "bg-green-400" : "bg-gray-400"}`}
           title={friend.isOnline ? "Online" : formatLastSeen(friend.lastSeen)}
@@ -197,6 +155,13 @@ export default function FriendProfilePage() {
           Send Message
         </button>
 
+        <button
+          onClick={viewSharedMedia}
+          className="bg-purple-600 text-white py-2 rounded-lg font-semibold hover:bg-purple-700 transition flex items-center justify-center gap-2"
+        >
+          <FiImage /> View Shared Media
+        </button>
+
         {currentUser.uid !== uid && (
           <button
             onClick={toggleBlock}
@@ -215,78 +180,7 @@ export default function FriendProfilePage() {
             Report User
           </button>
         )}
-
-        {/* View Shared Media */}
-        {currentUser.uid !== uid && (
-          <button
-            onClick={fetchSharedMedia}
-            className="bg-purple-600 text-white py-2 rounded-lg font-semibold hover:bg-purple-700 transition"
-          >
-            View Shared Media
-          </button>
-        )}
       </div>
-
-      {/* Modal */}
-      {modalOpen && sharedMedia[modalIndex] && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-90"
-          onClick={closeModal}
-          onTouchStart={handleTouchStart}
-          onTouchMove={handleTouchMove}
-          onTouchEnd={handleTouchEnd}
-        >
-          <div
-            className="relative max-w-4xl max-h-full p-2 flex flex-col items-center justify-center"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* Media Index */}
-            <div className="absolute top-4 left-1/2 transform -translate-x-1/2 text-white bg-black bg-opacity-50 px-3 py-1 rounded text-sm font-semibold">
-              {modalIndex + 1} / {sharedMedia.length} {sharedMedia[modalIndex].type === "video" ? "🎥" : "🖼"}
-            </div>
-
-            {/* Previous */}
-            <button
-              onClick={prevMedia}
-              className="absolute left-2 top-1/2 transform -translate-y-1/2 text-white text-3xl font-bold p-2 hover:opacity-70"
-            >
-              ‹
-            </button>
-
-            {/* Media */}
-            {sharedMedia[modalIndex].type === "image" ? (
-              <img
-                src={getCloudinaryUrl(sharedMedia[modalIndex].mediaPath, "image")}
-                alt="Full"
-                className="max-h-screen max-w-full rounded"
-              />
-            ) : (
-              <video
-                src={getCloudinaryUrl(sharedMedia[modalIndex].mediaPath, "video")}
-                controls
-                autoPlay
-                className="max-h-screen max-w-full rounded"
-              />
-            )}
-
-            {/* Next */}
-            <button
-              onClick={nextMedia}
-              className="absolute right-2 top-1/2 transform -translate-y-1/2 text-white text-3xl font-bold p-2 hover:opacity-70"
-            >
-              ›
-            </button>
-
-            {/* Close */}
-            <button
-              onClick={closeModal}
-              className="absolute top-2 right-2 text-white text-3xl font-bold p-2 hover:opacity-70"
-            >
-              ✕
-            </button>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
