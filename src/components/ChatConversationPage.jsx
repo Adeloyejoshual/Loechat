@@ -148,7 +148,7 @@ export default function ChatConversationPage() {
     }
   };
 
-  // -------------------- Typing indicator writer --------------------
+  // -------------------- Typing indicator --------------------
   const setTypingFlag = async (typing) => {
     if (!chatId || !myUid) return;
     try {
@@ -173,11 +173,13 @@ export default function ChatConversationPage() {
     if (!textMsg && !files.length) return;
 
     const messagesCol = collection(db, "chats", chatId, "messages");
+    const newMessages = files.length ? files : [null];
 
-    for (const f of files.length ? files : [null]) {
+    for (const f of newMessages) {
       const isFile = Boolean(f);
       const type = isFile ? (f.type.startsWith("image/") ? "image" : "video") : null;
       const tempId = `temp-${Date.now()}-${Math.random()}`;
+
       const tempMessage = {
         id: tempId,
         senderId: myUid,
@@ -197,20 +199,28 @@ export default function ChatConversationPage() {
       if (isAtBottom) endRef.current?.scrollIntoView({ behavior: "smooth" });
 
       if (isFile) {
-        const formData = new FormData();
-        formData.append("file", f);
-        formData.append("upload_preset", import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET);
-        const res = await axios.post(
-          `https://api.cloudinary.com/v1_1/${import.meta.env.VITE_CLOUDINARY_CLOUD_NAME}/auto/upload`,
-          formData,
-          {
-            onUploadProgress: (ev) => {
-              const pct = Math.round((ev.loaded * 100) / ev.total);
-              setMessages((prev) => prev.map((m) => (m.id === tempId ? { ...m, uploadProgress: pct } : m)));
-            },
-          }
-        );
-        tempMessage.mediaUrl = res.data.secure_url;
+        try {
+          const formData = new FormData();
+          formData.append("file", f);
+          formData.append("upload_preset", import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET);
+
+          const res = await axios.post(
+            `https://api.cloudinary.com/v1_1/${import.meta.env.VITE_CLOUDINARY_CLOUD_NAME}/auto/upload`,
+            formData,
+            {
+              onUploadProgress: (ev) => {
+                const pct = Math.round((ev.loaded * 100) / ev.total);
+                setMessages((prev) =>
+                  prev.map((m) => (m.id === tempId ? { ...m, uploadProgress: pct } : m))
+                );
+              },
+            }
+          );
+          tempMessage.mediaUrl = res.data.secure_url;
+        } catch (err) {
+          toast.error("Failed to upload media");
+          continue;
+        }
       }
 
       const payload = { ...tempMessage, createdAt: serverTimestamp(), status: "sent" };
@@ -220,7 +230,6 @@ export default function ChatConversationPage() {
       );
     }
 
-    // update chat last message
     await updateDoc(doc(db, "chats", chatId), {
       lastMessage: textMsg || (files[0]?.name || "Media"),
       lastMessageSender: myUid,
@@ -259,7 +268,8 @@ export default function ChatConversationPage() {
   };
 
   // -------------------- Render --------------------
-  if (!chatInfo || !friendInfo) return <div style={{ padding: 20 }}>Loading chat...</div>;
+  if (!chatInfo || !friendInfo)
+    return <div style={{ padding: 20 }}>Loading chat...</div>;
 
   return (
     <div
@@ -283,9 +293,7 @@ export default function ChatConversationPage() {
       <div
         ref={messagesRefEl}
         style={{ flex: 1, overflowY: "auto", padding: 8, display: "flex", flexDirection: "column" }}
-        onScroll={(e) => {
-          if (e.currentTarget.scrollTop === 0) loadOlderMessages();
-        }}
+        onScroll={(e) => { if (e.currentTarget.scrollTop === 0) loadOlderMessages(); }}
       >
         {messages.map((msg) => (
           <MessageItem
@@ -316,7 +324,7 @@ export default function ChatConversationPage() {
 
       {friendTyping && (
         <div style={{ padding: "0 12px 6px 12px", fontSize: 12, color: isDark ? "#ccc" : "#555" }}>
-          {friendInfo?.name || "Contact"} is typing...
+          {friendInfo?.displayName || "Contact"} is typing...
         </div>
       )}
 
@@ -334,6 +342,8 @@ export default function ChatConversationPage() {
         disabled={isBlocked}
         friendTyping={friendTyping}
         setTyping={handleUserTyping}
+        caption={caption}
+        setCaption={setCaption}
       />
 
       {showPreview && selectedFiles.length > 0 && (
