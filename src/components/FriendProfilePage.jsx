@@ -1,15 +1,7 @@
+// src/components/FriendProfilePage.jsx
 import React, { useEffect, useState, useContext } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import {
-  doc,
-  onSnapshot,
-  collection,
-  query,
-  orderBy,
-  limit,
-  getDocs,
-  updateDoc,
-} from "firebase/firestore";
+import { doc, onSnapshot, updateDoc } from "firebase/firestore";
 import { db } from "../firebaseConfig";
 import { ThemeContext } from "../context/ThemeContext";
 import { UserContext } from "../context/UserContext";
@@ -22,17 +14,11 @@ import {
   FiBell,
   FiBellOff,
   FiX,
+  FiDownload,
+  FiFlag,
 } from "react-icons/fi";
 
 /* ---------------- Utilities ---------------- */
-
-const stringToColor = (str) => {
-  let hash = 0;
-  for (let i = 0; i < str.length; i++) {
-    hash = str.charCodeAt(i) + ((hash << 5) - hash);
-  }
-  return "#" + ((hash & 0x00ffffff).toString(16)).padStart(6, "0");
-};
 
 const getInitials = (name) => {
   if (!name) return "U";
@@ -56,8 +42,6 @@ const formatLastSeen = (timestamp) => {
   })}`;
 };
 
-/* ---------------- Component ---------------- */
-
 export default function FriendProfilePage() {
   const { uid } = useParams();
   const navigate = useNavigate();
@@ -69,10 +53,12 @@ export default function FriendProfilePage() {
   const [loading, setLoading] = useState(true);
   const [isBlocked, setIsBlocked] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
-  const [media, setMedia] = useState([]);
   const [showImage, setShowImage] = useState(false);
+  const [showReport, setShowReport] = useState(false);
+  const [reportReason, setReportReason] = useState("");
 
-  /* -------- Load Friend Data -------- */
+  const backend = "https://smart-talk-zlxe.onrender.com";
+
   useEffect(() => {
     if (!uid) return;
     const ref = doc(db, "users", uid);
@@ -81,178 +67,126 @@ export default function FriendProfilePage() {
         setFriend({ id: snap.id, ...snap.data() });
         setIsBlocked(snap.data().blocked || false);
         setIsMuted(snap.data().muted || false);
-      } else {
-        setFriend(null);
       }
       setLoading(false);
     });
-
     return () => unsub();
   }, [uid]);
-
-  /* -------- Load Shared Media -------- */
-  useEffect(() => {
-    if (!currentUser || !uid) return;
-    const chatId = [currentUser.uid, uid].sort().join("_");
-
-    const q = query(
-      collection(db, "chats", chatId, "messages"),
-      orderBy("createdAt", "desc"),
-      limit(20)
-    );
-
-    const fetchMedia = async () => {
-      const snap = await getDocs(q);
-      const items = snap.docs
-        .map((d) => ({ id: d.id, ...d.data() }))
-        .filter((m) => m.mediaUrl)
-        .reverse();
-
-      setMedia(items);
-    };
-
-    fetchMedia();
-  }, [currentUser, uid]);
-
-  /* -------- Actions -------- */
 
   const sendMessage = () => {
     const chatId = [currentUser.uid, uid].sort().join("_");
     navigate(`/chat/${chatId}`);
   };
 
-  const viewSharedMedia = () => {
-    const chatId = [currentUser.uid, uid].sort().join("_");
-    navigate(`/chat/${chatId}/media`);
-  };
-
   const toggleBlock = async () => {
-    const ref = doc(db, "users", uid);
-    await updateDoc(ref, { blocked: !isBlocked });
+    await updateDoc(doc(db, "users", uid), { blocked: !isBlocked });
     setIsBlocked(!isBlocked);
   };
 
   const toggleMute = async () => {
-    const ref = doc(db, "users", uid);
-    await updateDoc(ref, { muted: !isMuted });
+    await updateDoc(doc(db, "users", uid), { muted: !isMuted });
     setIsMuted(!isMuted);
   };
 
-  /* ---------------- Skeleton Loader ---------------- */
+  const downloadImage = () => {
+    const link = document.createElement("a");
+    link.href = friend.profilePic;
+    link.download = `${friend.name || "profile"}.jpg`;
+    link.click();
+  };
 
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="w-28 h-28 bg-gray-300 rounded-full animate-pulse"></div>
-      </div>
-    );
-  }
+  const submitReport = async () => {
+    if (!reportReason.trim()) return alert("Enter report reason");
 
-  if (!friend) {
-    return (
-      <div className="min-h-screen flex items-center justify-center text-gray-500">
-        User not found
-      </div>
-    );
-  }
+    await fetch(`${backend}/api/report`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        reporterId: currentUser.uid,
+        reportedId: uid,
+        reason: reportReason,
+      }),
+    });
 
-  const isOnline = formatLastSeen(friend?.lastSeen) === "Online";
+    setShowReport(false);
+    setReportReason("");
+    alert("✅ Report submitted secretly");
+  };
+
+  if (loading)
+    return <div className="min-h-screen flex items-center justify-center">Loading...</div>;
 
   return (
-    <div className={`${isDark ? "bg-black text-white" : "bg-gray-100 text-black"} min-h-screen p-4`}>
-      {/* Header */}
-      <div className="flex items-center max-w-md mx-auto mb-6">
-        <button onClick={() => navigate(-1)} className="text-xl font-bold mr-3">←</button>
-        <h2 className="text-lg font-semibold">Profile</h2>
-      </div>
+    <div className="min-h-screen p-4 bg-gray-100 dark:bg-black">
+      <div className="max-w-md mx-auto bg-white dark:bg-gray-900 rounded-xl shadow p-5">
 
-      {/* Profile Card */}
-      <div className="max-w-md mx-auto bg-white dark:bg-gray-900 rounded-2xl shadow p-6">
         {/* Profile Picture */}
-        <div className="flex justify-center mb-4">
-          <div
-            onClick={() => friend.profilePic && setShowImage(true)}
-            className="relative w-24 h-24 sm:w-28 sm:h-28 rounded-full overflow-hidden border shadow cursor-pointer"
-          >
+        <div className="flex justify-center mb-3">
+          <div className="w-24 h-24 rounded-full overflow-hidden border cursor-pointer"
+            onClick={() => setShowImage(true)}>
             {friend.profilePic ? (
               <img src={friend.profilePic} className="w-full h-full object-cover" />
             ) : (
-              <div
-                className="w-full h-full flex items-center justify-center text-white text-3xl font-bold"
-                style={{ backgroundColor: stringToColor(friend.name) }}
-              >
+              <div className="w-full h-full bg-gray-500 flex items-center justify-center text-white text-xl">
                 {getInitials(friend.name)}
               </div>
             )}
-
-            {isOnline && (
-              <span className="absolute bottom-1 right-1 w-4 h-4 bg-green-500 border-2 border-white rounded-full"></span>
-            )}
           </div>
         </div>
 
-        {/* Name + Status */}
+        {/* Name & Status */}
         <div className="text-center mb-4">
-          <h3 className="text-xl font-bold">{friend.name || "Unknown User"}</h3>
-          <p className="text-sm text-gray-500">{friend.bio || "No bio available"}</p>
-          <p className={`text-xs mt-1 ${isOnline ? "text-green-500" : "text-gray-400"}`}>
-            {formatLastSeen(friend.lastSeen)}
-          </p>
+          <h3 className="text-xl font-bold">{friend.name}</h3>
+          <p className="text-xs text-gray-400">{formatLastSeen(friend.lastSeen)}</p>
         </div>
 
-        {/* Shared Media */}
-        {media.length > 0 && (
-          <div className="mb-5">
-            <h4 className="text-sm font-semibold mb-2">Shared Media</h4>
-            <div className="flex gap-2 overflow-x-auto">
-              {media.map((item) => (
-                <div
-                  key={item.id}
-                  onClick={viewSharedMedia}
-                  className="w-20 h-20 rounded-lg overflow-hidden flex-shrink-0 cursor-pointer"
-                >
-                  {item.mediaType === "image" ? (
-                    <img src={item.mediaUrl} className="w-full h-full object-cover" />
-                  ) : (
-                    <video src={item.mediaUrl} className="w-full h-full object-cover" />
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Action Buttons */}
+        {/* Buttons */}
         <div className="grid grid-cols-2 gap-3">
-          <button onClick={sendMessage} className="btn-primary"><FiMessageCircle /> Message</button>
-          <button className="btn-success"><FiPhone /> Call</button>
-          <button className="btn-purple"><FiVideo /> Video</button>
-          <button onClick={viewSharedMedia} className="btn-gray"><FiImage /> Media</button>
+          <button onClick={sendMessage}><FiMessageCircle /> Message</button>
+          <button><FiPhone /> Call</button>
+          <button><FiVideo /> Video</button>
+          <button onClick={downloadImage}><FiDownload /> Download</button>
 
-          <button onClick={toggleMute} className="col-span-2 btn-blue">
-            {isMuted ? <FiBellOff /> : <FiBell />}
-            {isMuted ? "Unmute Notifications" : "Mute Notifications"}
+          <button onClick={toggleMute}>
+            {isMuted ? <FiBellOff /> : <FiBell />} Notifications
           </button>
 
-          <button
-            onClick={toggleBlock}
-            className={`col-span-2 ${isBlocked ? "btn-danger" : "btn-warning"}`}
-          >
+          <button onClick={() => setShowReport(true)}>
+            <FiFlag /> Report User
+          </button>
+
+          <button onClick={toggleBlock} className="col-span-2">
             <FiSlash /> {isBlocked ? "Unblock" : "Block"}
           </button>
         </div>
       </div>
 
-      {/* ✅ Fullscreen Image Viewer */}
+      {/* Fullscreen Image */}
       {showImage && (
-        <div className="fixed inset-0 bg-black z-50 flex items-center justify-center">
-          <button
-            onClick={() => setShowImage(false)}
-            className="absolute top-5 right-5 text-white text-2xl"
-          >
-            <FiX />
-          </button>
-          <img src={friend.profilePic} className="max-w-full max-h-full object-contain" />
+        <div className="fixed inset-0 bg-black flex items-center justify-center z-50">
+          <FiX onClick={() => setShowImage(false)} className="absolute top-5 right-5 text-white text-2xl" />
+          <img src={friend.profilePic} className="max-h-full max-w-full" />
+        </div>
+      )}
+
+      {/* Report Modal */}
+      {showReport && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
+          <div className="bg-white dark:bg-gray-900 p-6 rounded-lg w-80">
+            <h3 className="font-bold mb-3">Report User</h3>
+            <textarea
+              value={reportReason}
+              onChange={(e) => setReportReason(e.target.value)}
+              className="w-full border p-2 rounded mb-4"
+              placeholder="Enter reason..."
+            ></textarea>
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setShowReport(false)}>Cancel</button>
+              <button onClick={submitReport} className="bg-red-600 text-white px-3 py-1 rounded">
+                Submit
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
