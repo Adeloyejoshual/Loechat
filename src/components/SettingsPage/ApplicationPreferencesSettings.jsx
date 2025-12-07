@@ -1,8 +1,22 @@
-import React, { useContext } from "react";
+import React, { useContext, useEffect } from "react";
 import { ThemeContext } from "../../context/ThemeContext";
+import { useUserSettings } from "../../hooks/useUserSettings";
 
-const ApplicationPreferencesSettings = () => {
-  const { theme, toggleTheme } = useContext(ThemeContext);
+const ApplicationPreferencesSettings = ({ userId }) => {
+  const { theme, setTheme } = useContext(ThemeContext);
+  const [settings, updateSetting] = useUserSettings(userId);
+
+  useEffect(() => {
+    if (settings.theme && settings.theme !== theme) {
+      setTheme(settings.theme);
+    }
+  }, [settings.theme]);
+
+  const toggleTheme = () => {
+    const newTheme = theme === "light" ? "dark" : "light";
+    setTheme(newTheme);
+    updateSetting("theme", newTheme);
+  };
 
   return (
     <div>
