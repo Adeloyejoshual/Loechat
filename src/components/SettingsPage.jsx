@@ -1,17 +1,18 @@
 // src/components/SettingsPage.jsx
 import React, { useEffect, useState, useContext, useRef, useMemo } from "react";
 import { auth, db } from "../firebaseConfig";
-import { doc, getDoc, setDoc, onSnapshot, serverTimestamp } from "firebase/firestore";
+import { doc, getDoc, setDoc, onSnapshot, updateDoc, serverTimestamp } from "firebase/firestore";
 import { signOut } from "firebase/auth";
 import { useNavigate } from "react-router-dom";
 import { ThemeContext } from "../context/ThemeContext";
 import { usePopup } from "../context/PopupContext";
 import confetti from "canvas-confetti";
-import { useAd } from "../components/AdGateway";
 
+// Cloudinary env
 const CLOUDINARY_CLOUD = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME;
 const CLOUDINARY_PRESET = import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET;
 
+// ===== Hook for animated number =====
 function useAnimatedNumber(target, duration = 800) {
   const [display, setDisplay] = useState(target);
   const raf = useRef();
@@ -34,10 +35,23 @@ function useAnimatedNumber(target, duration = 800) {
   return display;
 }
 
+// ===== Interstitial Ad =====
+const showInterstitialAd = () => {
+  const adContainer = document.createElement("ins");
+  adContainer.className = "adsbygoogle";
+  adContainer.style.display = "block";
+  adContainer.setAttribute("data-ad-client", "ca-pub-3218753156748504");
+  adContainer.setAttribute("data-ad-slot", "7639678257");
+  adContainer.setAttribute("data-ad-format", "auto");
+  adContainer.setAttribute("data-full-width-responsive", "true");
+
+  document.body.appendChild(adContainer);
+  (adsbygoogle = window.adsbygoogle || []).push({});
+};
+
 export default function SettingsPage() {
   const { theme } = useContext(ThemeContext);
   const { showPopup } = usePopup();
-  const { showRewarded } = useAd();
   const navigate = useNavigate();
 
   const [user, setUser] = useState(null);
@@ -46,37 +60,45 @@ export default function SettingsPage() {
   const [email, setEmail] = useState("");
   const [profilePic, setProfilePic] = useState(null);
   const [selectedFile, setSelectedFile] = useState(null);
+
   const [balance, setBalance] = useState(0);
-  const animatedBalance = useAnimatedNumber(balance);
+  const animatedBalance = useAnimatedNumber(balance, 800);
   const [transactions, setTransactions] = useState([]);
   const [loadingReward, setLoadingReward] = useState(false);
   const [flashReward, setFlashReward] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+
   const profileInputRef = useRef(null);
   const isDark = theme === "dark";
   const backend = "https://smart-talk-zlxe.onrender.com";
 
   // ----------------- Auth + User Data -----------------
   useEffect(() => {
-    const unsubAuth = auth.onAuthStateChanged(async (u) => {
-      if (!u) return navigate("/");
+    const unsubAuth = auth.onAuthStateChanged((u) => {
+      if (!u) {
+        navigate("/"); // synchronous redirect
+        return;
+      }
 
       setUser(u);
       setEmail(u.email || "");
 
       const userRef = doc(db, "users", u.uid);
 
-      // Ensure user doc exists
-      const snap = await getDoc(userRef);
-      if (!snap.exists()) {
-        await setDoc(userRef, {
-          name: u.displayName || "User",
-          bio: "",
-          email: u.email || "",
-          profilePic: null,
-          preferences: { theme: "light" },
-          createdAt: serverTimestamp(),
-        });
-      }
+      // Async fetch user doc without blocking navigate
+      (async () => {
+        const snap = await getDoc(userRef);
+        if (!snap.exists()) {
+          await setDoc(userRef, {
+            name: u.displayName || "User",
+            bio: "",
+            email: u.email || "",
+            profilePic: null,
+            preferences: { theme: "light" },
+            createdAt: serverTimestamp(),
+          });
+        }
+      })();
 
       // Live snapshot for profile
       const unsubSnap = onSnapshot(userRef, (s) => {
@@ -148,10 +170,7 @@ export default function SettingsPage() {
       const token = await getToken();
       const res = await fetch(`${backend}/api/wallet/daily`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({ amount: 0.25 }),
       });
       const data = await res.json();
@@ -179,17 +198,13 @@ export default function SettingsPage() {
 
   // ----------------- Cloudinary Upload -----------------
   const uploadToCloudinary = async (file) => {
-    if (!CLOUDINARY_CLOUD || !CLOUDINARY_PRESET)
-      throw new Error("Cloudinary environment not set");
+    if (!CLOUDINARY_CLOUD || !CLOUDINARY_PRESET) throw new Error("Cloudinary environment not set");
 
     const fd = new FormData();
     fd.append("file", file);
     fd.append("upload_preset", CLOUDINARY_PRESET);
 
-    const res = await fetch(
-      `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD}/image/upload`,
-      { method: "POST", body: fd }
-    );
+    const res = await fetch(`https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD}/image/upload`, { method: "POST", body: fd });
     if (!res.ok) throw new Error("Cloudinary upload failed");
 
     const data = await res.json();
@@ -207,7 +222,7 @@ export default function SettingsPage() {
       const url = await uploadToCloudinary(file);
       if (!user) return;
       const userRef = doc(db, "users", user.uid);
-      await setDoc(userRef, { profilePic: url, updatedAt: serverTimestamp() }, { merge: true });
+      await updateDoc(userRef, { profilePic: url, updatedAt: serverTimestamp() });
       setProfilePic(url);
       setSelectedFile(null);
     } catch (err) {
@@ -224,24 +239,10 @@ export default function SettingsPage() {
   if (!user) return <p>Loading user...</p>;
 
   return (
-    <div
-      style={{
-        padding: 20,
-        minHeight: "100vh",
-        background: isDark ? "#1c1c1c" : "#f8f8f8",
-        color: isDark ? "#fff" : "#000",
-      }}
-    >
+    <div style={{ padding: 20, minHeight: "100vh", background: isDark ? "#1c1c1c" : "#f8f8f8", color: isDark ? "#fff" : "#000" }}>
+      {/* Back */}
       <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          marginBottom: 16,
-          cursor: "pointer",
-          color: isDark ? "#fff" : "#000",
-          fontSize: 20,
-          fontWeight: "bold",
-        }}
+        style={{ display: "flex", alignItems: "center", marginBottom: 16, cursor: "pointer", color: isDark ? "#fff" : "#000", fontSize: 20, fontWeight: "bold" }}
         onClick={() => navigate("/chat")}
       >
         ← Back
@@ -250,18 +251,7 @@ export default function SettingsPage() {
       <h2 style={{ textAlign: "center", marginBottom: 20 }}>⚙️ Settings</h2>
 
       {/* Profile Card */}
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 16,
-          background: isDark ? "#2b2b2b" : "#fff",
-          padding: 16,
-          borderRadius: 12,
-          marginBottom: 25,
-          position: "relative",
-        }}
-      >
+      <div style={{ display: "flex", alignItems: "center", gap: 16, background: isDark ? "#2b2b2b" : "#fff", padding: 16, borderRadius: 12, boxShadow: "0 2px 6px rgba(0,0,0,0.15)", marginBottom: 25 }}>
         <div
           onClick={() => navigate("/edit-profile")}
           style={{
@@ -270,7 +260,6 @@ export default function SettingsPage() {
             borderRadius: 44,
             background: profilePic ? `url(${profilePic}) center/cover` : "#888",
             cursor: "pointer",
-            flexShrink: 0,
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
@@ -287,46 +276,30 @@ export default function SettingsPage() {
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
             <h3 style={{ margin: 0, fontSize: 20 }}>{name || "Unnamed User"}</h3>
           </div>
-          <p style={{ margin: "6px 0", color: isDark ? "#ccc" : "#555" }}>
-            {bio || "No bio yet — click ⋮ → Edit Info to add one."}
-          </p>
-          <p style={{ margin: "0 0 12px", color: isDark ? "#bbb" : "#777", fontSize: 13 }}>
-            {email}
-          </p>
+
+          <p style={{ margin: "6px 0", color: isDark ? "#ccc" : "#555" }}>{bio || "No bio yet — click ⋮ → Edit Info to add one."}</p>
+          <p style={{ margin: "0 0 12px", color: isDark ? "#bbb" : "#777", fontSize: 13 }}>{email}</p>
 
           {/* Wallet Panel */}
           <div
-            style={{
-              padding: 16,
-              background: isDark ? "#1f1f1f" : "#eef6ff",
-              borderRadius: 12,
-              cursor: "pointer",
+            style={{ padding: 16, background: isDark ? "#1f1f1f" : "#eef6ff", borderRadius: 12, cursor: "pointer" }}
+            onClick={async () => {
+              if (!alreadyClaimed) {
+                showInterstitialAd();
+                await new Promise((r) => setTimeout(r, 1500));
+              }
+              navigate("/wallet");
             }}
-            onClick={() => navigate("/wallet")}
           >
             <p style={{ margin: 0, fontSize: 16 }}>Balance:</p>
-            <strong
-              style={{
-                color: isDark ? "#00e676" : "#007bff",
-                fontSize: 24,
-                display: "inline-block",
-                marginTop: 4,
-                transition: "all 0.5s",
-              }}
-            >
+            <strong style={{ color: isDark ? "#00e676" : "#007bff", fontSize: 24, display: "inline-block", marginTop: 4 }}>
               ${animatedBalance.toFixed(2)}
             </strong>
 
-            {/* Daily Reward Button */}
             <button
-              onClick={async (e) => {
+              onClick={(e) => {
                 e.stopPropagation();
-                if (loadingReward || alreadyClaimed) return;
-
-                // Show full-screen rewarded ad
-                showRewarded(10287794, 15, async () => {
-                  await handleDailyReward();
-                });
+                handleDailyReward();
               }}
               disabled={loadingReward || alreadyClaimed}
               style={{
@@ -340,31 +313,26 @@ export default function SettingsPage() {
                 fontWeight: "bold",
                 fontSize: 14,
                 cursor: alreadyClaimed ? "not-allowed" : "pointer",
-                boxShadow: alreadyClaimed
-                  ? "none"
-                  : flashReward
-                  ? "0 0 15px 5px #ffd700"
-                  : "0 4px 8px rgba(255, 215, 0, 0.3)",
-                transition: "all 0.3s",
+                boxShadow: alreadyClaimed ? "none" : flashReward ? "0 0 15px 5px #ffd700" : "0 4px 8px rgba(255, 215, 0, 0.3)",
               }}
             >
-              {loadingReward
-                ? "Processing..."
-                : alreadyClaimed
-                ? "✅ Already Claimed"
-                : "🧩 Daily Reward (+$0.25)"}
+              {loadingReward ? "Processing..." : alreadyClaimed ? "✅ Already Claimed" : "🧩 Daily Reward (+$0.25)"}
             </button>
           </div>
         </div>
       </div>
 
-      <input
-        ref={profileInputRef}
-        type="file"
-        accept="image/*"
-        style={{ display: "none" }}
-        onChange={onProfileFileChange}
-      />
+      <input ref={profileInputRef} type="file" accept="image/*" style={{ display: "none" }} onChange={onProfileFileChange} />
     </div>
   );
 }
+
+const menuItemStyle = {
+  display: "block",
+  width: "100%",
+  padding: "10px 12px",
+  background: "transparent",
+  border: "none",
+  textAlign: "left",
+  cursor: "pointer",
+};
