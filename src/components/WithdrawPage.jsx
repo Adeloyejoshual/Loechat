@@ -1,7 +1,8 @@
 // src/components/WithdrawPage.jsx
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useContext } from "react";
 import { auth } from "../firebaseConfig";
 import { useNavigate } from "react-router-dom";
+import { useAd } from "./AdGateway"; // Hook for rewarded ads
 
 export default function WithdrawPage() {
   const [user, setUser] = useState(null);
@@ -9,8 +10,9 @@ export default function WithdrawPage() {
   const [completedTasks, setCompletedTasks] = useState([]);
   const modalRef = useRef();
   const navigate = useNavigate();
+  const { showRewarded } = useAd(); // Full-screen ad hook
 
-  // AUTH
+  // ---------------- AUTH ----------------
   useEffect(() => {
     const unsub = auth.onAuthStateChanged((u) => {
       if (u) setUser(u);
@@ -19,21 +21,20 @@ export default function WithdrawPage() {
     return unsub;
   }, []);
 
-  // MARK TASK AS COMPLETED
+  // ---------------- TASKS ----------------
   const completeTask = (taskId) => {
     if (!completedTasks.includes(taskId)) {
       setCompletedTasks((prev) => [...prev, taskId]);
     }
   };
 
-  // TASK HANDLERS
   const handleWatchVideo = () => {
     window.open("https://youtube.com/shorts/mQOV18vpAu4?si=8gyR6f-eAK4SGSyw");
     completeTask("watchVideo");
   };
 
   const handleFollowInstagram = () => {
-    window.open("https://www.instagram.com/hahahala53");
+    window.open("https://www.instagram.com/loechatapp?igsh=ZnVsemNjeXJqd25v");
     completeTask("followInstagram");
   };
 
@@ -45,16 +46,30 @@ export default function WithdrawPage() {
     }
   };
 
+  // ---------------- WITHDRAW ----------------
+  const handleWithdraw = async () => {
+    if (!user) return;
+
+    try {
+      // Show full-screen rewarded ad before withdraw
+      await new Promise((resolve) => showRewarded(15, resolve)); // 15s ad
+      // After ad completes, show withdraw modal
+      setModalOpen(true);
+    } catch (err) {
+      console.error("Ad failed:", err);
+      alert("Ad failed to load. Try again.");
+    }
+  };
+
   return (
     <div style={styles.page}>
       {/* Back Button */}
       <button onClick={() => navigate("/wallet")} style={styles.backBtn}>←</button>
 
-      {/* Title */}
       <h2 style={styles.title}>💵 Withdraw Funds</h2>
 
-      {/* Center Content */}
       <div style={styles.centerContent}>
+        {/* Tasks */}
         <button
           style={{
             ...styles.taskBtn,
@@ -91,11 +106,9 @@ export default function WithdrawPage() {
           👥 Invite a friend {completedTasks.includes("inviteFriend") && "✅"}
         </button>
 
-        <button
-          style={styles.withdrawBtn}
-          onClick={() => setModalOpen(true)}
-        >
-          🚧 Withdraw
+        {/* Withdraw Button */}
+        <button style={styles.withdrawBtn} onClick={handleWithdraw}>
+          🎬 Watch Ad & Withdraw
         </button>
       </div>
 
