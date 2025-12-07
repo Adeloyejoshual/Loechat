@@ -19,7 +19,6 @@ import {
 } from "react-icons/fi";
 
 /* ---------------- Utilities ---------------- */
-
 const getInitials = (name) => {
   if (!name) return "U";
   const parts = name.trim().split(" ");
@@ -57,7 +56,7 @@ export default function FriendProfilePage() {
   const [showReport, setShowReport] = useState(false);
   const [reportReason, setReportReason] = useState("");
 
-  const backend = "https://smart-talk-zlxe.onrender.com";
+  const backend = "https://www.loechat.com"; // Updated backend
 
   useEffect(() => {
     if (!uid) return;
@@ -76,6 +75,11 @@ export default function FriendProfilePage() {
   const sendMessage = () => {
     const chatId = [currentUser.uid, uid].sort().join("_");
     navigate(`/chat/${chatId}`);
+  };
+
+  const viewSharedMedia = () => {
+    const chatId = [currentUser.uid, uid].sort().join("_");
+    navigate(`/chat/${chatId}/media`);
   };
 
   const toggleBlock = async () => {
@@ -114,20 +118,37 @@ export default function FriendProfilePage() {
   };
 
   if (loading)
-    return <div className="min-h-screen flex items-center justify-center">Loading...</div>;
+    return (
+      <div className="min-h-screen flex items-center justify-center text-gray-500 dark:text-gray-400">
+        Loading profile…
+      </div>
+    );
+
+  if (!friend)
+    return (
+      <div className="min-h-screen flex items-center justify-center text-gray-500 dark:text-gray-400">
+        No user data found for uid: {uid}
+      </div>
+    );
 
   return (
-    <div className="min-h-screen p-4 bg-gray-100 dark:bg-black">
-      <div className="max-w-md mx-auto bg-white dark:bg-gray-900 rounded-xl shadow p-5">
+    <div className={`min-h-screen p-4 bg-gray-100 dark:bg-gray-900 transition-colors duration-300`}>
+      <div className="max-w-md mx-auto bg-white dark:bg-gray-800 rounded-xl shadow-lg p-6">
 
         {/* Profile Picture */}
-        <div className="flex justify-center mb-3">
-          <div className="w-24 h-24 rounded-full overflow-hidden border cursor-pointer"
-            onClick={() => setShowImage(true)}>
+        <div className="flex justify-center mb-4">
+          <div
+            className="w-20 h-20 rounded-full overflow-hidden border-2 border-gray-300 dark:border-gray-600 cursor-pointer transition-transform hover:scale-105"
+            onClick={() => setShowImage(true)}
+          >
             {friend.profilePic ? (
-              <img src={friend.profilePic} className="w-full h-full object-cover" />
+              <img
+                src={friend.profilePic}
+                className="w-full h-full object-cover"
+                alt="Profile"
+              />
             ) : (
-              <div className="w-full h-full bg-gray-500 flex items-center justify-center text-white text-xl">
+              <div className="w-full h-full bg-gray-500 flex items-center justify-center text-white text-2xl font-bold">
                 {getInitials(friend.name)}
               </div>
             )}
@@ -135,54 +156,82 @@ export default function FriendProfilePage() {
         </div>
 
         {/* Name & Status */}
-        <div className="text-center mb-4">
-          <h3 className="text-xl font-bold">{friend.name}</h3>
-          <p className="text-xs text-gray-400">{formatLastSeen(friend.lastSeen)}</p>
+        <div className="text-center mb-6">
+          <h3 className="text-2xl font-semibold text-gray-900 dark:text-gray-100">{friend.name}</h3>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+            {formatLastSeen(friend.lastSeen)}
+          </p>
         </div>
 
-        {/* Buttons */}
-        <div className="grid grid-cols-2 gap-3">
-          <button onClick={sendMessage}><FiMessageCircle /> Message</button>
-          <button><FiPhone /> Call</button>
-          <button><FiVideo /> Video</button>
-          <button onClick={downloadImage}><FiDownload /> Download</button>
+        {/* Buttons Grid */}
+        <div className="grid grid-cols-3 gap-3 mb-3">
+          {[
+            { action: sendMessage, label: "Message", icon: <FiMessageCircle /> },
+            { action: () => alert("Call feature coming soon!"), label: "Call", icon: <FiPhone /> },
+            { action: () => alert("Video feature coming soon!"), label: "Video", icon: <FiVideo /> },
+            { action: viewSharedMedia, label: "Media", icon: <FiImage /> },
+            { action: downloadImage, label: "Download", icon: <FiDownload /> },
+            { action: toggleMute, label: isMuted ? "Muted" : "Notify", icon: isMuted ? <FiBellOff /> : <FiBell /> },
+            { action: () => setShowReport(true), label: "Report", icon: <FiFlag /> },
+          ].map((btn, idx) => (
+            <button
+              key={idx}
+              onClick={btn.action}
+              className="flex flex-col items-center justify-center py-3 px-2 bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-100 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition transform hover:scale-105"
+              title={btn.label}
+            >
+              {btn.icon}
+              <span className="text-xs mt-1">{btn.label}</span>
+            </button>
+          ))}
 
-          <button onClick={toggleMute}>
-            {isMuted ? <FiBellOff /> : <FiBell />} Notifications
-          </button>
-
-          <button onClick={() => setShowReport(true)}>
-            <FiFlag /> Report User
-          </button>
-
-          <button onClick={toggleBlock} className="col-span-2">
+          {/* Block button spans full row */}
+          <button
+            onClick={toggleBlock}
+            className="col-span-3 flex items-center justify-center gap-2 py-3 px-4 bg-red-600 text-white rounded-lg hover:bg-red-700 transition transform hover:scale-105 mt-2"
+          >
             <FiSlash /> {isBlocked ? "Unblock" : "Block"}
           </button>
         </div>
       </div>
 
       {/* Fullscreen Image */}
-      {showImage && (
+      {showImage && friend.profilePic && (
         <div className="fixed inset-0 bg-black flex items-center justify-center z-50">
-          <FiX onClick={() => setShowImage(false)} className="absolute top-5 right-5 text-white text-2xl" />
-          <img src={friend.profilePic} className="max-h-full max-w-full" />
+          <FiX
+            onClick={() => setShowImage(false)}
+            className="absolute top-5 right-5 text-white text-3xl cursor-pointer"
+          />
+          <img
+            src={friend.profilePic}
+            className="max-h-full max-w-full rounded-lg"
+            alt="Profile Fullscreen"
+          />
         </div>
       )}
 
       {/* Report Modal */}
       {showReport && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
-          <div className="bg-white dark:bg-gray-900 p-6 rounded-lg w-80">
-            <h3 className="font-bold mb-3">Report User</h3>
+          <div className="bg-white dark:bg-gray-800 p-6 rounded-lg w-80 shadow-lg">
+            <h3 className="font-semibold mb-3 text-gray-900 dark:text-gray-100">Report User</h3>
             <textarea
               value={reportReason}
               onChange={(e) => setReportReason(e.target.value)}
-              className="w-full border p-2 rounded mb-4"
+              className="w-full border p-2 rounded mb-4 bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-400"
               placeholder="Enter reason..."
             ></textarea>
             <div className="flex justify-end gap-2">
-              <button onClick={() => setShowReport(false)}>Cancel</button>
-              <button onClick={submitReport} className="bg-red-600 text-white px-3 py-1 rounded">
+              <button
+                onClick={() => setShowReport(false)}
+                className="px-3 py-1 rounded border border-gray-400 dark:border-gray-600 hover:bg-gray-200 dark:hover:bg-gray-600 transition"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={submitReport}
+                className="px-3 py-1 rounded bg-red-600 text-white hover:bg-red-700 transition"
+              >
                 Submit
               </button>
             </div>
