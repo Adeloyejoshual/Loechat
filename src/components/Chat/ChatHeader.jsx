@@ -2,7 +2,7 @@ import React, { useEffect, useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { doc, onSnapshot, updateDoc } from "firebase/firestore";
 import { db } from "../../firebaseConfig";
-import { FiMoreVertical, FiPhone, FiVideo } from "react-icons/fi";
+import { FiMoreVertical, FiPhone, FiVideo, FiImage } from "react-icons/fi";
 
 export default function ChatHeader({
   friendId,
@@ -14,6 +14,7 @@ export default function ChatHeader({
   setBlockedStatus,
   onVoiceCall,
   onVideoCall,
+  onViewMedia,
 }) {
   const navigate = useNavigate();
   const [friendInfo, setFriendInfo] = useState(null);
@@ -84,13 +85,12 @@ export default function ChatHeader({
     const last = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
     const now = new Date();
     const diff = now - last;
+
     if (diff < 60000) return "Online";
-    return last.toLocaleString([], {
-      hour: "2-digit",
-      minute: "2-digit",
-      day: "numeric",
-      month: "short",
-    });
+    if (diff < 3600000) return `Last seen ${Math.floor(diff / 60000)}m ago`;
+    if (diff < 86400000) return `Last seen ${Math.floor(diff / 3600000)}h ago`;
+
+    return `Last seen on ${last.toLocaleDateString()} at ${last.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
   };
 
   // Calls
@@ -100,10 +100,10 @@ export default function ChatHeader({
   return (
     <>
       <div className="chat-header">
-        <div className="chat-back" onClick={() => navigate("/chat")}>
-          ←
-        </div>
+        {/* Back button */}
+        <div className="chat-back" onClick={() => navigate("/chat")}>←</div>
 
+        {/* Avatar */}
         <div className="chat-avatar" onClick={() => navigate(`/friend/${friendId}`)}>
           {friendInfo?.profilePic ? (
             <img src={friendInfo.profilePic} alt="avatar" />
@@ -112,16 +112,19 @@ export default function ChatHeader({
           )}
         </div>
 
+        {/* Name & Last Seen */}
         <div className="chat-info" onClick={() => navigate(`/friend/${friendId}`)}>
           <span className="chat-name">{friendInfo?.name || "Loading..."}</span>
           <span className="chat-lastseen">{formatLastSeen(friendInfo?.lastSeen)}</span>
         </div>
 
+        {/* Call Buttons */}
         <div className="chat-actions">
           <FiPhone size={21} onClick={startVoiceCall} />
           <FiVideo size={21} onClick={startVideoCall} />
         </div>
 
+        {/* Menu */}
         <div ref={menuRef} className="chat-menu">
           <FiMoreVertical size={22} onClick={() => setMenuOpen((p) => !p)} />
           {menuOpen && (
@@ -130,11 +133,15 @@ export default function ChatHeader({
               <div onClick={() => { setMenuOpen(false); onClearChat?.(); }}>Clear Chat</div>
               <div onClick={toggleMute}>{chatInfo?.mutedUntil > Date.now() ? "Unmute" : "Mute"}</div>
               <div onClick={toggleBlock} className="danger">{chatInfo?.blocked ? "Unblock" : "Block"}</div>
+              <div onClick={() => { setMenuOpen(false); onViewMedia?.(); }}>
+                <FiImage className="inline mr-1" /> View Shared Media
+              </div>
             </div>
           )}
         </div>
       </div>
 
+      {/* Pinned message */}
       {pinnedMessage && (
         <div className="pinned-message" onClick={() => onGoToPinned?.(pinnedMessage.id)}>
           📌 {pinnedMessage.text || (pinnedMessage.mediaType === "image" ? "Photo" : "Pinned message")}
@@ -216,13 +223,15 @@ export default function ChatHeader({
           background: #fff;
           color: #000;
           border-radius: 10px;
-          width: 170px;
+          width: 190px;
           box-shadow: 0 4px 14px rgba(0,0,0,.3);
           overflow: hidden;
         }
         .menu-dropdown div {
           padding: 12px 16px;
           cursor: pointer;
+          display: flex;
+          align-items: center;
         }
         .menu-dropdown div:hover {
           background: #f0f0f0;
