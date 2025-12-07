@@ -1,5 +1,5 @@
 // src/components/SettingsPage.jsx
-import React, { useEffect, useState, useRef, useMemo, useContext } from "react";
+import React, { useEffect, useState, useContext, useRef, useMemo } from "react";
 import { auth, db } from "../firebaseConfig";
 import { doc, getDoc, setDoc, onSnapshot, updateDoc, serverTimestamp } from "firebase/firestore";
 import { signOut } from "firebase/auth";
@@ -7,23 +7,6 @@ import { useNavigate } from "react-router-dom";
 import { ThemeContext } from "../context/ThemeContext";
 import { usePopup } from "../context/PopupContext";
 import confetti from "canvas-confetti";
-
-// Modular SettingsPage Components
-import PrivacyAndSecuritySettings from "./SettingsPage/PrivacyAndSecuritySettings";
-import NotificationSettings from "./SettingsPage/NotificationSettings";
-import ApplicationPreferencesSettings from "./SettingsPage/ApplicationPreferencesSettings";
-import DataAndStorageSettings from "./SettingsPage/DataAndStorageSettings";
-import SupportAndAboutSettings from "./SettingsPage/SupportAndAboutSettings";
-import AccountActionsSettings from "./SettingsPage/AccountActionsSettings";
-
-import {
-  LockClosedIcon,
-  BellIcon,
-  Cog6ToothIcon,
-  CloudArrowDownIcon,
-  QuestionMarkCircleIcon,
-  ExclamationTriangleIcon,
-} from "@heroicons/react/24/outline";
 
 // Cloudinary env
 const CLOUDINARY_CLOUD = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME;
@@ -66,18 +49,8 @@ const showInterstitialAd = () => {
   (adsbygoogle = window.adsbygoogle || []).push({});
 };
 
-// ===== Sidebar Sections =====
-const sections = [
-  { id: "privacy", label: "Privacy & Security", icon: <LockClosedIcon className="w-5 h-5 mr-2" /> },
-  { id: "notifications", label: "Notifications", icon: <BellIcon className="w-5 h-5 mr-2" /> },
-  { id: "preferences", label: "Application Preferences", icon: <Cog6ToothIcon className="w-5 h-5 mr-2" /> },
-  { id: "data", label: "Data & Storage", icon: <CloudArrowDownIcon className="w-5 h-5 mr-2" /> },
-  { id: "support", label: "Support & About", icon: <QuestionMarkCircleIcon className="w-5 h-5 mr-2" /> },
-  { id: "account", label: "Account Actions", icon: <ExclamationTriangleIcon className="w-5 h-5 mr-2" /> },
-];
-
 export default function SettingsPage() {
-  const { theme, setTheme } = useContext(ThemeContext);
+  const { theme } = useContext(ThemeContext);
   const { showPopup } = usePopup();
   const navigate = useNavigate();
 
@@ -93,8 +66,7 @@ export default function SettingsPage() {
   const [transactions, setTransactions] = useState([]);
   const [loadingReward, setLoadingReward] = useState(false);
   const [flashReward, setFlashReward] = useState(false);
-
-  const [activeSection, setActiveSection] = useState("privacy");
+  const [menuOpen, setMenuOpen] = useState(false);
 
   const profileInputRef = useRef(null);
   const isDark = theme === "dark";
@@ -104,7 +76,7 @@ export default function SettingsPage() {
   useEffect(() => {
     const unsubAuth = auth.onAuthStateChanged((u) => {
       if (!u) {
-        navigate("/");
+        navigate("/"); // synchronous redirect
         return;
       }
 
@@ -113,7 +85,7 @@ export default function SettingsPage() {
 
       const userRef = doc(db, "users", u.uid);
 
-      // Async create doc if missing
+      // Async fetch user doc without blocking navigate
       (async () => {
         const snap = await getDoc(userRef);
         if (!snap.exists()) {
@@ -135,12 +107,9 @@ export default function SettingsPage() {
         setName(data.name || "");
         setBio(data.bio || "");
         setProfilePic(data.profilePic || null);
-        // Live theme sync
-        if (data.preferences?.theme && data.preferences.theme !== theme) {
-          setTheme(data.preferences.theme);
-        }
       });
 
+      // Load wallet
       loadWallet(u.uid);
 
       return () => unsubSnap();
@@ -170,6 +139,7 @@ export default function SettingsPage() {
     }
   };
 
+  // ----------------- Daily Reward -----------------
   const alreadyClaimed = useMemo(() => {
     if (!transactions || transactions.length === 0) return false;
     const today = new Date();
@@ -234,10 +204,7 @@ export default function SettingsPage() {
     fd.append("file", file);
     fd.append("upload_preset", CLOUDINARY_PRESET);
 
-    const res = await fetch(`https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD}/image/upload`, {
-      method: "POST",
-      body: fd,
-    });
+    const res = await fetch(`https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD}/image/upload`, { method: "POST", body: fd });
     if (!res.ok) throw new Error("Cloudinary upload failed");
 
     const data = await res.json();
@@ -269,88 +236,103 @@ export default function SettingsPage() {
     navigate("/");
   };
 
-  const userId = user?.uid;
-
-  const renderActiveSection = () => {
-    switch (activeSection) {
-      case "privacy":
-        return <PrivacyAndSecuritySettings userId={userId} />;
-      case "notifications":
-        return <NotificationSettings userId={userId} />;
-      case "preferences":
-        return <ApplicationPreferencesSettings userId={userId} />;
-      case "data":
-        return <DataAndStorageSettings userId={userId} />;
-      case "support":
-        return <SupportAndAboutSettings userId={userId} />;
-      case "account":
-        return <AccountActionsSettings userId={userId} />;
-      default:
-        return null;
-    }
-  };
-
   if (!user) return <p>Loading user...</p>;
 
   return (
-    <div className={`min-h-screen p-6 sm:p-10 ${isDark ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-900"} flex flex-col lg:flex-row`}>
-      {/* Sidebar */}
-      <aside className="w-full lg:w-1/4 mb-6 lg:mb-0">
-        {/* Profile Card */}
-        <div className={`flex flex-col items-center gap-4 p-4 rounded-2xl shadow-md mb-6 ${isDark ? "bg-gray-800" : "bg-white"}`}>
-          <div
-            className="w-24 h-24 rounded-full bg-gray-500 flex items-center justify-center cursor-pointer text-2xl font-bold text-white"
-            style={{ backgroundImage: profilePic ? `url(${profilePic})` : undefined, backgroundSize: "cover", backgroundPosition: "center" }}
-            onClick={() => profileInputRef.current?.click()}
-          >
-            {!profilePic && (name?.[0] || "U")}
+    <div style={{ padding: 20, minHeight: "100vh", background: isDark ? "#1c1c1c" : "#f8f8f8", color: isDark ? "#fff" : "#000" }}>
+      {/* Back */}
+      <div
+        style={{ display: "flex", alignItems: "center", marginBottom: 16, cursor: "pointer", color: isDark ? "#fff" : "#000", fontSize: 20, fontWeight: "bold" }}
+        onClick={() => navigate("/chat")}
+      >
+        ← Back
+      </div>
+
+      <h2 style={{ textAlign: "center", marginBottom: 20 }}>⚙️ Settings</h2>
+
+      {/* Profile Card */}
+      <div style={{ display: "flex", alignItems: "center", gap: 16, background: isDark ? "#2b2b2b" : "#fff", padding: 16, borderRadius: 12, boxShadow: "0 2px 6px rgba(0,0,0,0.15)", marginBottom: 25 }}>
+        <div
+          onClick={() => navigate("/edit-profile")}
+          style={{
+            width: 88,
+            height: 88,
+            borderRadius: 44,
+            background: profilePic ? `url(${profilePic}) center/cover` : "#888",
+            cursor: "pointer",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            fontSize: 28,
+            color: "#fff",
+            fontWeight: "bold",
+          }}
+          title="Click to edit profile"
+        >
+          {!profilePic && (name?.[0] || "U")}
+        </div>
+
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <h3 style={{ margin: 0, fontSize: 20 }}>{name || "Unnamed User"}</h3>
           </div>
-          <h3 className="text-xl font-semibold">{name || "Unnamed User"}</h3>
-          <p className="text-sm text-gray-400 text-center">{bio || "No bio yet — click ⋮ → Edit Info to add one."}</p>
-          <p className="text-xs text-gray-500">{email}</p>
+
+          <p style={{ margin: "6px 0", color: isDark ? "#ccc" : "#555" }}>{bio || "No bio yet — click ⋮ → Edit Info to add one."}</p>
+          <p style={{ margin: "0 0 12px", color: isDark ? "#bbb" : "#777", fontSize: 13 }}>{email}</p>
+
+          {/* Wallet Panel */}
           <div
-            className={`w-full p-3 mt-2 rounded-lg ${isDark ? "bg-gray-700" : "bg-blue-50"} cursor-pointer`}
-            onClick={() => navigate("/wallet")}
+            style={{ padding: 16, background: isDark ? "#1f1f1f" : "#eef6ff", borderRadius: 12, cursor: "pointer" }}
+            onClick={async () => {
+              if (!alreadyClaimed) {
+                showInterstitialAd();
+                await new Promise((r) => setTimeout(r, 1500));
+              }
+              navigate("/wallet");
+            }}
           >
-            <p className="text-sm">Balance:</p>
-            <strong className={`${isDark ? "text-green-400" : "text-blue-600"} text-2xl`}>${animatedBalance.toFixed(2)}</strong>
+            <p style={{ margin: 0, fontSize: 16 }}>Balance:</p>
+            <strong style={{ color: isDark ? "#00e676" : "#007bff", fontSize: 24, display: "inline-block", marginTop: 4 }}>
+              ${animatedBalance.toFixed(2)}
+            </strong>
+
             <button
               onClick={(e) => {
                 e.stopPropagation();
                 handleDailyReward();
               }}
               disabled={loadingReward || alreadyClaimed}
-              className={`mt-2 w-full py-2 rounded-lg font-bold ${alreadyClaimed ? "bg-gray-600 cursor-not-allowed" : "bg-yellow-400 hover:bg-yellow-300"} text-black transition`}
+              style={{
+                marginTop: 12,
+                width: "100%",
+                padding: "12px",
+                borderRadius: 10,
+                border: "none",
+                background: alreadyClaimed ? "#666" : "#ffd700",
+                color: "#000",
+                fontWeight: "bold",
+                fontSize: 14,
+                cursor: alreadyClaimed ? "not-allowed" : "pointer",
+                boxShadow: alreadyClaimed ? "none" : flashReward ? "0 0 15px 5px #ffd700" : "0 4px 8px rgba(255, 215, 0, 0.3)",
+              }}
             >
               {loadingReward ? "Processing..." : alreadyClaimed ? "✅ Already Claimed" : "🧩 Daily Reward (+$0.25)"}
             </button>
           </div>
         </div>
+      </div>
 
-        {/* Sidebar Menu */}
-        <ul className="space-y-3">
-          {sections.map((section) => (
-            <li key={section.id}>
-              <button
-                className={`flex items-center w-full text-left px-4 py-2 rounded-lg transition ${
-                  activeSection === section.id
-                    ? "bg-blue-500 text-white"
-                    : "bg-white hover:bg-gray-100 text-gray-700"
-                }`}
-                onClick={() => setActiveSection(section.id)}
-              >
-                {section.icon}
-                {section.label}
-              </button>
-            </li>
-          ))}
-        </ul>
-      </aside>
-
-      {/* Main Content */}
-      <main className="flex-1 bg-white dark:bg-gray-800 rounded-2xl shadow-md p-6 transition-all duration-300">{renderActiveSection()}</main>
-
-      <input ref={profileInputRef} type="file" accept="image/*" className="hidden" onChange={onProfileFileChange} />
+      <input ref={profileInputRef} type="file" accept="image/*" style={{ display: "none" }} onChange={onProfileFileChange} />
     </div>
   );
 }
+
+const menuItemStyle = {
+  display: "block",
+  width: "100%",
+  padding: "10px 12px",
+  background: "transparent",
+  border: "none",
+  textAlign: "left",
+  cursor: "pointer",
+};
