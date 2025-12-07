@@ -1,5 +1,5 @@
 // src/components/SettingsPage.jsx
-import React, { useEffect, useState, useContext, useRef, useMemo } from "react";
+import React, { useEffect, useState, useRef, useMemo, useContext } from "react";
 import { auth, db } from "../firebaseConfig";
 import { doc, getDoc, setDoc, onSnapshot, updateDoc, serverTimestamp } from "firebase/firestore";
 import { signOut } from "firebase/auth";
@@ -8,10 +8,28 @@ import { ThemeContext } from "../context/ThemeContext";
 import { usePopup } from "../context/PopupContext";
 import confetti from "canvas-confetti";
 
+// Modular SettingsPage Components
+import PrivacyAndSecuritySettings from "./SettingsPage/PrivacyAndSecuritySettings";
+import NotificationSettings from "./SettingsPage/NotificationSettings";
+import ApplicationPreferencesSettings from "./SettingsPage/ApplicationPreferencesSettings";
+import DataAndStorageSettings from "./SettingsPage/DataAndStorageSettings";
+import SupportAndAboutSettings from "./SettingsPage/SupportAndAboutSettings";
+import AccountActionsSettings from "./SettingsPage/AccountActionsSettings";
+
+import {
+  LockClosedIcon,
+  BellIcon,
+  Cog6ToothIcon,
+  CloudArrowDownIcon,
+  QuestionMarkCircleIcon,
+  ExclamationTriangleIcon,
+} from "@heroicons/react/24/outline";
+
 // Cloudinary env
 const CLOUDINARY_CLOUD = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME;
 const CLOUDINARY_PRESET = import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET;
 
+// ===== Hook for animated number =====
 function useAnimatedNumber(target, duration = 800) {
   const [display, setDisplay] = useState(target);
   const raf = useRef();
@@ -34,117 +52,97 @@ function useAnimatedNumber(target, duration = 800) {
   return display;
 }
 
-// Simple Section wrapper
-const Section = ({ title, children, isDark }) => (
-  <div style={{
-    background: isDark ? "#2b2b2b" : "#fff",
-    padding: 20,
-    borderRadius: 12,
-    marginTop: 25,
-    boxShadow: "0 2px 6px rgba(0,0,0,0.1)"
-  }}>
-    <h3 style={{ marginBottom: 12 }}>{title}</h3>
-    {children}
-  </div>
-);
+// ===== Interstitial Ad =====
+const showInterstitialAd = () => {
+  const adContainer = document.createElement("ins");
+  adContainer.className = "adsbygoogle";
+  adContainer.style.display = "block";
+  adContainer.setAttribute("data-ad-client", "ca-pub-3218753156748504");
+  adContainer.setAttribute("data-ad-slot", "7639678257");
+  adContainer.setAttribute("data-ad-format", "auto");
+  adContainer.setAttribute("data-full-width-responsive", "true");
 
-const selectStyle = (isDark) => ({
-  width: "100%",
-  padding: 8,
-  marginBottom: 10,
-  borderRadius: 6,
-  background: isDark ? "#222" : "#fafafa",
-  color: isDark ? "#fff" : "#000",
-  border: "1px solid #666",
-});
-
-const previewBox = {
-  width: "100%",
-  height: 150,
-  borderRadius: 10,
-  border: "2px solid #555",
-  display: "flex",
-  justifyContent: "center",
-  alignItems: "center",
-  backgroundSize: "cover",
-  backgroundPosition: "center",
+  document.body.appendChild(adContainer);
+  (adsbygoogle = window.adsbygoogle || []).push({});
 };
 
-const btnStyle = (bg) => ({
-  padding: "10px 15px",
-  background: bg,
-  color: "#fff",
-  border: "none",
-  borderRadius: 8,
-  cursor: "pointer",
-  fontWeight: "bold",
-});
+// ===== Sidebar Sections =====
+const sections = [
+  { id: "privacy", label: "Privacy & Security", icon: <LockClosedIcon className="w-5 h-5 mr-2" /> },
+  { id: "notifications", label: "Notifications", icon: <BellIcon className="w-5 h-5 mr-2" /> },
+  { id: "preferences", label: "Application Preferences", icon: <Cog6ToothIcon className="w-5 h-5 mr-2" /> },
+  { id: "data", label: "Data & Storage", icon: <CloudArrowDownIcon className="w-5 h-5 mr-2" /> },
+  { id: "support", label: "Support & About", icon: <QuestionMarkCircleIcon className="w-5 h-5 mr-2" /> },
+  { id: "account", label: "Account Actions", icon: <ExclamationTriangleIcon className="w-5 h-5 mr-2" /> },
+];
 
 export default function SettingsPage() {
   const { theme, setTheme } = useContext(ThemeContext);
   const { showPopup } = usePopup();
   const navigate = useNavigate();
 
-  const isDark = theme === "dark";
-
   const [user, setUser] = useState(null);
   const [name, setName] = useState("");
   const [bio, setBio] = useState("");
   const [email, setEmail] = useState("");
   const [profilePic, setProfilePic] = useState(null);
+  const [selectedFile, setSelectedFile] = useState(null);
+
   const [balance, setBalance] = useState(0);
   const animatedBalance = useAnimatedNumber(balance, 800);
   const [transactions, setTransactions] = useState([]);
   const [loadingReward, setLoadingReward] = useState(false);
   const [flashReward, setFlashReward] = useState(false);
 
-  const [preferences, setPreferences] = useState({
-    language: "English",
-    fontSize: "Medium",
-    layout: "Default",
-    theme: theme,
-    wallpaper: null,
-  });
+  const [activeSection, setActiveSection] = useState("privacy");
 
-  const [notifications, setNotifications] = useState({ push: true, email: true, sound: true });
-
-  const wallpaperInputRef = useRef(null);
+  const profileInputRef = useRef(null);
+  const isDark = theme === "dark";
   const backend = "https://smart-talk-zlxe.onrender.com";
 
   // ----------------- Auth + User Data -----------------
   useEffect(() => {
-    const unsubAuth = auth.onAuthStateChanged(async (u) => {
-      if (!u) return navigate("/");
+    const unsubAuth = auth.onAuthStateChanged((u) => {
+      if (!u) {
+        navigate("/");
+        return;
+      }
 
       setUser(u);
       setEmail(u.email || "");
 
       const userRef = doc(db, "users", u.uid);
-      const snap = await getDoc(userRef);
 
-      if (!snap.exists()) {
-        await setDoc(userRef, {
-          name: u.displayName || "User",
-          bio: "",
-          email: u.email || "",
-          profilePic: null,
-          preferences: { theme: "light", language:"English", fontSize:"Medium", layout:"Default", wallpaper:null },
-          notifications: { push:true,email:true,sound:true },
-          createdAt: serverTimestamp(),
-        });
-      }
+      // Async create doc if missing
+      (async () => {
+        const snap = await getDoc(userRef);
+        if (!snap.exists()) {
+          await setDoc(userRef, {
+            name: u.displayName || "User",
+            bio: "",
+            email: u.email || "",
+            profilePic: null,
+            preferences: { theme: "light" },
+            createdAt: serverTimestamp(),
+          });
+        }
+      })();
 
+      // Live snapshot for profile
       const unsubSnap = onSnapshot(userRef, (s) => {
         if (!s.exists()) return;
         const data = s.data();
         setName(data.name || "");
         setBio(data.bio || "");
         setProfilePic(data.profilePic || null);
-        if (data.preferences) setPreferences((prev) => ({ ...prev, ...data.preferences }));
-        if (data.notifications) setNotifications(data.notifications);
+        // Live theme sync
+        if (data.preferences?.theme && data.preferences.theme !== theme) {
+          setTheme(data.preferences.theme);
+        }
       });
 
       loadWallet(u.uid);
+
       return () => unsubSnap();
     });
 
@@ -156,131 +154,203 @@ export default function SettingsPage() {
   const loadWallet = async (uid) => {
     try {
       const token = await getToken();
-      const res = await fetch(`${backend}/api/wallet/${uid}`, { headers: { Authorization: `Bearer ${token}` } });
+      const res = await fetch(`${backend}/api/wallet/${uid}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
       const data = await res.json();
       if (res.ok) {
         setBalance(data.balance || 0);
         setTransactions(data.transactions || []);
-      } else showPopup(data.error || "Failed to load wallet.");
-    } catch (err) { console.error(err); showPopup("Failed to load wallet."); }
+      } else {
+        showPopup(data.error || "Failed to load wallet.");
+      }
+    } catch (err) {
+      console.error(err);
+      showPopup("Failed to load wallet. Check console.");
+    }
   };
 
   const alreadyClaimed = useMemo(() => {
-    if (!transactions?.length) return false;
-    const today = new Date(); today.setHours(0,0,0,0);
-    return transactions.some(t => t.type==="checkin" && new Date(t.createdAt||t.date).setHours(0,0,0,0)===today.getTime());
+    if (!transactions || transactions.length === 0) return false;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    return transactions.some((t) => {
+      if (t.type !== "checkin") return false;
+      const txDate = new Date(t.createdAt || t.date);
+      txDate.setHours(0, 0, 0, 0);
+      return txDate.getTime() === today.getTime();
+    });
   }, [transactions]);
 
-  const launchConfetti = () => confetti({ particleCount: 120, spread: 90, origin: { y:0.5 } });
+  const launchConfetti = () => {
+    confetti({
+      particleCount: 120,
+      spread: 90,
+      origin: { y: 0.5 },
+      colors: ["#ffd700", "#ff9800", "#00e676", "#007bff"],
+    });
+  };
 
   const handleDailyReward = async () => {
     if (!user || loadingReward || alreadyClaimed) return;
     setLoadingReward(true);
+
     try {
       const token = await getToken();
       const res = await fetch(`${backend}/api/wallet/daily`, {
-        method:"POST",
-        headers: { "Content-Type":"application/json", Authorization:`Bearer ${token}` },
-        body: JSON.stringify({ amount:0.25 })
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ amount: 0.25 }),
       });
       const data = await res.json();
+
       if (res.ok) {
         setBalance(data.balance);
-        setTransactions(prev=>[data.txn,...prev]);
+        setTransactions((prev) => [data.txn, ...prev]);
         showPopup("🎉 Daily reward claimed!");
         launchConfetti();
-        setFlashReward(true); setTimeout(()=>setFlashReward(false),600);
-      } else showPopup(data.error || "Failed to claim reward.");
-    } catch(err){ console.error(err); showPopup("Failed to claim reward."); }
-    finally{ setLoadingReward(false); }
+
+        setFlashReward(true);
+        setTimeout(() => setFlashReward(false), 600);
+      } else if (data.error?.toLowerCase().includes("already claimed")) {
+        showPopup("✅ You already claimed today's reward!");
+      } else {
+        showPopup(data.error || "Failed to claim daily reward.");
+      }
+    } catch (err) {
+      console.error(err);
+      showPopup("Failed to claim daily reward. Check console.");
+    } finally {
+      setLoadingReward(false);
+    }
   };
 
-  const handleWallpaperClick = () => wallpaperInputRef.current?.click();
-  const handleFileChange = (e) => {
+  // ----------------- Cloudinary Upload -----------------
+  const uploadToCloudinary = async (file) => {
+    if (!CLOUDINARY_CLOUD || !CLOUDINARY_PRESET) throw new Error("Cloudinary environment not set");
+
+    const fd = new FormData();
+    fd.append("file", file);
+    fd.append("upload_preset", CLOUDINARY_PRESET);
+
+    const res = await fetch(`https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD}/image/upload`, {
+      method: "POST",
+      body: fd,
+    });
+    if (!res.ok) throw new Error("Cloudinary upload failed");
+
+    const data = await res.json();
+    return data.secure_url || data.url;
+  };
+
+  const onProfileFileChange = async (e) => {
     const file = e.target.files?.[0];
-    if(file) setPreferences(p=>({...p, wallpaper: URL.createObjectURL(file)}));
-  };
+    if (!file) return;
 
-  const savePreferences = async () => {
-    if(!user) return;
-    const userRef = doc(db,"users",user.uid);
+    setSelectedFile(file);
+    setProfilePic(URL.createObjectURL(file));
+
     try {
-      await updateDoc(userRef,{ preferences, notifications });
-      setTheme(preferences.theme);
-      showPopup("Preferences saved!");
-    } catch(err){ console.error(err); showPopup("Failed to save preferences."); }
+      const url = await uploadToCloudinary(file);
+      if (!user) return;
+      const userRef = doc(db, "users", user.uid);
+      await updateDoc(userRef, { profilePic: url, updatedAt: serverTimestamp() });
+      setProfilePic(url);
+      setSelectedFile(null);
+    } catch (err) {
+      console.error("Upload failed:", err);
+      alert("Failed to upload profile picture.");
+    }
   };
 
-  const handleLogout = async () => { await signOut(auth); navigate("/"); };
+  const handleLogout = async () => {
+    await signOut(auth);
+    navigate("/");
+  };
 
-  if(!user) return <p>Loading user...</p>;
+  const userId = user?.uid;
+
+  const renderActiveSection = () => {
+    switch (activeSection) {
+      case "privacy":
+        return <PrivacyAndSecuritySettings userId={userId} />;
+      case "notifications":
+        return <NotificationSettings userId={userId} />;
+      case "preferences":
+        return <ApplicationPreferencesSettings userId={userId} />;
+      case "data":
+        return <DataAndStorageSettings userId={userId} />;
+      case "support":
+        return <SupportAndAboutSettings userId={userId} />;
+      case "account":
+        return <AccountActionsSettings userId={userId} />;
+      default:
+        return null;
+    }
+  };
+
+  if (!user) return <p>Loading user...</p>;
 
   return (
-    <div style={{ padding:20, minHeight:"100vh", background:isDark?"#1c1c1c":"#f8f8f8", color:isDark?"#fff":"#000" }}>
-      <div style={{ cursor:"pointer", marginBottom:16, fontWeight:"bold", fontSize:20 }} onClick={()=>navigate("/chat")}>← Back</div>
-      <h2 style={{ textAlign:"center", marginBottom:20 }}>⚙️ Settings</h2>
-
-      {/* Profile */}
-      <div style={{ display:"flex", alignItems:"center", gap:16, background:isDark?"#2b2b2b":"#fff", padding:16, borderRadius:12, boxShadow:"0 2px 6px rgba(0,0,0,0.15)" }}>
-        <div style={{ width:88,height:88,borderRadius:44, background:profilePic?`url(${profilePic}) center/cover`:"#888", display:"flex",alignItems:"center",justifyContent:"center",fontSize:28,color:"#fff",cursor:"pointer" }} onClick={()=>navigate("/edit-profile")}>{!profilePic && (name[0]||"U")}</div>
-        <div style={{ flex:1,minWidth:0 }}>
-          <h3 style={{ margin:0,fontSize:20 }}>{name}</h3>
-          <p style={{ margin:"6px 0", color:isDark?"#ccc":"#555" }}>{bio||"No bio yet"}</p>
-          <p style={{ margin:"0 0 12px", color:isDark?"#bbb":"#777", fontSize:13 }}>{email}</p>
-          <div style={{ padding:16, background:isDark?"#1f1f1f":"#eef6ff", borderRadius:12, cursor:"pointer" }} onClick={handleDailyReward}>
-            <p style={{ margin:0 }}>Balance:</p>
-            <strong style={{ color:isDark?"#00e676":"#007bff", fontSize:24 }}>${animatedBalance.toFixed(2)}</strong>
-            <button onClick={handleDailyReward} disabled={loadingReward||alreadyClaimed} style={{ marginTop:12,width:"100%",padding:"12px",borderRadius:10, border:"none", background:alreadyClaimed?"#666":"#ffd700", fontWeight:"bold", cursor:alreadyClaimed?"not-allowed":"pointer" }}>{loadingReward?"Processing...":alreadyClaimed?"✅ Already Claimed":"🧩 Daily Reward (+$0.25)"}</button>
+    <div className={`min-h-screen p-6 sm:p-10 ${isDark ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-900"} flex flex-col lg:flex-row`}>
+      {/* Sidebar */}
+      <aside className="w-full lg:w-1/4 mb-6 lg:mb-0">
+        {/* Profile Card */}
+        <div className={`flex flex-col items-center gap-4 p-4 rounded-2xl shadow-md mb-6 ${isDark ? "bg-gray-800" : "bg-white"}`}>
+          <div
+            className="w-24 h-24 rounded-full bg-gray-500 flex items-center justify-center cursor-pointer text-2xl font-bold text-white"
+            style={{ backgroundImage: profilePic ? `url(${profilePic})` : undefined, backgroundSize: "cover", backgroundPosition: "center" }}
+            onClick={() => profileInputRef.current?.click()}
+          >
+            {!profilePic && (name?.[0] || "U")}
+          </div>
+          <h3 className="text-xl font-semibold">{name || "Unnamed User"}</h3>
+          <p className="text-sm text-gray-400 text-center">{bio || "No bio yet — click ⋮ → Edit Info to add one."}</p>
+          <p className="text-xs text-gray-500">{email}</p>
+          <div
+            className={`w-full p-3 mt-2 rounded-lg ${isDark ? "bg-gray-700" : "bg-blue-50"} cursor-pointer`}
+            onClick={() => navigate("/wallet")}
+          >
+            <p className="text-sm">Balance:</p>
+            <strong className={`${isDark ? "text-green-400" : "text-blue-600"} text-2xl`}>${animatedBalance.toFixed(2)}</strong>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                handleDailyReward();
+              }}
+              disabled={loadingReward || alreadyClaimed}
+              className={`mt-2 w-full py-2 rounded-lg font-bold ${alreadyClaimed ? "bg-gray-600 cursor-not-allowed" : "bg-yellow-400 hover:bg-yellow-300"} text-black transition`}
+            >
+              {loadingReward ? "Processing..." : alreadyClaimed ? "✅ Already Claimed" : "🧩 Daily Reward (+$0.25)"}
+            </button>
           </div>
         </div>
-      </div>
 
-      {/* ================= Preferences ================= */}
-      <Section title="User Preferences" isDark={isDark}>
-        <label>Language:</label>
-        <select value={preferences.language} onChange={(e)=>setPreferences(p=>({...p, language:e.target.value}))} style={selectStyle(isDark)}>
-          <option>English</option><option>French</option><option>Spanish</option><option>Arabic</option>
-        </select>
-        <label>Font Size:</label>
-        <select value={preferences.fontSize} onChange={(e)=>setPreferences(p=>({...p, fontSize:e.target.value}))} style={selectStyle(isDark)}>
-          <option>Small</option><option>Medium</option><option>Large</option>
-        </select>
-        <label>Layout:</label>
-        <select value={preferences.layout} onChange={(e)=>setPreferences(p=>({...p, layout:e.target.value}))} style={selectStyle(isDark)}>
-          <option>Default</option><option>Compact</option><option>Spacious</option>
-        </select>
-      </Section>
+        {/* Sidebar Menu */}
+        <ul className="space-y-3">
+          {sections.map((section) => (
+            <li key={section.id}>
+              <button
+                className={`flex items-center w-full text-left px-4 py-2 rounded-lg transition ${
+                  activeSection === section.id
+                    ? "bg-blue-500 text-white"
+                    : "bg-white hover:bg-gray-100 text-gray-700"
+                }`}
+                onClick={() => setActiveSection(section.id)}
+              >
+                {section.icon}
+                {section.label}
+              </button>
+            </li>
+          ))}
+        </ul>
+      </aside>
 
-      {/* ================= Theme & Wallpaper ================= */}
-      <Section title="Theme & Wallpaper" isDark={isDark}>
-        <select value={preferences.theme} onChange={(e)=>setPreferences(p=>({...p, theme:e.target.value}))} style={selectStyle(isDark)}>
-          <option value="light">🌞 Light</option>
-          <option value="dark">🌙 Dark</option>
-        </select>
-        <div onClick={handleWallpaperClick} style={{ ...previewBox, backgroundImage: preferences.wallpaper?`url(${preferences.wallpaper})`:"none" }}>
-          <p>🌈 Wallpaper Preview</p>
-        </div>
-        <input ref={wallpaperInputRef} type="file" accept="image/*" style={{ display:"none" }} onChange={handleFileChange} />
-        <button onClick={savePreferences} style={btnStyle("#007bff")}>💾 Save Preferences</button>
-      </Section>
+      {/* Main Content */}
+      <main className="flex-1 bg-white dark:bg-gray-800 rounded-2xl shadow-md p-6 transition-all duration-300">{renderActiveSection()}</main>
 
-      {/* ================= Notifications ================= */}
-      <Section title="Notifications" isDark={isDark}>
-        {Object.keys(notifications).map(key=>(
-          <label key={key} style={{ display:"block", marginBottom:6 }}>
-            <input type="checkbox" checked={notifications[key]} onChange={()=>setNotifications(n=>({...n,[key]:!n[key]}))}/> {key.charAt(0).toUpperCase()+key.slice(1)}
-          </label>
-        ))}
-      </Section>
-
-      {/* ================= About ================= */}
-      <Section title="About" isDark={isDark}>
-        <p>Version 1.0.0</p>
-        <p>© 2025 Hahala App</p>
-        <p>Terms of Service | Privacy Policy</p>
-      </Section>
-
-      <button onClick={handleLogout} style={{ ...btnStyle("#d32f2f"), marginTop:20 }}>🚪 Log Out</button>
+      <input ref={profileInputRef} type="file" accept="image/*" className="hidden" onChange={onProfileFileChange} />
     </div>
   );
 }
