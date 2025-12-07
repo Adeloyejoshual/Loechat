@@ -1,19 +1,7 @@
 import React, { useEffect, useState, useContext, useRef } from "react";
 import { auth, db } from "../firebaseConfig";
-import {
-  doc,
-  getDoc,
-  updateDoc,
-  deleteDoc,
-  serverTimestamp,
-} from "firebase/firestore";
-import {
-  updateEmail,
-  updatePassword,
-  deleteUser,
-  reauthenticateWithCredential,
-  EmailAuthProvider,
-} from "firebase/auth";
+import { doc, getDoc, updateDoc, deleteDoc, serverTimestamp } from "firebase/firestore";
+import { deleteUser, reauthenticateWithCredential, EmailAuthProvider } from "firebase/auth";
 import { useNavigate } from "react-router-dom";
 import { ThemeContext } from "../context/ThemeContext";
 import { usePopup } from "../context/PopupContext";
@@ -31,14 +19,10 @@ export default function EditProfilePage() {
   const [user, setUser] = useState(null);
   const [name, setName] = useState("");
   const [bio, setBio] = useState("");
-  const [email, setEmail] = useState("");
   const [profilePic, setProfilePic] = useState(null);
   const [saving, setSaving] = useState(false);
 
-  // Password
-  const [newPassword, setNewPassword] = useState("");
-
-  // Delete
+  // Delete account
   const [confirmPassword, setConfirmPassword] = useState("");
   const [deleting, setDeleting] = useState(false);
 
@@ -53,7 +37,6 @@ export default function EditProfilePage() {
       }
 
       setUser(u);
-      setEmail(u.email || "");
 
       const userRef = doc(db, "users", u.uid);
 
@@ -122,13 +105,8 @@ export default function EditProfilePage() {
       await updateDoc(userRef, {
         name,
         bio,
-        email,
         updatedAt: serverTimestamp(),
       });
-
-      if (email !== user.email) {
-        await updateEmail(user, email);
-      }
 
       showPopup("✅ Profile updated");
       navigate("/settings");
@@ -136,21 +114,6 @@ export default function EditProfilePage() {
       showPopup("❌ Update failed");
     } finally {
       setSaving(false);
-    }
-  };
-
-  // ---------------- CHANGE PASSWORD ----------------
-  const handleChangePassword = async () => {
-    if (!newPassword || newPassword.length < 6) {
-      return showPopup("❌ Password must be at least 6 characters");
-    }
-
-    try {
-      await updatePassword(user, newPassword);
-      setNewPassword("");
-      showPopup("✅ Password changed successfully");
-    } catch {
-      showPopup("❌ Login again to change password");
     }
   };
 
@@ -238,28 +201,14 @@ export default function EditProfilePage() {
         <input value={name} onChange={(e) => setName(e.target.value)} style={inputStyle} />
 
         <label>Bio</label>
-        <textarea value={bio} onChange={(e) => setBio(e.target.value)} style={{ ...inputStyle, height: 80 }} />
-
-        <label>Email</label>
-        <input value={email} onChange={(e) => setEmail(e.target.value)} style={inputStyle} />
+        <textarea
+          value={bio}
+          onChange={(e) => setBio(e.target.value)}
+          style={{ ...inputStyle, height: 80 }}
+        />
 
         <button onClick={handleSave} style={saveBtn} disabled={saving}>
           {saving ? "Saving..." : "✅ Save Changes"}
-        </button>
-      </div>
-
-      {/* ===== CHANGE PASSWORD ===== */}
-      <div style={{ ...cardStyle, marginTop: 20 }}>
-        <h3>🔐 Change Password</h3>
-        <input
-          type="password"
-          placeholder="New Password"
-          value={newPassword}
-          onChange={(e) => setNewPassword(e.target.value)}
-          style={inputStyle}
-        />
-        <button onClick={handleChangePassword} style={passwordBtn}>
-          Update Password
         </button>
       </div>
 
@@ -305,15 +254,6 @@ const saveBtn = {
   border: "none",
   background: "#00e676",
   fontWeight: "bold",
-};
-
-const passwordBtn = {
-  width: "100%",
-  padding: 12,
-  borderRadius: 10,
-  border: "none",
-  background: "#007bff",
-  color: "#fff",
 };
 
 const deleteBtn = {
