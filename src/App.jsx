@@ -1,4 +1,4 @@
-// App.jsx
+// src/App.jsx
 import React, { useEffect, useState } from "react";
 import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
 
@@ -19,6 +19,7 @@ import ProtectedRoute from "./components/ProtectedRoute";
 import HomePage from "./components/HomePage";
 import ChatPage from "./components/ChatPage";
 import ChatConversationPage from "./components/ChatConversationPage";
+import SharedMediaPage from "./components/SharedMediaPage";
 import ArchivePage from "./components/ChatPage/ArchivePage";
 import VoiceCall from "./components/VoiceCall";
 import VideoCall from "./components/VideoCall";
@@ -162,6 +163,14 @@ export default function App() {
                     }
                   />
                   <Route
+                    path="/chat/:chatId/media"
+                    element={
+                      <ProtectedRoute>
+                        <SharedMediaPage />
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route
                     path="/archive"
                     element={
                       <ProtectedRoute>
@@ -251,7 +260,7 @@ export default function App() {
                     path="/topup"
                     element={
                       <ProtectedRoute>
-                        <TopUpPage />
+                        <TopUpPage rewardCoins={rewardCoins} />
                       </ProtectedRoute>
                     }
                   />
