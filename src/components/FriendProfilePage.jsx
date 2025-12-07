@@ -7,6 +7,7 @@ import { ThemeContext } from "../context/ThemeContext";
 import { UserContext } from "../context/UserContext";
 import { FiMessageCircle, FiVideo, FiPhone, FiImage, FiSlash } from "react-icons/fi";
 
+// ---------------- Utils ----------------
 const stringToColor = (str) => {
   let hash = 0;
   for (let i = 0; i < str.length; i++) hash = str.charCodeAt(i) + ((hash << 5) - hash);
@@ -20,6 +21,17 @@ const getInitials = (name) => {
   return parts.length === 1 ? parts[0][0].toUpperCase() : (parts[0][0] + parts[1][0]).toUpperCase();
 };
 
+const formatLastSeen = (timestamp) => {
+  if (!timestamp) return "Offline";
+  const last = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+  const diff = Date.now() - last.getTime();
+  if (diff < 60000) return "Online";
+  if (diff < 3600000) return `Last seen ${Math.floor(diff / 60000)}m ago`;
+  if (diff < 86400000) return `Last seen ${Math.floor(diff / 3600000)}h ago`;
+  return `Last seen on ${last.toLocaleDateString()} at ${last.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
+};
+
+// ---------------- Component ----------------
 export default function FriendProfilePage() {
   const { uid } = useParams();
   const navigate = useNavigate();
@@ -74,6 +86,7 @@ export default function FriendProfilePage() {
     fetchMedia();
   }, [currentUser, uid]);
 
+  // ---------------- Actions ----------------
   const sendMessage = () => {
     if (!currentUser || !uid) return;
     navigate(`/chat/${[currentUser.uid, uid].sort().join("_")}`);
@@ -91,15 +104,8 @@ export default function FriendProfilePage() {
     setIsBlocked(!isBlocked);
   };
 
-  const onlineStatus = () => {
-    if (!friend?.lastSeen) return "Offline";
-    const last = friend.lastSeen.toDate ? friend.lastSeen.toDate() : new Date(friend.lastSeen);
-    const diff = Date.now() - last.getTime();
-    if (diff < 60000) return "Online";
-    if (diff < 3600000) return `Last seen ${Math.floor(diff / 60000)}m ago`;
-    if (diff < 86400000) return `Last seen ${Math.floor(diff / 3600000)}h ago`;
-    return `Last seen on ${last.toLocaleDateString()} at ${last.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
-  };
+  const statusText = formatLastSeen(friend?.lastSeen);
+  const isOnline = statusText === "Online";
 
   if (loading)
     return (
@@ -116,8 +122,6 @@ export default function FriendProfilePage() {
     );
 
   const profileUrl = friend.profilePic || null;
-  const statusText = onlineStatus();
-  const isOnline = statusText === "Online";
 
   return (
     <div className={`${isDark ? "bg-black text-white" : "bg-gray-100 text-black"} min-h-screen p-4 flex flex-col items-center`}>
@@ -130,36 +134,40 @@ export default function FriendProfilePage() {
       </div>
 
       {/* Profile Card */}
-      <div className={`w-full max-w-md bg-white dark:bg-gray-900 rounded-2xl shadow-lg p-6 flex flex-col items-center`}>
+      <div className={`w-full max-w-md bg-white dark:bg-gray-900 rounded-3xl shadow-xl p-6 flex flex-col items-center`}>
         {/* Profile Picture */}
-        <div className="relative w-32 h-32 rounded-full overflow-hidden border-4 border-gray-300 dark:border-gray-700 mb-4">
+        <div className="relative w-40 h-40 rounded-full overflow-hidden border-4 border-gray-300 dark:border-gray-700 mb-4 shadow-lg">
           {profileUrl ? (
             <img src={profileUrl} alt="Profile" className="w-full h-full object-cover" />
           ) : (
             <div
-              className="flex items-center justify-center w-full h-full text-4xl font-bold text-white"
+              className="flex items-center justify-center w-full h-full text-5xl font-bold text-white"
               style={{ backgroundColor: stringToColor(friend.name) }}
             >
               {getInitials(friend.name)}
             </div>
           )}
-          {isOnline && <span className="absolute bottom-1 right-1 w-4 h-4 rounded-full bg-green-500 border-2 border-white"></span>}
+          {isOnline && <span className="absolute bottom-2 right-2 w-5 h-5 rounded-full bg-green-500 border-2 border-white"></span>}
         </div>
 
         {/* Name / Bio / Status */}
-        <div className="text-center mb-4">
-          <h2 className="text-2xl font-semibold">{friend.name || "Unknown User"}</h2>
+        <div className="text-center mb-6">
+          <h2 className="text-3xl font-bold">{friend.name || "Unknown User"}</h2>
           <p className="text-gray-500 dark:text-gray-400 text-sm mt-1">{friend.bio || "No bio added."}</p>
           <p className={`text-xs mt-1 ${isOnline ? "text-green-500" : "text-gray-400"}`}>{statusText}</p>
         </div>
 
         {/* Shared Media Preview */}
         {media.length > 0 && (
-          <div className="w-full mb-4">
+          <div className="w-full mb-6">
             <h3 className="text-sm font-semibold mb-2">Shared Media</h3>
             <div className="flex gap-2 overflow-x-auto">
               {media.map((item) => (
-                <div key={item.id} className="flex-shrink-0 w-20 h-20 rounded-lg overflow-hidden cursor-pointer shadow hover:scale-105 transition-transform" onClick={viewSharedMedia}>
+                <div
+                  key={item.id}
+                  className="flex-shrink-0 w-24 h-24 rounded-lg overflow-hidden cursor-pointer shadow hover:scale-105 transition-transform"
+                  onClick={viewSharedMedia}
+                >
                   {item.mediaType === "image" ? (
                     <img src={item.mediaUrl} alt="media" className="w-full h-full object-cover" />
                   ) : (
@@ -172,38 +180,38 @@ export default function FriendProfilePage() {
         )}
 
         {/* Action Buttons */}
-        <div className="flex flex-wrap justify-center gap-3 mt-6 w-full">
+        <div className="flex flex-wrap justify-center gap-3 w-full">
           <button
             onClick={sendMessage}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition shadow w-full sm:w-auto justify-center"
+            className="flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-xl font-semibold hover:bg-blue-700 transition shadow w-full sm:w-auto justify-center"
           >
             <FiMessageCircle /> Message
           </button>
 
           <button
             onClick={() => alert("Voice call coming soon!")}
-            className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700 transition shadow w-full sm:w-auto justify-center"
+            className="flex items-center gap-2 px-6 py-3 bg-green-600 text-white rounded-xl font-semibold hover:bg-green-700 transition shadow w-full sm:w-auto justify-center"
           >
             <FiPhone /> Call
           </button>
 
           <button
             onClick={() => alert("Video call coming soon!")}
-            className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg font-semibold hover:bg-purple-700 transition shadow w-full sm:w-auto justify-center"
+            className="flex items-center gap-2 px-6 py-3 bg-purple-600 text-white rounded-xl font-semibold hover:bg-purple-700 transition shadow w-full sm:w-auto justify-center"
           >
             <FiVideo /> Video
           </button>
 
           <button
             onClick={viewSharedMedia}
-            className="flex items-center gap-2 px-4 py-2 bg-gray-600 text-white rounded-lg font-semibold hover:bg-gray-700 transition shadow w-full sm:w-auto justify-center"
+            className="flex items-center gap-2 px-6 py-3 bg-gray-600 text-white rounded-xl font-semibold hover:bg-gray-700 transition shadow w-full sm:w-auto justify-center"
           >
             <FiImage /> Media
           </button>
 
           <button
             onClick={toggleBlock}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg font-semibold transition shadow w-full sm:w-auto justify-center ${
+            className={`flex items-center gap-2 px-6 py-3 rounded-xl font-semibold transition shadow w-full sm:w-auto justify-center ${
               isBlocked ? "bg-red-600 text-white hover:bg-red-700" : "bg-yellow-500 text-black hover:bg-yellow-600"
             }`}
           >
