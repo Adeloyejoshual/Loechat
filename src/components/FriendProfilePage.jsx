@@ -119,121 +119,69 @@ export default function FriendProfilePage() {
 
   if (loading)
     return (
-      <div className="min-h-screen flex items-center justify-center text-gray-500 dark:text-gray-400">
-        Loading profile…
-      </div>
+      <div className={styles.loadingContainer}>Loading profile…</div>
     );
 
   if (!friend)
     return (
-      <div className="min-h-screen flex items-center justify-center text-gray-500 dark:text-gray-400">
-        No user data found for uid: {uid}
-      </div>
+      <div className={styles.loadingContainer}>No user data found for uid: {uid}</div>
     );
 
   return (
-    <div className={`min-h-screen p-4 bg-gray-100 dark:bg-gray-900 transition-colors duration-300`}>
-      <div className="max-w-md mx-auto bg-white dark:bg-gray-800 rounded-xl shadow-lg p-6">
-
-        {/* Profile Picture (smaller now) */}
-        <div className="flex justify-center mb-6">
-          <div
-            className="w-20 h-20 rounded-full overflow-hidden border-2 border-gray-300 dark:border-gray-600 cursor-pointer transition-transform hover:scale-105 shadow-md"
-            onClick={() => setShowImage(true)}
-          >
-            {friend.profilePic ? (
-              <img
-                src={friend.profilePic}
-                className="w-full h-full object-cover"
-                alt="Profile"
-              />
-            ) : (
-              <div className="w-full h-full bg-gray-500 flex items-center justify-center text-white text-2xl font-bold">
-                {getInitials(friend.name)}
-              </div>
-            )}
-          </div>
+    <div className={styles.page}>
+      <div className={styles.card}>
+        {/* Profile Picture */}
+        <div className={styles.profileWrapper} onClick={() => setShowImage(true)}>
+          {friend.profilePic ? (
+            <img src={friend.profilePic} className={styles.profileImage} alt="Profile" />
+          ) : (
+            <div className={styles.profilePlaceholder}>{getInitials(friend.name)}</div>
+          )}
         </div>
 
         {/* Name & Status */}
-        <div className="text-center mb-6">
-          <h3 className="text-xl font-semibold text-gray-900 dark:text-gray-100">{friend.name}</h3>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-            {formatLastSeen(friend.lastSeen)}
-          </p>
+        <div className={styles.nameWrapper}>
+          <h3 className={styles.name}>{friend.name}</h3>
+          <p className={styles.status}>{formatLastSeen(friend.lastSeen)}</p>
         </div>
 
-        {/* Buttons Grid */}
-        <div className="grid grid-cols-3 gap-3 mb-3">
-          {[
-            { action: sendMessage, label: "Message", icon: <FiMessageCircle /> },
-            { action: () => alert("Call feature coming soon!"), label: "Call", icon: <FiPhone /> },
-            { action: () => alert("Video feature coming soon!"), label: "Video", icon: <FiVideo /> },
-            { action: viewSharedMedia, label: "Media", icon: <FiImage /> },
-            { action: downloadImage, label: "Download", icon: <FiDownload /> },
-            { action: toggleMute, label: isMuted ? "Muted" : "Notify", icon: isMuted ? <FiBellOff /> : <FiBell /> },
-            { action: () => setShowReport(true), label: "Report", icon: <FiFlag /> },
-          ].map((btn, idx) => (
-            <button
-              key={idx}
-              onClick={btn.action}
-              className="flex flex-col items-center justify-center py-3 px-2 bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-100 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition transform hover:scale-105 shadow-sm"
-              title={btn.label}
-            >
-              {btn.icon}
-              <span className="text-xs mt-1">{btn.label}</span>
-            </button>
-          ))}
-
-          {/* Block button spans full row */}
-          <button
-            onClick={toggleBlock}
-            className="col-span-3 flex items-center justify-center gap-2 py-3 px-4 bg-red-600 text-white rounded-lg hover:bg-red-700 transition transform hover:scale-105 mt-2 shadow-sm"
-          >
-            <FiSlash /> {isBlocked ? "Unblock" : "Block"}
+        {/* Buttons */}
+        <div className={styles.buttonGrid}>
+          <button onClick={sendMessage} className={styles.button}><FiMessageCircle /> Message</button>
+          <button onClick={() => alert("Call feature coming soon!")} className={styles.button}><FiPhone /> Call</button>
+          <button onClick={() => alert("Video feature coming soon!")} className={styles.button}><FiVideo /> Video</button>
+          <button onClick={viewSharedMedia} className={styles.button}><FiImage /> Media</button>
+          <button onClick={downloadImage} className={styles.button}><FiDownload /> Download</button>
+          <button onClick={toggleMute} className={styles.button}>
+            {isMuted ? <FiBellOff /> : <FiBell />} {isMuted ? "Muted" : "Notify"}
           </button>
+          <button onClick={() => setShowReport(true)} className={styles.button}><FiFlag /> Report</button>
+          <button onClick={toggleBlock} className={styles.blockButton}><FiSlash /> {isBlocked ? "Unblock" : "Block"}</button>
         </div>
       </div>
 
-      {/* Fullscreen Profile Image */}
+      {/* Fullscreen Image */}
       {showImage && friend.profilePic && (
-        <div className="fixed inset-0 bg-black bg-opacity-95 flex items-center justify-center z-50">
-          <FiX
-            onClick={() => setShowImage(false)}
-            className="absolute top-5 right-5 text-white text-4xl cursor-pointer hover:text-red-500 transition"
-          />
-          <img
-            src={friend.profilePic}
-            className="max-h-full max-w-full rounded-lg shadow-2xl animate-fadeIn"
-            alt="Profile Fullscreen"
-          />
+        <div className={styles.fullscreenWrapper}>
+          <FiX onClick={() => setShowImage(false)} className={styles.fullscreenClose} />
+          <img src={friend.profilePic} className={styles.fullscreenImage} alt="Profile Fullscreen" />
         </div>
       )}
 
       {/* Report Modal */}
       {showReport && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
-          <div className="bg-white dark:bg-gray-800 p-6 rounded-lg w-80 shadow-lg">
-            <h3 className="font-semibold mb-3 text-gray-900 dark:text-gray-100">Report User</h3>
+        <div className={styles.modalWrapper}>
+          <div className={styles.modal}>
+            <h3 className={styles.modalTitle}>Report User</h3>
             <textarea
               value={reportReason}
               onChange={(e) => setReportReason(e.target.value)}
-              className="w-full border p-2 rounded mb-4 bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-400"
+              className={styles.modalTextarea}
               placeholder="Enter reason..."
             ></textarea>
-            <div className="flex justify-end gap-2">
-              <button
-                onClick={() => setShowReport(false)}
-                className="px-3 py-1 rounded border border-gray-400 dark:border-gray-600 hover:bg-gray-200 dark:hover:bg-gray-600 transition"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={submitReport}
-                className="px-3 py-1 rounded bg-red-600 text-white hover:bg-red-700 transition"
-              >
-                Submit
-              </button>
+            <div className={styles.modalButtons}>
+              <button onClick={() => setShowReport(false)} className={styles.modalCancel}>Cancel</button>
+              <button onClick={submitReport} className={styles.modalSubmit}>Submit</button>
             </div>
           </div>
         </div>
@@ -241,3 +189,35 @@ export default function FriendProfilePage() {
     </div>
   );
 }
+
+/* ---------------- Styles ---------------- */
+const styles = {
+  page: "min-h-screen p-4 bg-gray-100 dark:bg-gray-900 transition-colors duration-300 flex justify-center",
+  card: "w-full max-w-md bg-white dark:bg-gray-800 rounded-xl shadow-lg p-6",
+
+  profileWrapper: "w-16 h-16 rounded-full overflow-hidden border-2 border-gray-300 dark:border-gray-600 cursor-pointer mx-auto mb-4",
+  profileImage: "w-full h-full object-cover",
+  profilePlaceholder: "w-full h-full bg-gray-500 flex items-center justify-center text-white text-xl font-bold",
+
+  nameWrapper: "text-center mb-6",
+  name: "text-lg font-semibold text-gray-900 dark:text-gray-100",
+  status: "text-sm text-gray-500 dark:text-gray-400 mt-1",
+
+  buttonGrid: "grid grid-cols-3 gap-3",
+  button: "flex flex-col items-center justify-center py-3 px-2 bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-100 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition transform hover:scale-105 shadow-sm text-xs gap-1",
+  blockButton: "col-span-3 flex items-center justify-center gap-2 py-3 px-4 bg-red-600 text-white rounded-lg hover:bg-red-700 transition transform hover:scale-105 mt-2 shadow-sm text-sm",
+
+  fullscreenWrapper: "fixed inset-0 bg-black bg-opacity-95 flex items-center justify-center z-50",
+  fullscreenClose: "absolute top-5 right-5 text-white text-4xl cursor-pointer hover:text-red-500 transition",
+  fullscreenImage: "max-h-full max-w-full rounded-lg shadow-2xl animate-fadeIn",
+
+  modalWrapper: "fixed inset-0 bg-black/70 flex items-center justify-center z-50",
+  modal: "bg-white dark:bg-gray-800 p-6 rounded-lg w-80 shadow-lg",
+  modalTitle: "font-semibold mb-3 text-gray-900 dark:text-gray-100",
+  modalTextarea: "w-full border p-2 rounded mb-4 bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-400",
+  modalButtons: "flex justify-end gap-2",
+  modalCancel: "px-3 py-1 rounded border border-gray-400 dark:border-gray-600 hover:bg-gray-200 dark:hover:bg-gray-600 transition",
+  modalSubmit: "px-3 py-1 rounded bg-red-600 text-white hover:bg-red-700 transition",
+
+  loadingContainer: "min-h-screen flex items-center justify-center text-gray-500 dark:text-gray-400",
+};
