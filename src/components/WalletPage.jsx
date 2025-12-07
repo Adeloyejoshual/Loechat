@@ -5,7 +5,7 @@ import { useNavigate } from "react-router-dom";
 import { ThemeContext } from "../context/ThemeContext";
 import { usePopup } from "../context/PopupContext";
 import confetti from "canvas-confetti";
-import { useAd } from "./AdGateway"; // <-- hook to trigger ads
+import { useAd } from "./AdGateway"; // Hook to trigger rewarded ads
 
 // Animated balance hook
 function useAnimatedNumber(target, duration = 800) {
@@ -33,6 +33,9 @@ function useAnimatedNumber(target, duration = 800) {
 export default function WalletPage() {
   const { theme } = useContext(ThemeContext);
   const { showPopup, hidePopup } = usePopup();
+  const navigate = useNavigate();
+  const { showRewarded } = useAd(); // Full-screen Monetag ad hook
+
   const [user, setUser] = useState(null);
   const [balance, setBalance] = useState(0);
   const animatedBalance = useAnimatedNumber(balance);
@@ -40,8 +43,6 @@ export default function WalletPage() {
   const [selectedMonth, setSelectedMonth] = useState(new Date());
   const [loadingReward, setLoadingReward] = useState(false);
   const [flashReward, setFlashReward] = useState(false);
-  const navigate = useNavigate();
-  const { showRewardAd } = useAd(); // hook to trigger ads
 
   const backend = "https://smart-talk-zlxe.onrender.com";
 
@@ -78,21 +79,39 @@ export default function WalletPage() {
     }
   };
 
+  // ---------------- REWARD AD HELPER ----------------
+  // Returns a promise that resolves true when ad completes
+  const showRewardAd = () =>
+    new Promise((resolve) => {
+      showRewarded(15, () => resolve(true)); // 15s ad
+    });
+
   // ---------------- DAILY REWARD ----------------
+  const alreadyClaimed = transactions.some((t) => {
+    if (t.type !== "checkin") return false;
+    const txDate = new Date(t.createdAt || t.date);
+    const today = new Date();
+    return (
+      txDate.getFullYear() === today.getFullYear() &&
+      txDate.getMonth() === today.getMonth() &&
+      txDate.getDate() === today.getDate()
+    );
+  });
+
   const handleDailyReward = async () => {
-    if (!user || loadingReward) return;
+    if (!user || loadingReward || alreadyClaimed) return;
     setLoadingReward(true);
 
     try {
-      // Show Rewarded Ad first
-      const adSuccess = await showRewardAd(); // resolves true when ad completes
+      // 1️⃣ Show full-screen rewarded ad
+      const adSuccess = await showRewardAd();
       if (!adSuccess) {
         showPopup("Ad was skipped or failed. Reward not credited.");
         setLoadingReward(false);
         return;
       }
 
-      // After ad completes, claim daily reward
+      // 2️⃣ Claim daily reward after ad
       const token = await getToken();
       const res = await fetch(`${backend}/api/wallet/daily`, {
         method: "POST",
@@ -102,13 +121,14 @@ export default function WalletPage() {
         },
         body: JSON.stringify({ amount: 0.25 }),
       });
-      const data = await res.json();
 
+      const data = await res.json();
       if (res.ok) {
         setBalance(data.balance);
         setTransactions((prev) => [data.txn, ...prev]);
         showPopup("🎉 Daily reward claimed!");
 
+        // Confetti animation
         confetti({
           particleCount: 120,
           spread: 90,
@@ -118,8 +138,6 @@ export default function WalletPage() {
 
         setFlashReward(true);
         setTimeout(() => setFlashReward(false), 600);
-      } else if (data.error?.toLowerCase().includes("already claimed")) {
-        showPopup("✅ You already claimed today's reward!");
       } else {
         showPopup(data.error || "Failed to claim daily reward.");
       }
@@ -131,7 +149,27 @@ export default function WalletPage() {
     }
   };
 
-  // ---------------- HELPERS ----------------
+  // ---------------- WITHDRAW ----------------
+  const handleWithdraw = async () => {
+    if (!user) return;
+
+    try {
+      // 1️⃣ Show full-screen rewarded ad before withdraw
+      const adSuccess = await showRewardAd();
+      if (!adSuccess) {
+        showPopup("Ad was skipped or failed. Cannot withdraw.");
+        return;
+      }
+
+      // 2️⃣ Navigate to withdraw page
+      navigate("/withdraw");
+    } catch (err) {
+      console.error(err);
+      showPopup("Failed to show ad. Try again.");
+    }
+  };
+
+  // ---------------- MONTH FILTER ----------------
   const formatDate = (d) =>
     new Date(d).toLocaleString("en-US", {
       month: "short",
@@ -148,17 +186,6 @@ export default function WalletPage() {
     );
   });
 
-  const alreadyClaimed = transactions.some((t) => {
-    if (t.type !== "checkin") return false;
-    const txDate = new Date(t.createdAt || t.date);
-    const today = new Date();
-    return (
-      txDate.getFullYear() === today.getFullYear() &&
-      txDate.getMonth() === today.getMonth() &&
-      txDate.getDate() === today.getDate()
-    );
-  });
-
   const prevMonth = () =>
     setSelectedMonth(
       new Date(selectedMonth.getFullYear(), selectedMonth.getMonth() - 1, 1)
@@ -168,6 +195,7 @@ export default function WalletPage() {
       new Date(selectedMonth.getFullYear(), selectedMonth.getMonth() + 1, 1)
     );
 
+  // ---------------- RENDER ----------------
   return (
     <div
       style={{
@@ -210,12 +238,13 @@ export default function WalletPage() {
           >
             Top-Up
           </button>
+
           <button
             style={{
               ...styles.roundBtn,
               background: theme === "dark" ? "#f97316" : "#f59e0b",
             }}
-            onClick={() => navigate("/withdraw")}
+            onClick={handleWithdraw} // ✅ Full ad before withdraw
           >
             Withdraw
           </button>
@@ -238,7 +267,7 @@ export default function WalletPage() {
               transition: "all 0.3s",
             }}
             disabled={alreadyClaimed || loadingReward}
-            onClick={handleDailyReward}
+            onClick={handleDailyReward} // ✅ Full ad before reward
           >
             {loadingReward
               ? "Processing..."
