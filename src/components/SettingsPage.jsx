@@ -1,7 +1,7 @@
 // src/components/SettingsPage.jsx
-import React, { useEffect, useState, useContext, useRef } from "react";
+import React, { useEffect, useState, useContext, useRef, useMemo } from "react";
 import { auth, db } from "../firebaseConfig";
-import { doc, getDoc, setDoc, onSnapshot, updateDoc, serverTimestamp } from "firebase/firestore";
+import { doc, getDoc, setDoc, onSnapshot, serverTimestamp } from "firebase/firestore";
 import { signOut } from "firebase/auth";
 import { useNavigate } from "react-router-dom";
 import { ThemeContext } from "../context/ThemeContext";
@@ -9,11 +9,9 @@ import { usePopup } from "../context/PopupContext";
 import confetti from "canvas-confetti";
 import { useAd } from "../components/AdGateway";
 
-// Cloudinary env
 const CLOUDINARY_CLOUD = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME;
 const CLOUDINARY_PRESET = import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET;
 
-// ====== Hook for animated number ======
 function useAnimatedNumber(target, duration = 800) {
   const [display, setDisplay] = useState(target);
   const raf = useRef();
@@ -36,24 +34,10 @@ function useAnimatedNumber(target, duration = 800) {
   return display;
 }
 
-// ====== Interstitial Ad Function (optional Google Adsense) ======
-const showInterstitialAd = () => {
-  const adContainer = document.createElement("ins");
-  adContainer.className = "adsbygoogle";
-  adContainer.style.display = "block";
-  adContainer.setAttribute("data-ad-client", "ca-pub-3218753156748504");
-  adContainer.setAttribute("data-ad-slot", "7639678257");
-  adContainer.setAttribute("data-ad-format", "auto");
-  adContainer.setAttribute("data-full-width-responsive", "true");
-
-  document.body.appendChild(adContainer);
-  (adsbygoogle = window.adsbygoogle || []).push({});
-};
-
 export default function SettingsPage() {
   const { theme } = useContext(ThemeContext);
   const { showPopup } = usePopup();
-  const { showRewarded } = useAd(); // 🔑 AdGateway integration
+  const { showRewarded } = useAd();
   const navigate = useNavigate();
 
   const [user, setUser] = useState(null);
@@ -62,19 +46,16 @@ export default function SettingsPage() {
   const [email, setEmail] = useState("");
   const [profilePic, setProfilePic] = useState(null);
   const [selectedFile, setSelectedFile] = useState(null);
-
   const [balance, setBalance] = useState(0);
-  const animatedBalance = useAnimatedNumber(balance, 800);
+  const animatedBalance = useAnimatedNumber(balance);
   const [transactions, setTransactions] = useState([]);
   const [loadingReward, setLoadingReward] = useState(false);
   const [flashReward, setFlashReward] = useState(false);
-  const [menuOpen, setMenuOpen] = useState(false);
-
   const profileInputRef = useRef(null);
   const isDark = theme === "dark";
   const backend = "https://smart-talk-zlxe.onrender.com";
 
-  // ================== Load User + Wallet ==================
+  // ----------------- Auth + User Data -----------------
   useEffect(() => {
     const unsubAuth = auth.onAuthStateChanged(async (u) => {
       if (!u) return navigate("/");
@@ -106,6 +87,9 @@ export default function SettingsPage() {
         setProfilePic(data.profilePic || null);
       });
 
+      // Load wallet
+      loadWallet(u.uid);
+
       return () => unsubSnap();
     });
 
@@ -133,7 +117,20 @@ export default function SettingsPage() {
     }
   };
 
-  // ================== Daily Reward ==================
+  // ----------------- Daily Reward -----------------
+  const alreadyClaimed = useMemo(() => {
+    if (!transactions || transactions.length === 0) return false;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    return transactions.some((t) => {
+      if (t.type !== "checkin") return false;
+      const txDate = new Date(t.createdAt || t.date);
+      txDate.setHours(0, 0, 0, 0);
+      return txDate.getTime() === today.getTime();
+    });
+  }, [transactions]);
+
   const launchConfetti = () => {
     confetti({
       particleCount: 120,
@@ -144,7 +141,7 @@ export default function SettingsPage() {
   };
 
   const handleDailyReward = async () => {
-    if (!user || loadingReward) return;
+    if (!user || loadingReward || alreadyClaimed) return;
     setLoadingReward(true);
 
     try {
@@ -180,20 +177,7 @@ export default function SettingsPage() {
     }
   };
 
-  const alreadyClaimed = (() => {
-    if (!transactions || transactions.length === 0) return false;
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
-    return transactions.some((t) => {
-      if (t.type !== "checkin") return false;
-      const txDate = new Date(t.createdAt || t.date);
-      txDate.setHours(0, 0, 0, 0);
-      return txDate.getTime() === today.getTime();
-    });
-  })();
-
-  // ================== Cloudinary Upload ==================
+  // ----------------- Cloudinary Upload -----------------
   const uploadToCloudinary = async (file) => {
     if (!CLOUDINARY_CLOUD || !CLOUDINARY_PRESET)
       throw new Error("Cloudinary environment not set");
@@ -223,7 +207,7 @@ export default function SettingsPage() {
       const url = await uploadToCloudinary(file);
       if (!user) return;
       const userRef = doc(db, "users", user.uid);
-      await updateDoc(userRef, { profilePic: url, updatedAt: serverTimestamp() });
+      await setDoc(userRef, { profilePic: url, updatedAt: serverTimestamp() }, { merge: true });
       setProfilePic(url);
       setSelectedFile(null);
     } catch (err) {
@@ -248,7 +232,6 @@ export default function SettingsPage() {
         color: isDark ? "#fff" : "#000",
       }}
     >
-      {/* Back Arrow */}
       <div
         style={{
           display: "flex",
@@ -260,14 +243,13 @@ export default function SettingsPage() {
           fontWeight: "bold",
         }}
         onClick={() => navigate("/chat")}
-        title="Back to Chat"
       >
         ← Back
       </div>
 
       <h2 style={{ textAlign: "center", marginBottom: 20 }}>⚙️ Settings</h2>
 
-      {/* ================= Profile Card ================= */}
+      {/* Profile Card */}
       <div
         style={{
           display: "flex",
@@ -276,12 +258,10 @@ export default function SettingsPage() {
           background: isDark ? "#2b2b2b" : "#fff",
           padding: 16,
           borderRadius: 12,
-          boxShadow: "0 2px 6px rgba(0,0,0,0.15)",
           marginBottom: 25,
           position: "relative",
         }}
       >
-        {/* Profile Picture */}
         <div
           onClick={() => navigate("/edit-profile")}
           style={{
@@ -303,57 +283,10 @@ export default function SettingsPage() {
           {!profilePic && (name?.[0] || "U")}
         </div>
 
-        {/* User Info */}
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
             <h3 style={{ margin: 0, fontSize: 20 }}>{name || "Unnamed User"}</h3>
-
-            {/* Menu */}
-            <div style={{ marginLeft: "auto", position: "relative" }}>
-              <button
-                onClick={() => setMenuOpen((s) => !s)}
-                style={{
-                  border: "none",
-                  background: "transparent",
-                  color: isDark ? "#fff" : "#222",
-                  cursor: "pointer",
-                  fontSize: 20,
-                }}
-              >
-                ⋮
-              </button>
-              {menuOpen && (
-                <div
-                  style={{
-                    position: "absolute",
-                    right: 0,
-                    top: 34,
-                    background: isDark ? "#1a1a1a" : "#fff",
-                    color: isDark ? "#fff" : "#000",
-                    borderRadius: 8,
-                    boxShadow: "0 10px 30px rgba(0,0,0,0.12)",
-                    overflow: "hidden",
-                    zIndex: 60,
-                    minWidth: 150,
-                  }}
-                >
-                  <button
-                    onClick={() => {
-                      navigate("/edit-profile");
-                      setMenuOpen(false);
-                    }}
-                    style={menuItemStyle}
-                  >
-                    Edit Info
-                  </button>
-                  <button onClick={handleLogout} style={menuItemStyle}>
-                    Log Out
-                  </button>
-                </div>
-              )}
-            </div>
           </div>
-
           <p style={{ margin: "6px 0", color: isDark ? "#ccc" : "#555" }}>
             {bio || "No bio yet — click ⋮ → Edit Info to add one."}
           </p>
@@ -361,18 +294,15 @@ export default function SettingsPage() {
             {email}
           </p>
 
-          {/* ================= Wallet Panel ================= */}
+          {/* Wallet Panel */}
           <div
             style={{
               padding: 16,
               background: isDark ? "#1f1f1f" : "#eef6ff",
               borderRadius: 12,
               cursor: "pointer",
-              transition: "transform 0.2s",
             }}
             onClick={() => navigate("/wallet")}
-            onMouseEnter={(e) => (e.currentTarget.style.transform = "scale(1.02)")}
-            onMouseLeave={(e) => (e.currentTarget.style.transform = "scale(1)")}
           >
             <p style={{ margin: 0, fontSize: 16 }}>Balance:</p>
             <strong
@@ -393,7 +323,7 @@ export default function SettingsPage() {
                 e.stopPropagation();
                 if (loadingReward || alreadyClaimed) return;
 
-                // 🔹 Show full-screen rewarded ad before claiming
+                // Show full-screen rewarded ad
                 showRewarded(10287794, 15, async () => {
                   await handleDailyReward();
                 });
@@ -428,7 +358,6 @@ export default function SettingsPage() {
         </div>
       </div>
 
-      {/* Hidden file input for Cloudinary */}
       <input
         ref={profileInputRef}
         type="file"
@@ -439,14 +368,3 @@ export default function SettingsPage() {
     </div>
   );
 }
-
-/* Styles */
-const menuItemStyle = {
-  display: "block",
-  width: "100%",
-  padding: "10px 12px",
-  background: "transparent",
-  border: "none",
-  textAlign: "left",
-  cursor: "pointer",
-};
