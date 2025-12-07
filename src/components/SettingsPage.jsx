@@ -7,6 +7,7 @@ import { useNavigate } from "react-router-dom";
 import { ThemeContext } from "../context/ThemeContext";
 import { usePopup } from "../context/PopupContext";
 import confetti from "canvas-confetti";
+import { useAd } from "../components/AdGateway";
 
 // Cloudinary env
 const CLOUDINARY_CLOUD = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME;
@@ -35,7 +36,7 @@ function useAnimatedNumber(target, duration = 800) {
   return display;
 }
 
-// ====== Interstitial Ad Function ======
+// ====== Interstitial Ad Function (optional Google Adsense) ======
 const showInterstitialAd = () => {
   const adContainer = document.createElement("ins");
   adContainer.className = "adsbygoogle";
@@ -52,6 +53,7 @@ const showInterstitialAd = () => {
 export default function SettingsPage() {
   const { theme } = useContext(ThemeContext);
   const { showPopup } = usePopup();
+  const { showRewarded } = useAd(); // 🔑 AdGateway integration
   const navigate = useNavigate();
 
   const [user, setUser] = useState(null);
@@ -79,9 +81,6 @@ export default function SettingsPage() {
 
       setUser(u);
       setEmail(u.email || "");
-
-      // Load wallet
-      loadWallet(u.uid);
 
       const userRef = doc(db, "users", u.uid);
 
@@ -371,13 +370,7 @@ export default function SettingsPage() {
               cursor: "pointer",
               transition: "transform 0.2s",
             }}
-            onClick={async () => {
-              if (!alreadyClaimed) {
-                showInterstitialAd();
-                await new Promise((r) => setTimeout(r, 1500)); // simulate ad
-              }
-              navigate("/wallet");
-            }}
+            onClick={() => navigate("/wallet")}
             onMouseEnter={(e) => (e.currentTarget.style.transform = "scale(1.02)")}
             onMouseLeave={(e) => (e.currentTarget.style.transform = "scale(1)")}
           >
@@ -396,9 +389,14 @@ export default function SettingsPage() {
 
             {/* Daily Reward Button */}
             <button
-              onClick={(e) => {
+              onClick={async (e) => {
                 e.stopPropagation();
-                handleDailyReward();
+                if (loadingReward || alreadyClaimed) return;
+
+                // 🔹 Show full-screen rewarded ad before claiming
+                showRewarded(10287794, 15, async () => {
+                  await handleDailyReward();
+                });
               }}
               disabled={loadingReward || alreadyClaimed}
               style={{
