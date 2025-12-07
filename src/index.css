@@ -14,7 +14,7 @@ html, body, #root {
   background: var(--bg-color);
   color: var(--text-color);
   transition: background 0.3s ease, color 0.3s ease;
-  line-height: 1.5;
+  line-height: 1.55;
   scroll-behavior: smooth;
 }
 
@@ -33,55 +33,60 @@ html, body, #root {
   --spacing-xl: 24px;
 
   --shadow-soft: 0 4px 12px rgba(0, 0, 0, 0.06);
-  --shadow-strong: 0 6px 20px rgba(0, 0, 0, 0.12);
+  --shadow-strong: 0 6px 20px rgba(0, 0, 0, 0.15);
 
   --placeholder-color: #6b7280;
 }
 
 /* =========================================
-   LIGHT THEME (Soft Cream)
+   LIGHT THEME (Clean & Soft)
 ========================================= */
 .light-theme {
-  --bg-color: #f7f7f2;                     /* warm soft cream background */
-  --text-color: #0f172a;                   /* deep navy text */
-  --primary-color: #2563eb;                /* strong blue */
+  --bg-color: #f7f7f2;
+  --text-color: #0f172a;
+
+  --primary-color: #2563eb;
   --secondary-color: #3b82f6;
 
-  --header-bg: #ffffff;                    /* white header with contrast */
-  --header-border: #c7c7c7;
+  --header-bg: #ffffff;
+  --header-border: #d1d5db;
 
   --card-bg: #ffffff;
 
-  --input-bg: #ffffff;                     /* pure white input */
-  --input-border: #8a8a8a;                 /* dark border for visibility */
+  --input-bg: #ffffff;
+  --input-border: #9ca3af;
 
-  --bubble-sent: #2563eb;                  /* blue sent bubble */
-  --bubble-received: #efefe9;              /* soft cream-gray */
+  --bubble-sent: #2563eb;
+  --bubble-received: #efefe9;
 
   --placeholder-color: #6b7280;
 }
 
 /* =========================================
-   DARK THEME
+   DARK THEME (IMPROVED READABILITY)
 ========================================= */
 .dark-theme {
-  --bg-color: #0b0b0b;
-  --text-color: #e5e5e5;
-  --primary-color: #2563eb;
-  --secondary-color: #7c3aed;
+  --bg-color: #121212;
+  --text-color: #eaeaea;
 
-  --header-bg: #141414;
-  --header-border: #222;
+  --primary-color: #3b82f6;
+  --secondary-color: #8b5cf6;
 
-  --card-bg: #1a1a1a;
+  --header-bg: #1b1b1b;
+  --header-border: #2f2f2f;
 
-  --input-bg: #111;
-  --input-border: #333;
+  --card-bg: #1e1e1e;
 
-  --bubble-sent: #2563eb;
-  --bubble-received: #1b1b1b;
+  --input-bg: #1a1a1a;
+  --input-border: #3a3a3a;
 
-  --placeholder-color: #999;
+  --bubble-sent: #3b82f6;
+  --bubble-received: #242424;
+
+  --placeholder-color: #aaaaaa;
+
+  --shadow-soft: 0 3px 10px rgba(0, 0, 0, 0.4);
+  --shadow-strong: 0 6px 20px rgba(0, 0, 0, 0.6);
 }
 
 /* =========================================
@@ -103,7 +108,7 @@ input:focus,
 textarea:focus {
   border-color: var(--primary-color);
   outline: none;
-  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.25);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.3);
 }
 
 input::placeholder,
@@ -131,7 +136,6 @@ textarea::placeholder {
   height: 42px;
   width: 42px;
   border-radius: 50%;
-  background: #ddd;
   object-fit: cover;
 }
 
@@ -140,10 +144,6 @@ textarea::placeholder {
   background: transparent;
   color: var(--text-color);
   font-size: 1.4rem;
-}
-
-.back-btn:active {
-  transform: scale(0.9);
 }
 
 /* =========================================
@@ -160,11 +160,9 @@ textarea::placeholder {
 }
 
 /* Scrollbar */
-::-webkit-scrollbar {
-  width: 6px;
-}
+::-webkit-scrollbar { width: 6px; }
 ::-webkit-scrollbar-thumb {
-  background: rgba(0, 0, 0, 0.25);
+  background: rgba(255, 255, 255, 0.2);
   border-radius: 8px;
 }
 
@@ -176,12 +174,10 @@ textarea::placeholder {
   width: 100%;
 }
 
-/* Sent messages (right) */
 .message-row.sent {
   justify-content: flex-end;
 }
 
-/* Received messages (left) */
 .message-row.received {
   justify-content: flex-start;
 }
@@ -196,20 +192,20 @@ textarea::placeholder {
   animation: fadeIn 0.25s ease-out;
 }
 
-/* Sent bubble (RIGHT) */
 .message-bubble.sent {
   background: var(--bubble-sent);
   color: white;
   border-bottom-right-radius: 6px;
   text-align: right;
+  box-shadow: 0 2px 8px rgba(59, 130, 246, 0.4);
 }
 
-/* Received bubble (LEFT) */
 .message-bubble.received {
   background: var(--bubble-received);
   color: var(--text-color);
   border-bottom-left-radius: 6px;
   text-align: left;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.35);
 }
 
 .message-time {
@@ -244,10 +240,6 @@ textarea::placeholder {
   border-radius: var(--radius-md);
   border: none;
   font-size: 1.1rem;
-}
-
-.send-btn:active {
-  transform: scale(0.9);
 }
 
 /* =========================================
