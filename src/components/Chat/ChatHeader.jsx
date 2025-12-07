@@ -122,6 +122,12 @@ export default function ChatHeader({
         <div className="chat-actions">
           <FiPhone size={21} onClick={startVoiceCall} />
           <FiVideo size={21} onClick={startVideoCall} />
+          <FiImage
+            size={20}
+            title="View Shared Media"
+            className="cursor-pointer"
+            onClick={() => onViewMedia?.()}
+          />
         </div>
 
         {/* Menu */}
@@ -149,110 +155,20 @@ export default function ChatHeader({
       )}
 
       <style jsx>{`
-        .chat-header {
-          display: flex;
-          align-items: center;
-          padding: 8px 12px;
-          background-color: #075e54;
-          position: sticky;
-          top: 0;
-          z-index: 1000;
-          gap: 10px;
-        }
-        .chat-back {
-          width: 38px;
-          height: 38px;
-          border-radius: 50%;
-          background: rgba(255, 255, 255, 0.15);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          font-size: 20px;
-          font-weight: bold;
-          color: white;
-          cursor: pointer;
-        }
-        .chat-avatar {
-          width: 46px;
-          height: 46px;
-          border-radius: 50%;
-          overflow: hidden;
-          background: #ddd;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          cursor: pointer;
-        }
-        .chat-avatar img {
-          width: 100%;
-          height: 100%;
-          object-fit: cover;
-        }
-        .chat-info {
-          flex: 1;
-          color: white;
-          cursor: pointer;
-          overflow: hidden;
-          display: flex;
-          flex-direction: column;
-        }
-        .chat-name {
-          font-size: 15px;
-          font-weight: 600;
-          white-space: nowrap;
-          overflow: hidden;
-          text-overflow: ellipsis;
-        }
-        .chat-lastseen {
-          font-size: 12px;
-          opacity: 0.85;
-        }
-        .chat-actions {
-          display: flex;
-          gap: 12px;
-          color: white;
-        }
-        .chat-menu {
-          position: relative;
-          color: white;
-        }
-        .menu-dropdown {
-          position: absolute;
-          top: 34px;
-          right: 0;
-          background: #fff;
-          color: #000;
-          border-radius: 10px;
-          width: 190px;
-          box-shadow: 0 4px 14px rgba(0,0,0,.3);
-          overflow: hidden;
-        }
-        .menu-dropdown div {
-          padding: 12px 16px;
-          cursor: pointer;
-          display: flex;
-          align-items: center;
-        }
-        .menu-dropdown div:hover {
-          background: #f0f0f0;
-        }
-        .menu-dropdown .danger {
-          color: red;
-          font-weight: 600;
-        }
-        .pinned-message {
-          position: sticky;
-          top: 56px;
-          background: #f4f4f4;
-          border-bottom: 1px solid #ddd;
-          padding: 6px 12px;
-          font-size: 13px;
-          cursor: pointer;
-          z-index: 999;
-          display: flex;
-          align-items: center;
-          gap: 6px;
-        }
+        .chat-header { display: flex; align-items: center; padding: 8px 12px; background-color: #075e54; position: sticky; top: 0; z-index: 1000; gap: 10px; }
+        .chat-back { width: 38px; height: 38px; border-radius: 50%; background: rgba(255, 255, 255, 0.15); display: flex; align-items: center; justify-content: center; font-size: 20px; font-weight: bold; color: white; cursor: pointer; }
+        .chat-avatar { width: 46px; height: 46px; border-radius: 50%; overflow: hidden; background: #ddd; display: flex; align-items: center; justify-content: center; cursor: pointer; }
+        .chat-avatar img { width: 100%; height: 100%; object-fit: cover; }
+        .chat-info { flex: 1; color: white; cursor: pointer; overflow: hidden; display: flex; flex-direction: column; }
+        .chat-name { font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .chat-lastseen { font-size: 12px; opacity: 0.85; }
+        .chat-actions { display: flex; gap: 12px; color: white; }
+        .chat-menu { position: relative; color: white; }
+        .menu-dropdown { position: absolute; top: 34px; right: 0; background: #fff; color: #000; border-radius: 10px; width: 190px; box-shadow: 0 4px 14px rgba(0,0,0,.3); overflow: hidden; }
+        .menu-dropdown div { padding: 12px 16px; cursor: pointer; display: flex; align-items: center; }
+        .menu-dropdown div:hover { background: #f0f0f0; }
+        .menu-dropdown .danger { color: red; font-weight: 600; }
+        .pinned-message { position: sticky; top: 56px; background: #f4f4f4; border-bottom: 1px solid #ddd; padding: 6px 12px; font-size: 13px; cursor: pointer; z-index: 999; display: flex; align-items: center; gap: 6px; }
       `}</style>
     </>
   );
