@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import EmojiPicker from "./EmojiPicker";
 import { toast } from "react-toastify";
 
@@ -56,16 +56,31 @@ export default function LongPressMessageModal({
     gap: 8,
   };
 
+  // Helper to safely close modal after parent updates
+  const safeClose = (delay = 50) => setTimeout(onClose, delay);
+
   const handlePin = () => {
     onPin();
     toast.success("Message pinned/unpinned");
-    onClose();
+    safeClose();
   };
 
   const handleCopy = () => {
     onCopy();
     toast.success("Message copied");
-    onClose();
+    safeClose();
+  };
+
+  const handleDelete = async () => {
+    if (onDelete) {
+      await onDelete();
+    }
+    safeClose();
+  };
+
+  const handleReaction = (emoji) => {
+    onReaction(emoji);
+    safeClose();
   };
 
   return (
@@ -99,7 +114,7 @@ export default function LongPressMessageModal({
       >
         {!confirmDelete ? (
           <>
-            {/* Sticky Quick Reactions */}
+            {/* Quick Reactions */}
             <div
               style={{
                 display: "flex",
@@ -115,10 +130,7 @@ export default function LongPressMessageModal({
               {quickReactions.map((emoji) => (
                 <button
                   key={emoji}
-                  onClick={() => {
-                    onReaction(emoji);
-                    onClose();
-                  }}
+                  onClick={() => handleReaction(emoji)}
                   style={{
                     fontSize: 22,
                     background: "transparent",
@@ -132,6 +144,7 @@ export default function LongPressMessageModal({
                   {emoji}
                 </button>
               ))}
+
               <button
                 onClick={() => setShowEmojiPicker((v) => !v)}
                 style={{
@@ -148,12 +161,13 @@ export default function LongPressMessageModal({
               </button>
             </div>
 
-            {/* Emoji Picker below sticky reactions */}
+            {/* Emoji Picker */}
             {showEmojiPicker && (
               <EmojiPicker
                 onSelect={(emoji) => {
                   onReaction(emoji);
-                  onClose();
+                  setShowEmojiPicker(false);
+                  safeClose();
                 }}
                 onClose={() => setShowEmojiPicker(false)}
               />
@@ -161,7 +175,7 @@ export default function LongPressMessageModal({
 
             {/* Action Buttons */}
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              <button style={actionButtonStyle} onClick={onReply}>
+              <button style={actionButtonStyle} onClick={() => { onReply(); safeClose(); }}>
                 ↩️ Reply
               </button>
               <button style={actionButtonStyle} onClick={handleCopy}>
@@ -182,6 +196,7 @@ export default function LongPressMessageModal({
             </div>
           </>
         ) : (
+          // Confirm delete
           <div style={{ display: "flex", flexDirection: "column", gap: 12, textAlign: "center" }}>
             <div style={{ fontSize: 14 }}>Are you sure you want to delete this message?</div>
             <div style={{ fontSize: 12, color: "#888" }}>Delete for {messageSenderName}</div>
@@ -203,10 +218,7 @@ export default function LongPressMessageModal({
                 Cancel
               </button>
               <button
-                onClick={() => {
-                  onDelete();
-                  onClose();
-                }}
+                onClick={handleDelete}
                 style={{
                   padding: 8,
                   borderRadius: 8,
