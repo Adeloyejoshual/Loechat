@@ -4,17 +4,15 @@ import { useParams } from "react-router-dom";
 import {
   collection,
   addDoc,
-  query,
-  orderBy,
-  onSnapshot,
-  serverTimestamp,
   doc,
   updateDoc,
+  onSnapshot,
   arrayUnion,
   arrayRemove,
+  serverTimestamp,
   getDoc,
-  limitToLast,
-  endBefore,
+  orderBy,
+  query,
 } from "firebase/firestore";
 import { db, auth } from "../firebaseConfig";
 import { ThemeContext } from "../context/ThemeContext";
@@ -29,8 +27,6 @@ import LongPressMessageModal from "./Chat/LongPressMessageModal";
 import { toast, ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import axios from "axios";
-
-const PAGE_SIZE = 40;
 
 export default function ChatConversationPage() {
   const { chatId } = useParams();
@@ -57,9 +53,9 @@ export default function ChatConversationPage() {
   const [mediaViewer, setMediaViewer] = useState({ open: false, startIndex: 0 });
   const [friendTyping, setFriendTyping] = useState(false);
   const [isAtBottom, setIsAtBottom] = useState(true);
-  const [longPressModal, setLongPressModal] = useState(null); // {message}
+  const [longPressModal, setLongPressModal] = useState(null);
 
-  // -------------------- Chat & friend subscriptions --------------------
+  // -------------------- Chat & Friend Subscriptions --------------------
   useEffect(() => {
     if (!chatId) return;
     const chatRef = doc(db, "chats", chatId);
@@ -71,22 +67,26 @@ export default function ChatConversationPage() {
       setChatInfo({ id: snap.id, ...data });
       setIsBlocked(Boolean(data.blocked));
 
-      // friend info
+      // Friend info
       const friendId = (data.participants || []).find((p) => p !== myUid);
       if (friendId) {
         const userRef = doc(db, "users", friendId);
-        const unsubFriend = onSnapshot(userRef, (s) => s.exists() && setFriendInfo({ id: s.id, ...s.data() }));
+        const unsubFriend = onSnapshot(userRef, (s) =>
+          s.exists() && setFriendInfo({ id: s.id, ...s.data() })
+        );
         unsubList.push(unsubFriend);
       } else setFriendInfo(null);
 
-      // pinned message
+      // Pinned message
       if (data.pinnedMessageId) {
         const pinnedRef = doc(db, "chats", chatId, "messages", data.pinnedMessageId);
-        const unsubPinned = onSnapshot(pinnedRef, (s) => s.exists() && setPinnedMessage({ id: s.id, ...s.data() }));
+        const unsubPinned = onSnapshot(pinnedRef, (s) =>
+          s.exists() && setPinnedMessage({ id: s.id, ...s.data() })
+        );
         unsubList.push(unsubPinned);
       } else setPinnedMessage(null);
 
-      // friend typing
+      // Friend typing
       const friendIdForTyping = (data.participants || []).find((p) => p !== myUid);
       setFriendTyping(Boolean(data.typing?.[friendIdForTyping]));
     });
@@ -95,7 +95,7 @@ export default function ChatConversationPage() {
     return () => unsubList.forEach((u) => u());
   }, [chatId, myUid]);
 
-  // -------------------- Real-time messages --------------------
+  // -------------------- Real-time Messages --------------------
   useEffect(() => {
     if (!chatId) return;
     const messagesRef = collection(db, "chats", chatId, "messages");
@@ -107,11 +107,12 @@ export default function ChatConversationPage() {
         ...d.data(),
         createdAt: d.data().createdAt?.toDate?.() || new Date(),
       }));
-
       setMessages(docs);
 
-      // mark delivered
-      const undelivered = docs.filter((m) => m.senderId !== myUid && !(m.deliveredTo || []).includes(myUid));
+      // Mark delivered
+      const undelivered = docs.filter(
+        (m) => m.senderId !== myUid && !(m.deliveredTo || []).includes(myUid)
+      );
       undelivered.forEach((m) =>
         updateDoc(doc(db, "chats", chatId, "messages", m.id), { deliveredTo: arrayUnion(myUid) })
       );
@@ -122,33 +123,26 @@ export default function ChatConversationPage() {
     return () => unsub();
   }, [chatId, myUid, isAtBottom]);
 
-  // -------------------- Mark seen --------------------
+  // -------------------- Mark Seen --------------------
   useEffect(() => {
     if (!chatId || !myUid || !messages.length) return;
-    const unseen = messages.filter((m) => m.senderId !== myUid && !(m.seenBy || []).includes(myUid));
-    unseen.forEach((m) => updateDoc(doc(db, "chats", chatId, "messages", m.id), { seenBy: arrayUnion(myUid) }));
+    const unseen = messages.filter(
+      (m) => m.senderId !== myUid && !(m.seenBy || []).includes(myUid)
+    );
+    unseen.forEach((m) =>
+      updateDoc(doc(db, "chats", chatId, "messages", m.id), { seenBy: arrayUnion(myUid) })
+    );
     updateDoc(doc(db, "chats", chatId), { [`lastSeen.${myUid}`]: serverTimestamp() });
   }, [messages, chatId, myUid]);
 
-  // -------------------- Scroll detection --------------------
+  // -------------------- Scroll Detection --------------------
   useEffect(() => {
     const el = messagesRefEl.current;
     if (!el) return;
-    const onScroll = () => setIsAtBottom(el.scrollHeight - el.scrollTop - el.clientHeight < 80);
+    const onScroll = () =>
+      setIsAtBottom(el.scrollHeight - el.scrollTop - el.clientHeight < 80);
     el.addEventListener("scroll", onScroll);
     return () => el.removeEventListener("scroll", onScroll);
-  }, []);
-
-  // -------------------- Helpers --------------------
-  const mediaItems = messages.filter((m) => m.mediaUrl).map((m) => ({ url: m.mediaUrl, id: m.id, type: m.mediaType }));
-
-  const scrollToMessage = useCallback((id) => {
-    const el = messageRefs.current[id];
-    if (el) {
-      el.scrollIntoView({ behavior: "smooth", block: "center" });
-      el.classList.add("flash-highlight");
-      setTimeout(() => el.classList.remove("flash-highlight"), 1200);
-    }
   }, []);
 
   // -------------------- Typing --------------------
@@ -157,9 +151,10 @@ export default function ChatConversationPage() {
     try {
       await updateDoc(doc(db, "chats", chatId), { [`typing.${myUid}`]: typing });
     } catch (e) {
-      console.warn("typing write failed", e);
+      console.warn("Typing write failed", e);
     }
   };
+
   const handleUserTyping = (isTyping) => {
     if (isTyping) {
       setTypingFlag(true);
@@ -171,69 +166,64 @@ export default function ChatConversationPage() {
     }
   };
 
-  // -------------------- Reaction toggle --------------------
-  const handleReact = useCallback(async (messageId, emoji) => {
-    if (!chatId || !messageId || !myUid) return;
-    const msgRef = doc(db, "chats", chatId, "messages", messageId);
-    try {
-      const snap = await getDoc(msgRef);
-      const data = snap.data();
-      const userReacted = data?.reactions?.[emoji]?.includes(myUid);
-      await updateDoc(msgRef, {
-        [`reactions.${emoji}`]: userReacted ? arrayRemove(myUid) : arrayUnion(myUid),
-      });
-    } catch (err) {
-      console.error("React failed", err);
-    }
-  }, [chatId, myUid]);
+  // -------------------- Reaction Toggle --------------------
+  const handleReact = useCallback(
+    async (messageId, emoji) => {
+      if (!chatId || !messageId || !myUid) return;
+      const msgRef = doc(db, "chats", chatId, "messages", messageId);
+      try {
+        const snap = await getDoc(msgRef);
+        const data = snap.data();
+        const userReacted = data?.reactions?.[emoji]?.includes(myUid);
+        await updateDoc(msgRef, {
+          [`reactions.${emoji}`]: userReacted ? arrayRemove(myUid) : arrayUnion(myUid),
+        });
+      } catch (err) {
+        console.error("React failed", err);
+      }
+    },
+    [chatId, myUid]
+  );
 
-  // -------------------- Send message --------------------
-  const sendMessage = useCallback(async (textMsg = "", files = []) => {
-    if (isBlocked) {
-      toast.error("You cannot send messages to this user");
-      return;
-    }
-    if (!textMsg && files.length === 0) return;
+  // -------------------- Send Message (with multiple images) --------------------
+  const sendMessage = useCallback(
+    async (textMsg = "", files = []) => {
+      if (isBlocked) {
+        toast.error("You cannot send messages to this user");
+        return;
+      }
+      if (!textMsg && files.length === 0) return;
 
-    const messagesCol = collection(db, "chats", chatId, "messages");
+      const messagesCol = collection(db, "chats", chatId, "messages");
 
-    try {
-      const items = files.length ? files : [null];
-      const tempMessages = [];
-
-      for (const f of items) {
-        const isFile = Boolean(f);
-        const type = isFile ? (f.type.startsWith("image/") ? "image" : "video") : null;
+      try {
+        // Temporary message
         const tempId = `temp-${Date.now()}-${Math.random()}`;
-
         const tempMessage = {
           id: tempId,
           senderId: myUid,
-          text: isFile ? caption || "" : textMsg.trim(),
-          mediaUrl: isFile ? URL.createObjectURL(f) : "",
-          mediaType: type,
+          text: textMsg.trim(),
+          mediaUrls: files.map((f) => URL.createObjectURL(f)),
+          mediaType: files.length ? "image" : null,
           createdAt: new Date(),
           reactions: {},
           seenBy: [],
           deliveredTo: [],
-          replyTo: replyTo ? { id: replyTo.id, text: replyTo.text, senderId: replyTo.senderId } : null,
+          replyTo: replyTo
+            ? { id: replyTo.id, text: replyTo.text, senderId: replyTo.senderId }
+            : null,
           status: "sending",
-          uploadProgress: isFile ? 0 : undefined,
+          uploadProgress: 0,
         };
 
-        tempMessages.push(tempMessage);
-      }
+        setMessages((prev) => [...prev, tempMessage]);
+        if (isAtBottom) endRef.current?.scrollIntoView({ behavior: "smooth" });
 
-      // add all temp messages at once
-      setMessages((prev) => [...prev, ...tempMessages]);
-      if (isAtBottom) endRef.current?.scrollIntoView({ behavior: "smooth" });
-
-      // upload and persist
-      for (const tempMessage of tempMessages) {
-        if (tempMessage.mediaType) {
-          const f = files.shift();
+        // Upload files to Cloudinary
+        const uploadedUrls = [];
+        for (const file of files) {
           const formData = new FormData();
-          formData.append("file", f);
+          formData.append("file", file);
           formData.append("upload_preset", import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET);
 
           const res = await axios.post(
@@ -242,48 +232,79 @@ export default function ChatConversationPage() {
             {
               onUploadProgress: (ev) => {
                 const pct = Math.round((ev.loaded * 100) / ev.total);
-                setMessages((prev) => prev.map((m) => (m.id === tempMessage.id ? { ...m, uploadProgress: pct } : m)));
+                setMessages((prev) =>
+                  prev.map((m) =>
+                    m.id === tempId ? { ...m, uploadProgress: pct } : m
+                  )
+                );
               },
             }
           );
-          tempMessage.mediaUrl = res.data.secure_url;
+          uploadedUrls.push(res.data.secure_url);
         }
 
-        const payload = { ...tempMessage, createdAt: serverTimestamp(), status: "sent" };
+        // Persist message
+        const payload = {
+          ...tempMessage,
+          mediaUrls: uploadedUrls,
+          createdAt: serverTimestamp(),
+          status: "sent",
+        };
         const docRef = await addDoc(messagesCol, payload);
+
         setMessages((prev) =>
-          prev.map((m) => (m.id === tempMessage.id ? { ...payload, id: docRef.id, createdAt: new Date() } : m))
+          prev.map((m) =>
+            m.id === tempId ? { ...payload, id: docRef.id, createdAt: new Date() } : m
+          )
         );
+
+        // Update chat last message
+        const chatRef = doc(db, "chats", chatId);
+        await updateDoc(chatRef, {
+          lastMessage: textMsg || (files[0]?.name || "Media"),
+          lastMessageSender: myUid,
+          lastMessageAt: serverTimestamp(),
+          lastMessageStatus: "delivered",
+        });
+      } catch (err) {
+        console.error("Send message failed:", err);
+        toast.error("Failed to send message");
+        setMessages((prev) =>
+          prev.map((m) => (m.status === "sending" ? { ...m, status: "failed" } : m))
+        );
+      } finally {
+        setText("");
+        setSelectedFiles([]);
+        setCaption("");
+        setReplyTo(null);
+        setShowPreview(false);
       }
+    },
+    [chatId, myUid, isBlocked, isAtBottom, replyTo]
+  );
 
-      // update chat last message
-      const chatRef = doc(db, "chats", chatId);
-      await updateDoc(chatRef, {
-        lastMessage: textMsg || (files[0]?.name || "Media"),
-        lastMessageSender: myUid,
-        lastMessageAt: serverTimestamp(),
-        lastMessageStatus: "delivered",
-      });
-    } catch (err) {
-      console.error("Send message failed:", err);
-      toast.error("Failed to send message");
-      setMessages((prev) =>
-        prev.map((m) => (m.status === "sending" ? { ...m, status: "failed" } : m))
-      );
-    } finally {
-      setText("");
-      setSelectedFiles([]);
-      setCaption("");
-      setReplyTo(null);
-      setShowPreview(false);
+  // -------------------- Media Viewer --------------------
+  const mediaItems = messages
+    .filter((m) => m.mediaUrls?.length)
+    .flatMap((m) => m.mediaUrls.map((url) => ({ url, id: m.id })));
+
+  const openMediaViewerAtMessage = useCallback(
+    (message) => {
+      const index = mediaItems.findIndex((m) => m.id === message.id);
+      setMediaViewer({ open: true, startIndex: index >= 0 ? index : 0 });
+    },
+    [mediaItems]
+  );
+
+  // -------------------- Scroll to Message --------------------
+  const scrollToMessage = useCallback((id) => {
+    const el = messageRefs.current[id];
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+      el.classList.add("flash-highlight");
+      setTimeout(() => el.classList.remove("flash-highlight"), 1200);
     }
-  }, [chatId, myUid, isBlocked, isAtBottom, caption, replyTo]);
-
-  // -------------------- Open media viewer --------------------
-  const openMediaViewerAtMessage = useCallback((message) => {
-    const index = mediaItems.findIndex((m) => m.id === message.id);
-    setMediaViewer({ open: true, startIndex: index >= 0 ? index : 0 });
-  }, [mediaItems]);
+  }, []);
 
   // -------------------- Render --------------------
   if (!chatInfo || !friendInfo) return <div style={{ padding: 20 }}>Loading chat...</div>;
@@ -310,9 +331,6 @@ export default function ChatConversationPage() {
       <div
         ref={messagesRefEl}
         style={{ flex: 1, overflowY: "auto", padding: 8, display: "flex", flexDirection: "column" }}
-        onScroll={(e) => {
-          if (e.currentTarget.scrollTop === 0) loadOlderMessages();
-        }}
       >
         {messages.map((msg) => (
           <MessageItem
@@ -333,10 +351,7 @@ export default function ChatConversationPage() {
               else delete messageRefs.current[msg.id];
             }}
             onReact={handleReact}
-            onDelete={async (messageToDelete) => {
-              setLongPressModal(messageToDelete);
-            }}
-            onLongPress={() => setLongPressModal(msg)}
+            onDelete={(messageToDelete) => setLongPressModal(messageToDelete)}
           />
         ))}
 
@@ -358,7 +373,7 @@ export default function ChatConversationPage() {
         isDark={isDark}
         replyTo={replyTo}
         setReplyTo={setReplyTo}
-        sendTextMessage={() => sendMessage(text, selectedFiles)}
+        sendTextMessage={() => sendMessage(text, [])}
         sendMediaMessage={(files) => sendMessage(caption, files)}
         disabled={isBlocked}
         friendTyping={friendTyping}
@@ -413,7 +428,7 @@ export default function ChatConversationPage() {
             setLongPressModal(null);
           }}
           isDark={isDark}
-          messageSenderName={longPressModal.senderId === myUid ? "you" : friendInfo.name}
+          messageSenderName={longPressModal.senderId === myUid ? "You" : friendInfo.name}
         />
       )}
 
