@@ -8,7 +8,8 @@ export default function LongPressMessageModal({
   onReply,
   onCopy,
   onPin,
-  onDelete,
+  onDeleteForMe,
+  onDeleteForEveryone,
   quickReactions = ["😜", "💗", "😎", "😍", "☻️", "💖"],
   isDark = false,
   messageSenderName = "you",
@@ -56,7 +57,6 @@ export default function LongPressMessageModal({
     gap: 8,
   };
 
-  // Helper to safely close modal after parent updates
   const safeClose = (delay = 50) => setTimeout(onClose, delay);
 
   const handlePin = () => {
@@ -71,15 +71,14 @@ export default function LongPressMessageModal({
     safeClose();
   };
 
-  const handleDelete = async () => {
-    if (onDelete) {
-      await onDelete();
-    }
+  const handleReaction = (emoji) => {
+    onReaction(emoji);
     safeClose();
   };
 
-  const handleReaction = (emoji) => {
-    onReaction(emoji);
+  const handleDelete = async (option) => {
+    if (option === "me" && onDeleteForMe) await onDeleteForMe();
+    if (option === "everyone" && onDeleteForEveryone) await onDeleteForEveryone();
     safeClose();
   };
 
@@ -196,15 +195,15 @@ export default function LongPressMessageModal({
             </div>
           </>
         ) : (
-          // Confirm delete
+          // Confirm delete options
           <div style={{ display: "flex", flexDirection: "column", gap: 12, textAlign: "center" }}>
-            <div style={{ fontSize: 14 }}>Are you sure you want to delete this message?</div>
-            <div style={{ fontSize: 12, color: "#888" }}>Delete for {messageSenderName}</div>
-            <div style={{ display: "flex", justifyContent: "space-around", marginTop: 8 }}>
+            <div style={{ fontSize: 14 }}>Delete this message?</div>
+            <div style={{ fontSize: 12, color: "#888" }}>For {messageSenderName}</div>
+            <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8 }}>
               <button
-                onClick={() => setConfirmDelete(false)}
+                onClick={() => handleDelete("me")}
                 style={{
-                  padding: 8,
+                  padding: 10,
                   borderRadius: 8,
                   border: "1px solid #ccc",
                   cursor: "pointer",
@@ -215,12 +214,12 @@ export default function LongPressMessageModal({
                 onMouseEnter={(e) => (e.currentTarget.style.background = "#eee")}
                 onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
               >
-                Cancel
+                Delete for Me
               </button>
               <button
-                onClick={handleDelete}
+                onClick={() => handleDelete("everyone")}
                 style={{
-                  padding: 8,
+                  padding: 10,
                   borderRadius: 8,
                   backgroundColor: "red",
                   color: "#fff",
@@ -232,25 +231,38 @@ export default function LongPressMessageModal({
                 onMouseEnter={(e) => (e.currentTarget.style.background = "#c40000")}
                 onMouseLeave={(e) => (e.currentTarget.style.background = "red")}
               >
-                Delete
+                Delete for Everyone
               </button>
             </div>
+            <button
+              onClick={() => setConfirmDelete(false)}
+              style={{
+                marginTop: 8,
+                padding: 8,
+                borderRadius: 8,
+                border: "1px solid #ccc",
+                cursor: "pointer",
+                transition: "background 0.2s",
+              }}
+              onMouseEnter={(e) => (e.currentTarget.style.background = "#eee")}
+              onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+            >
+              Cancel
+            </button>
           </div>
         )}
       </div>
 
-      <style>
-        {`
-          @keyframes slideUp {
-            0% { opacity: 0; transform: translateY(24px); }
-            100% { opacity: 1; transform: translateY(0); }
-          }
-          @keyframes fadeIn {
-            0% { opacity: 0; }
-            100% { opacity: 1; }
-          }
-        `}
-      </style>
+      <style>{`
+        @keyframes slideUp {
+          0% { opacity: 0; transform: translateY(24px); }
+          100% { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes fadeIn {
+          0% { opacity: 0; }
+          100% { opacity: 1; }
+        }
+      `}</style>
     </div>
   );
 }
