@@ -20,7 +20,7 @@ import { ThemeContext } from "../context/ThemeContext";
 import { UserContext } from "../context/UserContext";
 
 import ChatHeader from "./Chat/ChatHeader";
-import MessageItem from "./MessageItem";
+import MessageItem from "./Chat/MessageItem";
 import ChatInput from "./Chat/ChatInput";
 import ImagePreviewModal from "./Chat/ImagePreviewModal";
 import MediaViewer from "./Chat/MediaViewer";
