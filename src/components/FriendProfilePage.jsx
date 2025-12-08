@@ -1,200 +1,306 @@
-import React, { useEffect, useState } from "react";
-import { useParams, useNavigate } from "react-router-dom";
-import { db } from "../firebaseConfig";
-import { doc, getDoc } from "firebase/firestore";
+// src/components/FriendProfilePage.jsx
 
-const FriendProfilePage = () => {
-  const { friendId } = useParams();
+import React, { useEffect, useState, useContext } from "react";
+import { useParams, useNavigate } from "react-router-dom";
+import { doc, onSnapshot, updateDoc } from "firebase/firestore";
+import { db } from "../firebaseConfig";
+import { ThemeContext } from "../context/ThemeContext";
+import { UserContext } from "../context/UserContext";
+import {
+  FiMessageCircle,
+  FiPhone,
+  FiVideo,
+  FiDownload,
+  FiSlash,
+  FiBell,
+  FiBellOff,
+  FiFlag,
+  FiX,
+} from "react-icons/fi";
+
+/* ---------------- Utilities ---------------- */
+
+const getInitials = (name) => {
+  if (!name) return "U";
+  const parts = name.trim().split(" ");
+  return parts.length > 1
+    ? (parts[0][0] + parts[1][0]).toUpperCase()
+    : parts[0][0].toUpperCase();
+};
+
+const formatLastSeen = (timestamp) => {
+  if (!timestamp) return "Offline";
+  const last = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+  const diff = Date.now() - last.getTime();
+
+  if (diff < 60000) return "Online";
+  if (diff < 3600000) return `Last seen ${Math.floor(diff / 60000)}m ago`;
+  if (diff < 86400000) return `Last seen ${Math.floor(diff / 3600000)}h ago`;
+
+  return `Last seen on ${last.toLocaleDateString()} at ${last.toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+  })}`;
+};
+
+export default function FriendProfilePage() {
+  const { uid } = useParams(); // ✅ FIXED
   const navigate = useNavigate();
+  const { theme } = useContext(ThemeContext);
+  const { currentUser } = useContext(UserContext);
+  const isDark = theme === "dark";
 
   const [friend, setFriend] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [isBlocked, setIsBlocked] = useState(false);
+  const [isMuted, setIsMuted] = useState(false);
   const [showImage, setShowImage] = useState(false);
+  const [showReport, setShowReport] = useState(false);
+  const [reportReason, setReportReason] = useState("");
+
+  const backend = "https://www.loechat.com";
 
   useEffect(() => {
-    const fetchFriend = async () => {
-      try {
-        const docRef = doc(db, "users", friendId);
-        const docSnap = await getDoc(docRef);
+    if (!uid) return;
 
-        if (docSnap.exists()) {
-          setFriend(docSnap.data());
-        }
-      } catch (err) {
-        console.error("Profile load error:", err);
-      } finally {
-        setLoading(false);
+    const ref = doc(db, "users", uid);
+    const unsub = onSnapshot(ref, (snap) => {
+      if (snap.exists()) {
+        setFriend({ id: snap.id, ...snap.data() });
+        setIsBlocked(snap.data().blocked || false);
+        setIsMuted(snap.data().muted || false);
       }
-    };
+      setLoading(false);
+    });
 
-    fetchFriend();
-  }, [friendId]);
+    return () => unsub();
+  }, [uid]);
 
-  if (loading) {
-    return <div style={{ textAlign: "center", paddingTop: "60px" }}>Loading...</div>;
-  }
+  const sendMessage = () => {
+    const chatId = [currentUser.uid, uid].sort().join("_");
+    navigate(`/chat/${chatId}`);
+  };
 
-  if (!friend) {
-    return <div style={{ textAlign: "center", paddingTop: "60px" }}>User not found</div>;
-  }
+  const toggleBlock = async () => {
+    await updateDoc(doc(db, "users", uid), { blocked: !isBlocked });
+    setIsBlocked(!isBlocked);
+  };
 
-  const lastSeenText = friend?.lastSeen
-    ? new Date(friend.lastSeen.seconds * 1000).toLocaleString()
-    : "Offline";
+  const toggleMute = async () => {
+    await updateDoc(doc(db, "users", uid), { muted: !isMuted });
+    setIsMuted(!isMuted);
+  };
 
   const downloadImage = () => {
+    if (!friend?.profilePic) return;
     const link = document.createElement("a");
     link.href = friend.profilePic;
-    link.download = "profile.jpg";
+    link.download = `${friend.name || "profile"}.jpg`;
     link.click();
   };
 
-  const reportUser = () => {
-    console.log("Reported silently:", friendId);
-    alert("User reported successfully ✅");
+  const submitReport = async () => {
+    if (!reportReason.trim()) return alert("Enter report reason");
+
+    await fetch(`${backend}/api/report`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        reporterId: currentUser.uid,
+        reportedId: uid,
+        reason: reportReason,
+      }),
+    });
+
+    setShowReport(false);
+    setReportReason("");
+    alert("✅ Report sent secretly");
   };
 
+  if (loading)
+    return <div className="friend-loading">Loading...</div>;
+
+  if (!friend)
+    return <div className="friend-loading">User not found</div>;
+
   return (
-    <div style={{ minHeight: "100vh", background: "#f9fafb" }}>
+    <div className={`friend-wrapper ${isDark ? "dark" : ""}`}>
 
-      {/* ✅ PROFILE HEADER */}
-      <div style={{ padding: "20px 16px 10px", textAlign: "center" }}>
-
-        {/* ✅ SMALL CENTERED PROFILE IMAGE */}
-        <div
-          onClick={() => setShowImage(true)}
-          style={{
-            width: "72px",
-            height: "72px",
-            margin: "0 auto 10px",
-            borderRadius: "999px",
-            overflow: "hidden",
-            border: "2px solid #e5e7eb",
-            cursor: "pointer",
-            background: "#f3f4f6",
-          }}
-        >
+      {/* ✅ SMALL CIRCULAR PROFILE IMAGE */}
+      <div className="friend-avatar-wrapper">
+        <div className="friend-avatar" onClick={() => setShowImage(true)}>
           {friend.profilePic ? (
-            <img
-              src={friend.profilePic}
-              alt="profile"
-              style={{
-                width: "100%",
-                height: "100%",
-                objectFit: "cover",
-                display: "block",
-              }}
-            />
+            <img src={friend.profilePic} alt="profile" />
           ) : (
-            <div
-              style={{
-                width: "100%",
-                height: "100%",
-                background: "#6b7280",
-                color: "#fff",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                fontWeight: "bold",
-                fontSize: "18px",
-              }}
-            >
-              {friend?.name?.charAt(0)}
-            </div>
+            <span>{getInitials(friend.name)}</span>
           )}
         </div>
+      </div>
 
-        {/* ✅ NAME */}
-        <h2 style={{ fontSize: "18px", fontWeight: "600", margin: 0 }}>
-          {friend.name}
-        </h2>
-
-        {/* ✅ LAST SEEN */}
-        <p style={{ fontSize: "13px", color: "#6b7280", marginTop: "4px" }}>
-          Last seen {lastSeenText}
-        </p>
+      {/* ✅ NAME & LAST SEEN */}
+      <div className="friend-info">
+        <h3>{friend.name}</h3>
+        <p>{formatLastSeen(friend.lastSeen)}</p>
       </div>
 
       {/* ✅ ACTION BUTTONS */}
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(4, 1fr)",
-          gap: "10px",
-          padding: "14px",
-        }}
-      >
-        {["Message", "Call", "Video", "Media"].map((item) => (
-          <button
-            key={item}
-            onClick={() => navigate("/chat/" + friendId)}
-            style={{
-              padding: "10px",
-              borderRadius: "10px",
-              background: "#fff",
-              border: "1px solid #e5e7eb",
-              fontSize: "13px",
-              fontWeight: "500",
-              cursor: "pointer",
-            }}
-          >
-            {item}
-          </button>
-        ))}
-      </div>
-
-      {/* ✅ SETTINGS LIST */}
-      <div style={{ background: "#fff", marginTop: "10px" }}>
-
-        <ProfileRow label="Download profile photo" onClick={downloadImage} />
-        <ProfileRow label="Report user" danger onClick={reportUser} />
-        <ProfileRow label="Block user" danger />
-
+      <div className="friend-actions">
+        <button onClick={sendMessage}><FiMessageCircle /> Message</button>
+        <button><FiPhone /> Call</button>
+        <button><FiVideo /> Video</button>
+        <button onClick={downloadImage}><FiDownload /> Download</button>
+        <button onClick={toggleMute}>
+          {isMuted ? <FiBellOff /> : <FiBell />} Notify
+        </button>
+        <button onClick={() => setShowReport(true)}><FiFlag /> Report</button>
+        <button className="danger" onClick={toggleBlock}>
+          <FiSlash /> {isBlocked ? "Unblock" : "Block"}
+        </button>
       </div>
 
       {/* ✅ FULLSCREEN IMAGE VIEW */}
-      {showImage && friend?.profilePic && (
-        <div
-          onClick={() => setShowImage(false)}
-          style={{
-            position: "fixed",
-            inset: 0,
-            backgroundColor: "rgba(0,0,0,0.95)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            zIndex: 99999,
-          }}
-        >
-          <img
-            src={friend.profilePic}
-            alt="fullscreen"
-            style={{
-              maxWidth: "92%",
-              maxHeight: "92%",
-              borderRadius: "14px",
-            }}
-          />
+      {showImage && (
+        <div className="fullscreen-img">
+          <FiX onClick={() => setShowImage(false)} />
+          <img src={friend.profilePic} alt="full" />
         </div>
       )}
+
+      {/* ✅ REPORT MODAL */}
+      {showReport && (
+        <div className="report-modal">
+          <div className="report-box">
+            <h3>Report User</h3>
+            <textarea
+              value={reportReason}
+              onChange={(e) => setReportReason(e.target.value)}
+              placeholder="Enter reason..."
+            />
+            <div>
+              <button onClick={() => setShowReport(false)}>Cancel</button>
+              <button className="danger" onClick={submitReport}>Submit</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ✅ STYLES AT BOTTOM */}
+      <style>{`
+        .friend-wrapper {
+          min-height: 100vh;
+          background: #f4f4f4;
+          padding: 25px 15px;
+        }
+        .friend-wrapper.dark {
+          background: #000;
+          color: white;
+        }
+        .friend-avatar-wrapper {
+          display: flex;
+          justify-content: center;
+          margin-top: 15px;
+        }
+        .friend-avatar {
+          width: 90px;
+          height: 90px;
+          border-radius: 50%;
+          overflow: hidden;
+          border: 3px solid #ddd;
+          cursor: pointer;
+          background: #666;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 28px;
+          color: white;
+        }
+        .friend-avatar img {
+          width: 100%;
+          height: 100%;
+          object-fit: cover;
+        }
+        .friend-info {
+          text-align: center;
+          margin-top: 10px;
+        }
+        .friend-info h3 {
+          font-size: 20px;
+          font-weight: bold;
+        }
+        .friend-info p {
+          font-size: 12px;
+          color: gray;
+        }
+        .friend-actions {
+          margin-top: 20px;
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 10px;
+        }
+        .friend-actions button {
+          padding: 10px;
+          border-radius: 8px;
+          background: #eaeaea;
+          border: none;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 6px;
+          cursor: pointer;
+        }
+        .friend-actions .danger {
+          grid-column: span 2;
+          background: #ff4d4d;
+          color: white;
+        }
+        .fullscreen-img {
+          position: fixed;
+          inset: 0;
+          background: black;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          z-index: 999;
+        }
+        .fullscreen-img img {
+          max-width: 100%;
+          max-height: 100%;
+        }
+        .fullscreen-img svg {
+          position: absolute;
+          top: 20px;
+          right: 20px;
+          font-size: 24px;
+          color: white;
+          cursor: pointer;
+        }
+        .report-modal {
+          position: fixed;
+          inset: 0;
+          background: rgba(0,0,0,0.7);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          z-index: 999;
+        }
+        .report-box {
+          background: white;
+          padding: 20px;
+          width: 280px;
+          border-radius: 10px;
+        }
+        .report-box textarea {
+          width: 100%;
+          height: 80px;
+        }
+        .friend-loading {
+          height: 100vh;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 18px;
+        }
+      `}</style>
     </div>
   );
-};
-
-/* ✅ CLEAN ROW COMPONENT */
-const ProfileRow = ({ label, danger, onClick }) => (
-  <div
-    onClick={onClick}
-    style={{
-      padding: "14px 16px",
-      borderBottom: "1px solid #e5e7eb",
-      color: danger ? "#dc2626" : "#111827",
-      fontWeight: "500",
-      cursor: "pointer",
-    }}
-  >
-    {label}
-  </div>
-);
-
-export default FriendProfilePage;
+}
