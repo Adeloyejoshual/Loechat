@@ -1,15 +1,14 @@
-// src/components/Chat/ImagePreviewModal.jsx
 import React, { useState, useRef } from "react";
 
 export default function ImagePreviewModal({
-  previews = [], // [{ file, url }]
+  previews = [], // [{ file, previewUrl }]
   caption: initialCaption = "",
   setCaption = () => {},
   onRemove = () => {},
   onClose = () => {},
-  onSend = async () => {},
+  onSend = async () => {}, // expects: (files, caption) => {}
   isDark = false,
-  disabled = false, // disable send while uploading
+  disabled = false,
 }) {
   const [index, setIndex] = useState(0);
   const [sending, setSending] = useState(false);
@@ -21,8 +20,8 @@ export default function ImagePreviewModal({
 
   const current = previews[index];
 
-  const handleNext = () => setIndex((p) => (p + 1 < previews.length ? p + 1 : p));
-  const handlePrev = () => setIndex((p) => (p - 1 >= 0 ? p - 1 : p));
+  const handleNext = () => setIndex((p) => Math.min(p + 1, previews.length - 1));
+  const handlePrev = () => setIndex((p) => Math.max(p - 1, 0));
 
   // Touch swipe to close
   const handleTouchStart = (e) => {
@@ -40,15 +39,16 @@ export default function ImagePreviewModal({
     setTranslateY(0);
   };
 
+  // Send all files with caption
   const handleSend = async () => {
     if (sending || disabled) return;
     setSending(true);
     try {
-      await onSend(initialCaption); // send all files with single caption
-      setCaption(""); // clear caption
+      await onSend(previews.map((p) => p.file), initialCaption);
+      setCaption(""); // reset caption
       onClose();
     } catch (err) {
-      console.error(err);
+      console.error("Send failed", err);
       setSending(false);
     }
   };
@@ -67,7 +67,7 @@ export default function ImagePreviewModal({
         transition: isDragging ? "none" : "background 0.2s ease",
       }}
     >
-      {/* Close Button */}
+      {/* Close button */}
       <button
         onClick={onClose}
         style={{
@@ -84,7 +84,7 @@ export default function ImagePreviewModal({
         ×
       </button>
 
-      {/* Media Preview */}
+      {/* Media preview */}
       <div
         style={{
           display: "flex",
@@ -116,13 +116,13 @@ export default function ImagePreviewModal({
 
         {current.file.type.startsWith("video/") ? (
           <video
-            src={current.url}
+            src={current.previewUrl}
             controls
             style={{ maxHeight: "60vh", maxWidth: "80vw", borderRadius: 8 }}
           />
         ) : (
           <img
-            src={current.url}
+            src={current.previewUrl}
             alt="preview"
             style={{ maxHeight: "60vh", maxWidth: "80vw", borderRadius: 8 }}
             draggable={false}
