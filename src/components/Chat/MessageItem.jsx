@@ -3,15 +3,15 @@ import { doc, updateDoc } from "firebase/firestore";
 import { db } from "../firebaseConfig";
 import LongPressMessageModal from "./LongPressMessageModal";
 import EmojiPicker from "./EmojiPicker";
+import { toast } from "react-toastify";
 
 const READ_MORE_STEP = 450;
 const LONG_PRESS_DELAY = 700;
 const SWIPE_TRIGGER_DISTANCE = 60;
 
 const cleanName = (name) => {
-  if (!name) return "User";
-  if (typeof name !== "string") return "User";
-  if (name.length > 20 && !name.includes(" ")) return "User"; 
+  if (!name || typeof name !== "string") return "User";
+  if (name.length > 20 && !name.includes(" ")) return "User";
   return name;
 };
 
@@ -27,6 +27,7 @@ export default function MessageItem({
   isDark,
   setReplyTo,
   setPinnedMessage,
+  pinnedMessage,
   friendInfo,
   onMediaClick,
   registerRef,
@@ -153,6 +154,22 @@ export default function MessageItem({
     setShowEmojiPicker(true);
   };
 
+  const handleDeleteForMe = async () => {
+    setMessages(messages.filter((m) => m.id !== message.id));
+    toast.info("Message deleted for you");
+    if (pinnedMessage?.id === message.id) setPinnedMessage(null);
+  };
+
+  const handleDeleteForEveryone = async () => {
+    await updateDoc(doc(db, "chats", message.chatId, "messages", message.id), { deleted: true });
+    setMessages(messages.filter((m) => m.id !== message.id));
+    toast.success("Message deleted for everyone");
+    if (pinnedMessage?.id === message.id) setPinnedMessage(null);
+  };
+
+  // Skip rendering if message is deleted for me or for everyone
+  if (message.deleted || (message.deletedForMe && isMine)) return null;
+
   return (
     <>
       <div
@@ -277,15 +294,8 @@ export default function MessageItem({
           }}
           onReaction={handleReact}
           messageSenderName={senderName}
-          onDeleteForMe={async () => {
-            // soft delete: remove message locally
-            setMessages(messages.filter((m) => m.id !== message.id));
-          }}
-          onDeleteForEveryone={async () => {
-            // hard delete in Firestore & locally
-            await updateDoc(doc(db, "chats", message.chatId, "messages", message.id), { deleted: true });
-            setMessages(messages.filter((m) => m.id !== message.id));
-          }}
+          onDeleteForMe={handleDeleteForMe}
+          onDeleteForEveryone={handleDeleteForEveryone}
         />
       )}
 
