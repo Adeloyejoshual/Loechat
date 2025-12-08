@@ -9,12 +9,6 @@ const READ_MORE_STEP = 450;
 const LONG_PRESS_DELAY = 700;
 const SWIPE_TRIGGER_DISTANCE = 60;
 
-const cleanName = (name) => {
-  if (!name || typeof name !== "string") return "User";
-  if (name.length > 20 && !name.includes(" ")) return "User";
-  return name;
-};
-
 const formatTime = (ts) => {
   if (!ts) return "";
   const d = ts.toDate ? ts.toDate() : new Date(ts);
@@ -28,7 +22,6 @@ export default function MessageItem({
   setReplyTo,
   setPinnedMessage,
   pinnedMessage,
-  friendInfo,
   onMediaClick,
   registerRef,
   onReact,
@@ -58,22 +51,6 @@ export default function MessageItem({
     if (containerRef.current) registerRef?.(containerRef.current);
   }, []);
 
-  const renderStatus = () => {
-    if (!isMine) return null;
-    const total = message.totalParticipants || 2;
-    const seen = message.seenBy?.length || 0;
-    const delivered = message.deliveredTo?.length || 0;
-
-    if (seen >= total - 1) return <span style={{ color: "#00e676" }}>✔✔</span>;
-    if (delivered >= total - 1) return "✔✔";
-    return "✔";
-  };
-
-  const bubbleBg = isMine ? "#007bff" : isDark ? "#222" : "#fff";
-  const bubbleColor = isMine ? "#fff" : isDark ? "#fff" : "#000";
-  const reactionsEntries = useMemo(() => Object.entries(localReactions || {}), [localReactions]);
-  const senderName = isMine ? "You" : cleanName(friendInfo?.name);
-
   const startLongPress = () => {
     longPressTimer.current = setTimeout(() => setShowLongPress(true), LONG_PRESS_DELAY);
   };
@@ -91,6 +68,7 @@ export default function MessageItem({
   const mediaArray = message.mediaUrls || (message.mediaUrl ? [message.mediaUrl] : []);
   const renderMediaGrid = () => {
     if (!mediaArray.length) return null;
+
     const maxVisible = 4;
     const extraCount = mediaArray.length - maxVisible;
 
@@ -190,7 +168,7 @@ export default function MessageItem({
     setShowEmojiPicker(true);
   };
 
-  const handleDeleteForMe = async () => {
+  const handleDeleteForMe = () => {
     setMessages(messages.filter((m) => m.id !== message.id));
     toast.info("Message deleted for you");
     if (pinnedMessage?.id === message.id) setPinnedMessage(null);
@@ -203,15 +181,11 @@ export default function MessageItem({
     if (pinnedMessage?.id === message.id) setPinnedMessage(null);
   };
 
-  // Retry upload for failed media messages
   const retryUpload = async (msg) => {
     if (!msg.failedFiles || !msg.failedFiles.length) return;
-    // Mark as sending again
     setMessages((prev) =>
       prev.map((m) => (m.id === msg.id ? { ...m, status: "sending", uploadProgress: 0 } : m))
     );
-    // Call your ChatConversationPage sendMessage logic here
-    // sendMessage(msg.text, msg.failedFiles);
     toast.info("Retrying upload...");
   };
 
@@ -247,8 +221,8 @@ export default function MessageItem({
           margin: "6px 0",
           padding: 12,
           borderRadius: 16,
-          backgroundColor: bubbleBg,
-          color: bubbleColor,
+          backgroundColor: isMine ? "#007bff" : isDark ? "#222" : "#fff",
+          color: isMine ? "#fff" : isDark ? "#fff" : "#000",
           transform: `translateX(${swipeX}px)`,
           transition: swipeX ? "none" : "transform 0.18s ease",
           wordBreak: "break-word",
@@ -256,8 +230,6 @@ export default function MessageItem({
           userSelect: "none",
         }}
       >
-        {!isMine && <div style={{ fontSize: 11, opacity: 0.7, marginBottom: 4 }}>{senderName}</div>}
-
         {renderMediaGrid()}
 
         {message.text && (
@@ -271,9 +243,9 @@ export default function MessageItem({
           </div>
         )}
 
-        {reactionsEntries.length > 0 && (
+        {Object.entries(localReactions || {}).length > 0 && (
           <div style={{ marginTop: 6, display: "flex", gap: 6 }}>
-            {reactionsEntries.map(([emoji, users]) => (
+            {Object.entries(localReactions).map(([emoji, users]) => (
               <div key={emoji}>
                 {emoji} {users.length}
               </div>
@@ -282,7 +254,7 @@ export default function MessageItem({
         )}
 
         <div style={{ fontSize: 10, opacity: 0.6, textAlign: "right", marginTop: 6 }}>
-          {formatTime(message.createdAt)} {renderStatus()}
+          {formatTime(message.createdAt)}
         </div>
 
         {reactionAnim.show && (
@@ -311,7 +283,7 @@ export default function MessageItem({
             cursor: "pointer",
           }}
         >
-          ➕
+          😀
         </button>
       </div>
 
@@ -323,13 +295,22 @@ export default function MessageItem({
           onPin={() => { setPinnedMessage(message); setShowLongPress(false); }}
           onCopy={() => { navigator.clipboard.writeText(message.text || ""); toast.success("Copied!"); setShowLongPress(false); }}
           onReaction={handleReact}
-          messageSenderName={senderName}
           onDeleteForMe={handleDeleteForMe}
           onDeleteForEveryone={handleDeleteForEveryone}
+          message={message} // pass full message to fix media preview
+          onMediaClick={onMediaClick} // fix image preview modal
         />
       )}
 
-      {showEmojiPicker && <EmojiPicker onSelect={(emoji) => { handleReact(emoji); setShowEmojiPicker(false); }} onClose={() => setShowEmojiPicker(false)} />}
+      {showEmojiPicker && (
+        <EmojiPicker
+          onSelect={(emoji) => {
+            handleReact(emoji);
+            setShowEmojiPicker(false);
+          }}
+          onClose={() => setShowEmojiPicker(false)}
+        />
+      )}
 
       <style>{`
         @keyframes floatUp {
