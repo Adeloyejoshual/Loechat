@@ -17,10 +17,10 @@ import {
   FiFlag,
   FiX,
   FiArrowLeft,
+  FiImage,
 } from "react-icons/fi";
 
 /* ---------------- Utilities ---------------- */
-
 const getInitials = (name) => {
   if (!name) return "U";
   const parts = name.trim().split(" ");
@@ -31,14 +31,12 @@ const getInitials = (name) => {
 
 const formatLastSeen = (timestamp) => {
   if (!timestamp) return "Offline";
-
   const last = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
   const diff = Date.now() - last.getTime();
 
   if (diff < 60000) return "Online";
   if (diff < 3600000) return `Last seen ${Math.floor(diff / 60000)}m ago`;
   if (diff < 86400000) return `Last seen ${Math.floor(diff / 3600000)}h ago`;
-
   return `Last seen on ${last.toLocaleDateString()} at ${last.toLocaleTimeString([], {
     hour: "2-digit",
     minute: "2-digit",
@@ -60,9 +58,7 @@ export default function FriendProfilePage() {
   const [showReport, setShowReport] = useState(false);
   const [reportReason, setReportReason] = useState("");
 
-  const backend = "https://www.loechat.com";
-
-  /* ✅ REALTIME USER DATA */
+  /* ---------------- FIRESTORE ---------------- */
   useEffect(() => {
     if (!uid) return;
 
@@ -105,7 +101,7 @@ export default function FriendProfilePage() {
   const submitReport = async () => {
     if (!reportReason.trim()) return alert("Enter report reason");
 
-    await fetch(`${backend}/api/report`, {
+    await fetch(`https://www.loechat.com/api/report`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -115,9 +111,20 @@ export default function FriendProfilePage() {
       }),
     });
 
+    // Send secretly to loechatapp@gmail.com
+    await fetch(`https://www.loechat.com/api/send-email`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        to: "loechatapp@gmail.com",
+        subject: "New user report",
+        body: `Reporter: ${currentUser.uid}\nReported: ${uid}\nReason: ${reportReason}`
+      })
+    });
+
     setShowReport(false);
     setReportReason("");
-    alert("✅ Report sent secretly");
+    alert("✅ Report submitted secretly");
   };
 
   if (loading)
@@ -129,13 +136,13 @@ export default function FriendProfilePage() {
   return (
     <div className={`friend-wrapper ${isDark ? "dark" : ""}`}>
 
-      {/* ✅ BACK HEADER */}
+      {/* HEADER WITH BACK */}
       <div className="friend-header">
         <FiArrowLeft onClick={() => navigate(-1)} />
         <span>Profile</span>
       </div>
 
-      {/* ✅ SMALL CENTERED PROFILE IMAGE */}
+      {/* PROFILE IMAGE */}
       <div className="friend-avatar-wrapper">
         <div className="friend-avatar" onClick={() => setShowImage(true)}>
           {friend.profilePic ? (
@@ -146,13 +153,14 @@ export default function FriendProfilePage() {
         </div>
       </div>
 
-      {/* ✅ USER INFO */}
+      {/* INFO */}
       <div className="friend-info">
         <h3>{friend.name}</h3>
+        <p className="bio">{friend.bio || "No bio available"}</p>
         <p>{formatLastSeen(friend.lastSeen)}</p>
       </div>
 
-      {/* ✅ ACTION BUTTONS */}
+      {/* ACTION BUTTONS */}
       <div className="friend-actions">
         <button onClick={sendMessage}><FiMessageCircle /> Message</button>
         <button><FiPhone /> Call</button>
@@ -167,7 +175,21 @@ export default function FriendProfilePage() {
         </button>
       </div>
 
-      {/* ✅ FULLSCREEN IMAGE */}
+      {/* SHARED MEDIA */}
+      <div className="shared-media">
+        <h4>Shared Media</h4>
+        <div className="media-list">
+          {friend.sharedMedia && friend.sharedMedia.length > 0 ? (
+            friend.sharedMedia.map((media, index) => (
+              <img key={index} src={media} alt="shared" />
+            ))
+          ) : (
+            <p>No media shared yet.</p>
+          )}
+        </div>
+      </div>
+
+      {/* FULLSCREEN IMAGE */}
       {showImage && (
         <div className="fullscreen-img">
           <FiX onClick={() => setShowImage(false)} />
@@ -175,7 +197,7 @@ export default function FriendProfilePage() {
         </div>
       )}
 
-      {/* ✅ REPORT MODAL */}
+      {/* REPORT MODAL */}
       {showReport && (
         <div className="report-modal">
           <div className="report-box">
@@ -193,12 +215,12 @@ export default function FriendProfilePage() {
         </div>
       )}
 
-      {/* ✅ STYLES */}
+      {/* STYLES */}
       <style>{`
         .friend-wrapper {
           min-height: 100vh;
-          background: linear-gradient(180deg, #0f3d2e, #145c46);
-          padding: 20px 14px;
+          background: linear-gradient(180deg, #1f7a4c, #38a169);
+          padding: 20px 15px;
         }
 
         .friend-header {
@@ -218,8 +240,8 @@ export default function FriendProfilePage() {
         }
 
         .friend-avatar {
-          width: 85px;
-          height: 85px;
+          width: 90px;
+          height: 90px;
           border-radius: 50%;
           overflow: hidden;
           border: 3px solid white;
@@ -227,15 +249,32 @@ export default function FriendProfilePage() {
           display: flex;
           align-items: center;
           justify-content: center;
-          font-size: 30px;
+          font-size: 32px;
           color: white;
           cursor: pointer;
         }
 
+        .friend-avatar img {
+          width: 100%;
+          height: 100%;
+          object-fit: cover;
+        }
+
         .friend-info {
           text-align: center;
-          margin-top: 10px;
+          margin-top: 12px;
           color: white;
+        }
+
+        .friend-info h3 {
+          font-size: 20px;
+          font-weight: bold;
+        }
+
+        .friend-info .bio {
+          font-size: 14px;
+          color: #e0e0e0;
+          margin: 4px 0;
         }
 
         .friend-actions {
@@ -261,6 +300,28 @@ export default function FriendProfilePage() {
           grid-column: span 2;
           background: #e63946;
           color: white;
+        }
+
+        .shared-media {
+          margin-top: 25px;
+          color: white;
+        }
+
+        .shared-media h4 {
+          margin-bottom: 10px;
+        }
+
+        .media-list {
+          display: flex;
+          gap: 8px;
+          flex-wrap: wrap;
+        }
+
+        .media-list img {
+          width: 70px;
+          height: 70px;
+          border-radius: 8px;
+          object-fit: cover;
         }
 
         .fullscreen-img {
@@ -302,6 +363,12 @@ export default function FriendProfilePage() {
           padding: 20px;
           width: 280px;
           border-radius: 12px;
+        }
+
+        .report-box textarea {
+          width: 100%;
+          height: 80px;
+          margin-bottom: 10px;
         }
 
         .friend-loading {
