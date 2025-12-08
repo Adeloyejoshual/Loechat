@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState, useContext } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { doc, onSnapshot, updateDoc } from "firebase/firestore";
+import { doc, onSnapshot, updateDoc, arrayUnion, arrayRemove } from "firebase/firestore";
 import { db } from "../firebaseConfig";
 import { ThemeContext } from "../context/ThemeContext";
 import { UserContext } from "../context/UserContext";
@@ -17,7 +17,6 @@ import {
   FiFlag,
   FiX,
   FiArrowLeft,
-  FiImage,
 } from "react-icons/fi";
 
 /* ---------------- Utilities ---------------- */
@@ -37,10 +36,7 @@ const formatLastSeen = (timestamp) => {
   if (diff < 60000) return "Online";
   if (diff < 3600000) return `Last seen ${Math.floor(diff / 60000)}m ago`;
   if (diff < 86400000) return `Last seen ${Math.floor(diff / 3600000)}h ago`;
-  return `Last seen on ${last.toLocaleDateString()} at ${last.toLocaleTimeString([], {
-    hour: "2-digit",
-    minute: "2-digit",
-  })}`;
+  return `Last seen on ${last.toLocaleDateString()}`;
 };
 
 export default function FriendProfilePage() {
@@ -60,20 +56,31 @@ export default function FriendProfilePage() {
 
   /* ---------------- FIRESTORE ---------------- */
   useEffect(() => {
-    if (!uid) return;
+    if (!uid || !currentUser?.uid) return;
 
-    const ref = doc(db, "users", uid);
-    const unsub = onSnapshot(ref, (snap) => {
+    const friendRef = doc(db, "users", uid);
+    const myRef = doc(db, "users", currentUser.uid);
+
+    const unsubFriend = onSnapshot(friendRef, (snap) => {
+      if (snap.exists()) setFriend({ id: snap.id, ...snap.data() });
+    });
+
+    const unsubMe = onSnapshot(myRef, (snap) => {
       if (snap.exists()) {
-        setFriend({ id: snap.id, ...snap.data() });
-        setIsBlocked(snap.data().blocked || false);
-        setIsMuted(snap.data().muted || false);
+        const data = snap.data();
+        setIsBlocked(data?.blockedUsers?.includes(uid));
+        setIsMuted(data?.mutedUsers?.includes(uid));
       }
       setLoading(false);
     });
 
-    return () => unsub();
-  }, [uid]);
+    return () => {
+      unsubFriend();
+      unsubMe();
+    };
+  }, [uid, currentUser]);
+
+  /* ---------------- ACTIONS ---------------- */
 
   const sendMessage = () => {
     const chatId = [currentUser.uid, uid].sort().join("_");
@@ -81,12 +88,18 @@ export default function FriendProfilePage() {
   };
 
   const toggleBlock = async () => {
-    await updateDoc(doc(db, "users", uid), { blocked: !isBlocked });
+    const myRef = doc(db, "users", currentUser.uid);
+    await updateDoc(myRef, {
+      blockedUsers: isBlocked ? arrayRemove(uid) : arrayUnion(uid),
+    });
     setIsBlocked(!isBlocked);
   };
 
   const toggleMute = async () => {
-    await updateDoc(doc(db, "users", uid), { muted: !isMuted });
+    const myRef = doc(db, "users", currentUser.uid);
+    await updateDoc(myRef, {
+      mutedUsers: isMuted ? arrayRemove(uid) : arrayUnion(uid),
+    });
     setIsMuted(!isMuted);
   };
 
@@ -101,25 +114,14 @@ export default function FriendProfilePage() {
   const submitReport = async () => {
     if (!reportReason.trim()) return alert("Enter report reason");
 
-    await fetch(`https://www.loechat.com/api/report`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        reporterId: currentUser.uid,
-        reportedId: uid,
-        reason: reportReason,
-      }),
-    });
-
-    // Send secretly to loechatapp@gmail.com
     await fetch(`https://www.loechat.com/api/send-email`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         to: "loechatapp@gmail.com",
-        subject: "New user report",
-        body: `Reporter: ${currentUser.uid}\nReported: ${uid}\nReason: ${reportReason}`
-      })
+        subject: "New User Report",
+        body: `Reporter: ${currentUser.uid}\nReported: ${uid}\nReason:\n${reportReason}`,
+      }),
     });
 
     setShowReport(false);
@@ -127,16 +129,12 @@ export default function FriendProfilePage() {
     alert("✅ Report submitted secretly");
   };
 
-  if (loading)
-    return <div className="friend-loading">Loading...</div>;
-
-  if (!friend)
-    return <div className="friend-loading">User not found</div>;
+  if (loading) return <div className="friend-loading">Loading...</div>;
+  if (!friend) return <div className="friend-loading">User not found</div>;
 
   return (
     <div className={`friend-wrapper ${isDark ? "dark" : ""}`}>
-
-      {/* HEADER WITH BACK */}
+      {/* HEADER */}
       <div className="friend-header">
         <FiArrowLeft onClick={() => navigate(-1)} />
         <span>Profile</span>
@@ -175,21 +173,7 @@ export default function FriendProfilePage() {
         </button>
       </div>
 
-      {/* SHARED MEDIA */}
-      <div className="shared-media">
-        <h4>Shared Media</h4>
-        <div className="media-list">
-          {friend.sharedMedia && friend.sharedMedia.length > 0 ? (
-            friend.sharedMedia.map((media, index) => (
-              <img key={index} src={media} alt="shared" />
-            ))
-          ) : (
-            <p>No media shared yet.</p>
-          )}
-        </div>
-      </div>
-
-      {/* FULLSCREEN IMAGE */}
+      {/* FULL IMAGE */}
       {showImage && (
         <div className="fullscreen-img">
           <FiX onClick={() => setShowImage(false)} />
@@ -205,7 +189,6 @@ export default function FriendProfilePage() {
             <textarea
               value={reportReason}
               onChange={(e) => setReportReason(e.target.value)}
-              placeholder="Enter reason..."
             />
             <div>
               <button onClick={() => setShowReport(false)}>Cancel</button>
@@ -214,171 +197,6 @@ export default function FriendProfilePage() {
           </div>
         </div>
       )}
-
-      {/* STYLES */}
-      <style>{`
-        .friend-wrapper {
-          min-height: 100vh;
-          background: linear-gradient(180deg, #1f7a4c, #38a169);
-          padding: 20px 15px;
-        }
-
-        .friend-header {
-          display: flex;
-          align-items: center;
-          gap: 12px;
-          color: white;
-          font-size: 17px;
-          margin-bottom: 15px;
-          cursor: pointer;
-        }
-
-        .friend-avatar-wrapper {
-          display: flex;
-          justify-content: center;
-          margin-top: 10px;
-        }
-
-        .friend-avatar {
-          width: 90px;
-          height: 90px;
-          border-radius: 50%;
-          overflow: hidden;
-          border: 3px solid white;
-          background: #666;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          font-size: 32px;
-          color: white;
-          cursor: pointer;
-        }
-
-        .friend-avatar img {
-          width: 100%;
-          height: 100%;
-          object-fit: cover;
-        }
-
-        .friend-info {
-          text-align: center;
-          margin-top: 12px;
-          color: white;
-        }
-
-        .friend-info h3 {
-          font-size: 20px;
-          font-weight: bold;
-        }
-
-        .friend-info .bio {
-          font-size: 14px;
-          color: #e0e0e0;
-          margin: 4px 0;
-        }
-
-        .friend-actions {
-          margin-top: 25px;
-          display: grid;
-          grid-template-columns: 1fr 1fr;
-          gap: 12px;
-        }
-
-        .friend-actions button {
-          padding: 12px;
-          border-radius: 10px;
-          background: white;
-          border: none;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          gap: 6px;
-          font-size: 14px;
-        }
-
-        .friend-actions .danger {
-          grid-column: span 2;
-          background: #e63946;
-          color: white;
-        }
-
-        .shared-media {
-          margin-top: 25px;
-          color: white;
-        }
-
-        .shared-media h4 {
-          margin-bottom: 10px;
-        }
-
-        .media-list {
-          display: flex;
-          gap: 8px;
-          flex-wrap: wrap;
-        }
-
-        .media-list img {
-          width: 70px;
-          height: 70px;
-          border-radius: 8px;
-          object-fit: cover;
-        }
-
-        .fullscreen-img {
-          position: fixed;
-          inset: 0;
-          background: black;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          z-index: 999;
-        }
-
-        .fullscreen-img img {
-          max-width: 100%;
-          max-height: 100%;
-        }
-
-        .fullscreen-img svg {
-          position: absolute;
-          top: 20px;
-          right: 20px;
-          font-size: 26px;
-          color: white;
-          cursor: pointer;
-        }
-
-        .report-modal {
-          position: fixed;
-          inset: 0;
-          background: rgba(0,0,0,0.7);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          z-index: 999;
-        }
-
-        .report-box {
-          background: white;
-          padding: 20px;
-          width: 280px;
-          border-radius: 12px;
-        }
-
-        .report-box textarea {
-          width: 100%;
-          height: 80px;
-          margin-bottom: 10px;
-        }
-
-        .friend-loading {
-          height: 100vh;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          font-size: 18px;
-        }
-      `}</style>
     </div>
   );
 }
