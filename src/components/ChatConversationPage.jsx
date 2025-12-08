@@ -49,6 +49,7 @@ export default function ChatConversationPage() {
   const [replyTo, setReplyTo] = useState(null);
   const [pinnedMessage, setPinnedMessage] = useState(null);
   const [isBlocked, setIsBlocked] = useState(false);
+  const [isMuted, setIsMuted] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
   const [mediaViewer, setMediaViewer] = useState({ open: false, startIndex: 0 });
   const [friendTyping, setFriendTyping] = useState(false);
@@ -66,6 +67,7 @@ export default function ChatConversationPage() {
       const data = snap.data();
       setChatInfo({ id: snap.id, ...data });
       setIsBlocked(Boolean(data.blocked));
+      setIsMuted(data.mutedUntil && data.mutedUntil > Date.now());
 
       const friendId = (data.participants || []).find((p) => p !== myUid);
       if (friendId) {
@@ -157,10 +159,12 @@ export default function ChatConversationPage() {
     } catch (err) { console.error("React failed", err); }
   }, [chatId, myUid]);
 
-  // -------------------- Send Message (with multiple images & retry) --------------------
+  // -------------------- Send Message --------------------
   const sendMessage = useCallback(async (textMsg = "", files = []) => {
-    if (isBlocked) return toast.error("You cannot send messages to this user");
+    if (isBlocked) return toast.error("You cannot send messages to this user"); // Only blocked stops sending
     if (!textMsg && files.length === 0) return;
+
+    if (isMuted) toast.info("This chat is muted. You won't receive notifications.");
 
     const messagesCol = collection(db, "chats", chatId, "messages");
     const tempId = `temp-${Date.now()}-${Math.random()}`;
@@ -217,7 +221,7 @@ export default function ChatConversationPage() {
     } finally {
       setText(""); setSelectedFiles([]); setCaption(""); setReplyTo(null); setShowPreview(false);
     }
-  }, [chatId, myUid, isBlocked, isAtBottom, replyTo]);
+  }, [chatId, myUid, isBlocked, isAtBottom, replyTo, isMuted]);
 
   // -------------------- Media Viewer --------------------
   const mediaItems = useMemo(() =>
@@ -244,7 +248,26 @@ export default function ChatConversationPage() {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100vh", backgroundColor: wallpaper || (isDark ? "#0b0b0b" : "#f5f5f5"), color: isDark ? "#fff" : "#000", position: "relative" }}>
-      <ChatHeader friendId={friendInfo.id} chatId={chatId} pinnedMessage={pinnedMessage} setBlockedStatus={setIsBlocked} onGoToPinned={() => pinnedMessage && scrollToMessage(pinnedMessage.id)} />
+      <ChatHeader
+        friendId={friendInfo.id}
+        chatId={chatId}
+        pinnedMessage={pinnedMessage}
+        setBlockedStatus={setIsBlocked}
+        onGoToPinned={() => pinnedMessage && scrollToMessage(pinnedMessage.id)}
+        onSearch={() => toast.info("Search triggered")}
+        onClearChat={async () => {
+          const confirmed = window.confirm("Clear all messages?");
+          if (!confirmed) return;
+          const msgsRef = collection(db, "chats", chatId, "messages");
+          const snap = await getDocs(msgsRef);
+          snap.forEach(async (m) => await updateDoc(doc(db, "chats", chatId, "messages", m.id), { deleted: true }));
+          setMessages([]);
+          toast.success("Chat cleared");
+        }}
+        onViewMedia={() => setMediaViewer({ open: true, startIndex: 0 })}
+        onVoiceCall={() => toast.info("Voice call started")}
+        onVideoCall={() => toast.info("Video call started")}
+      />
 
       <div ref={messagesRefEl} style={{ flex: 1, overflowY: "auto", padding: 8, display: "flex", flexDirection: "column" }}>
         {messages.map((msg) => (
