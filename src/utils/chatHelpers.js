@@ -1,39 +1,74 @@
+// ---- Time Format ----
 export const fmtTime = (ts) => {
   if (!ts) return "";
-  const d = ts.toDate ? ts.toDate() : new Date(ts);
+  const d = ts?.toDate ? ts.toDate() : new Date(ts);
   return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 };
 
+// ---- Day Label ----
 export const dayLabel = (ts) => {
   if (!ts) return "";
-  const d = ts.toDate ? ts.toDate() : new Date(ts);
+  const d = ts?.toDate ? ts.toDate() : new Date(ts);
+
   const now = new Date();
-  const yesterday = new Date(now); yesterday.setDate(now.getDate() - 1);
+  const yesterday = new Date(now);
+  yesterday.setDate(now.getDate() - 1);
+
   if (d.toDateString() === now.toDateString()) return "Today";
   if (d.toDateString() === yesterday.toDateString()) return "Yesterday";
-  return d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: d.getFullYear() !== now.getFullYear() ? "numeric" : undefined });
+
+  const options = { month: "short", day: "numeric" };
+  if (d.getFullYear() !== now.getFullYear()) {
+    options.year = "numeric";
+  }
+
+  return d.toLocaleDateString(undefined, options);
 };
 
+// ---- File Type Detection ----
 export const detectFileType = (file) => {
   if (!file?.type) return "file";
+
   if (file.type.startsWith("image/")) return "image";
   if (file.type.startsWith("video/")) return "video";
   if (file.type.startsWith("audio/")) return "audio";
   if (file.type === "application/pdf") return "pdf";
+
+  if (
+    file.type.includes("zip") ||
+    file.type.includes("rar") ||
+    file.type.includes("apk")
+  ) return "archive";
+
+  if (
+    file.type.includes("word") ||
+    file.type.includes("officedocument")
+  ) return "doc";
+
   return "file";
 };
 
+// ---- Cloudinary Upload ----
 export const uploadToCloudinary = (file, onProgress) => {
   return new Promise((resolve, reject) => {
     const cloudName = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME;
     const uploadPreset = import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET;
-    if (!cloudName || !uploadPreset) return reject(new Error("Cloudinary env not set"));
+
+    if (!cloudName || !uploadPreset) {
+      return reject(new Error("Cloudinary env not set"));
+    }
+
     const url = `https://api.cloudinary.com/v1_1/${cloudName}/auto/upload`;
     const xhr = new XMLHttpRequest();
     xhr.open("POST", url);
-    xhr.upload.addEventListener("progress", e => {
-      if (e.lengthComputable && onProgress) onProgress(Math.round((e.loaded * 100) / e.total));
+
+    xhr.upload.addEventListener("progress", (e) => {
+      if (e.lengthComputable && onProgress) {
+        const percent = Math.round((e.loaded * 100) / e.total);
+        onProgress(percent);
+      }
     });
+
     xhr.onload = () => {
       if (xhr.status >= 200 && xhr.status < 300) {
         const res = JSON.parse(xhr.responseText);
@@ -42,10 +77,14 @@ export const uploadToCloudinary = (file, onProgress) => {
         reject(new Error(`Cloudinary upload failed: ${xhr.status}`));
       }
     };
+
     xhr.onerror = () => reject(new Error("Network error"));
+
     const fd = new FormData();
     fd.append("file", file);
     fd.append("upload_preset", uploadPreset);
+    fd.append("resource_type", "auto"); // ✅ important for video/audio
+
     xhr.send(fd);
   });
 };
