@@ -5,7 +5,6 @@ const READ_MORE_STEP = 450;
 const LONG_PRESS_DELAY = 700;
 const SWIPE_TRIGGER_DISTANCE = 60;
 
-// 🔒 Blocks UID from ever showing
 const cleanName = (name) => {
   if (!name) return "User";
   if (typeof name !== "string") return "User";
@@ -36,30 +35,29 @@ export default function MessageItem({
 
   const [showLongPress, setShowLongPress] = useState(false);
   const longPressTimer = useRef(null);
+
   const [visibleChars, setVisibleChars] = useState(READ_MORE_STEP);
   const isLongText = Boolean(message.text && message.text.length > visibleChars);
+
   const swipeStartX = useRef(0);
   const [swipeX, setSwipeX] = useState(0);
   const [swipeActive, setSwipeActive] = useState(false);
-  const lastTap = useRef(0);
-  const [showQuickReactionAnim, setShowQuickReactionAnim] = useState(false);
+
   const [localReactions, setLocalReactions] = useState(message.reactions || {});
+  const [reactionAnim, setReactionAnim] = useState({ show: false, emoji: "❤️" });
 
   useEffect(() => setLocalReactions(message.reactions || {}), [message.reactions]);
-
   useEffect(() => {
     if (containerRef.current) registerRef?.(containerRef.current);
   }, []);
 
-  // ✅ Green Seen Tick Logic
   const renderStatus = () => {
     if (!isMine) return null;
-
     const total = message.totalParticipants || 2;
     const seen = message.seenBy?.length || 0;
     const delivered = message.deliveredTo?.length || 0;
 
-    if (seen >= total - 1) return <span style={{ color: "#00e676" }}>✔✔</span>; // ✅ GREEN
+    if (seen >= total - 1) return <span style={{ color: "#00e676" }}>✔✔</span>;
     if (delivered >= total - 1) return "✔✔";
     return "✔";
   };
@@ -67,29 +65,55 @@ export default function MessageItem({
   const bubbleBg = isMine ? "#007bff" : isDark ? "#222" : "#fff";
   const bubbleColor = isMine ? "#fff" : isDark ? "#fff" : "#000";
   const reactionsEntries = Object.entries(localReactions || {});
-
   const senderName = isMine ? "You" : cleanName(friendInfo?.name);
+
+  // -------------------- LONG PRESS --------------------
+  const startLongPress = () => {
+    longPressTimer.current = setTimeout(() => setShowLongPress(true), LONG_PRESS_DELAY);
+  };
+  const cancelLongPress = () => {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+  };
+
+  // -------------------- Trigger Quick Reaction Animation --------------------
+  const handleReact = (emoji) => {
+    onReact?.(message.id, emoji);
+    setReactionAnim({ show: true, emoji });
+    setTimeout(() => setReactionAnim({ show: false, emoji }), 800);
+  };
 
   return (
     <>
       <div
-        ref={(el) => (containerRef.current = el)}
+        ref={containerRef}
         onTouchStart={(e) => {
           swipeStartX.current = e.touches[0].clientX;
           setSwipeActive(true);
+          startLongPress();
         }}
         onTouchMove={(e) => {
-          if (!swipeActive) return;
           const diff = e.touches[0].clientX - swipeStartX.current;
+          if (Math.abs(diff) > 10) cancelLongPress();
+          if (!swipeActive) return;
           setSwipeX(Math.max(Math.min(diff, 120), -120));
         }}
         onTouchEnd={() => {
+          cancelLongPress();
           if (swipeActive && Math.abs(swipeX) > SWIPE_TRIGGER_DISTANCE) {
             setReplyTo(message);
           }
           setSwipeX(0);
           setSwipeActive(false);
         }}
+        onMouseDown={(e) => {
+          e.preventDefault();
+          startLongPress();
+        }}
+        onMouseUp={cancelLongPress}
+        onMouseLeave={cancelLongPress}
         style={{
           alignSelf: isMine ? "flex-end" : "flex-start",
           maxWidth: "78%",
@@ -102,23 +126,27 @@ export default function MessageItem({
           transition: swipeX ? "none" : "transform 0.18s ease",
           wordBreak: "break-word",
           position: "relative",
+          userSelect: "none",
         }}
       >
-        {/* ✅ SENDER NAME (NO UID EVER) */}
         {!isMine && (
-          <div style={{ fontSize: 11, opacity: 0.7, marginBottom: 4 }}>
-            {senderName}
-          </div>
+          <div style={{ fontSize: 11, opacity: 0.7, marginBottom: 4 }}>{senderName}</div>
         )}
 
-        {/* MESSAGE */}
         {message.text && (
           <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.4 }}>
             {message.text.slice(0, visibleChars)}
+            {isLongText && (
+              <span
+                onClick={() => setVisibleChars((v) => v + READ_MORE_STEP)}
+                style={{ color: "#888", cursor: "pointer" }}
+              >
+                ...more
+              </span>
+            )}
           </div>
         )}
 
-        {/* MEDIA */}
         {message.mediaUrl && (
           <img
             src={message.mediaUrl}
@@ -128,7 +156,6 @@ export default function MessageItem({
           />
         )}
 
-        {/* REACTIONS */}
         {reactionsEntries.length > 0 && (
           <div style={{ marginTop: 6, display: "flex", gap: 6 }}>
             {reactionsEntries.map(([emoji, users]) => (
@@ -139,23 +166,57 @@ export default function MessageItem({
           </div>
         )}
 
-        {/* ✅ TIME + ✅ GREEN SEEN */}
         <div style={{ fontSize: 10, opacity: 0.6, textAlign: "right", marginTop: 6 }}>
           {formatTime(message.createdAt)} {renderStatus()}
         </div>
 
-        {showQuickReactionAnim && <div style={{ position: "absolute", top: -10 }}>❤️</div>}
+        {/* Quick reaction floating animation */}
+        {reactionAnim.show && (
+          <div
+            style={{
+              position: "absolute",
+              top: -20,
+              right: 10,
+              fontSize: 20,
+              animation: "floatUp 0.8s ease-out forwards",
+            }}
+          >
+            {reactionAnim.emoji}
+          </div>
+        )}
       </div>
 
       {showLongPress && (
         <LongPressMessageModal
           isDark={isDark}
           onClose={() => setShowLongPress(false)}
-          onReply={() => setReplyTo(message)}
-          onDelete={() => onDelete?.(message)}
+          onReply={() => {
+            setReplyTo(message);
+            setShowLongPress(false);
+          }}
+          onDelete={() => {
+            onDelete?.(message);
+            setShowLongPress(false);
+          }}
+          onPin={() => {
+            setPinnedMessage(message);
+            setShowLongPress(false);
+          }}
+          onCopy={() => {
+            navigator.clipboard.writeText(message.text || "");
+            setShowLongPress(false);
+          }}
+          onReaction={handleReact}
           messageSenderName={senderName}
         />
       )}
+
+      <style>{`
+        @keyframes floatUp {
+          0% { opacity: 1; transform: translateY(0); }
+          100% { opacity: 0; transform: translateY(-24px); }
+        }
+      `}</style>
     </>
   );
 }
