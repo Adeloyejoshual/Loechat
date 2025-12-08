@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from "react";
 import LongPressMessageModal from "./LongPressMessageModal";
+import EmojiPicker from "./EmojiPicker";
 
 const READ_MORE_STEP = 450;
 const LONG_PRESS_DELAY = 700;
@@ -34,6 +35,8 @@ export default function MessageItem({
   const containerRef = useRef(null);
 
   const [showLongPress, setShowLongPress] = useState(false);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [emojiPickerPosition, setEmojiPickerPosition] = useState({ top: 0, left: 0 });
   const longPressTimer = useRef(null);
 
   const [visibleChars, setVisibleChars] = useState(READ_MORE_STEP);
@@ -69,7 +72,9 @@ export default function MessageItem({
 
   // -------------------- LONG PRESS --------------------
   const startLongPress = () => {
-    longPressTimer.current = setTimeout(() => setShowLongPress(true), LONG_PRESS_DELAY);
+    longPressTimer.current = setTimeout(() => {
+      setShowLongPress(true);
+    }, LONG_PRESS_DELAY);
   };
   const cancelLongPress = () => {
     if (longPressTimer.current) {
@@ -145,6 +150,13 @@ export default function MessageItem({
     );
   };
 
+  // -------------------- Show Emoji Picker --------------------
+  const openEmojiPicker = (e) => {
+    const rect = containerRef.current.getBoundingClientRect();
+    setEmojiPickerPosition({ top: rect.top - 240, left: rect.left });
+    setShowEmojiPicker(true);
+  };
+
   return (
     <>
       <div
@@ -162,16 +174,13 @@ export default function MessageItem({
         }}
         onTouchEnd={() => {
           cancelLongPress();
-          if (swipeActive && Math.abs(swipeX) > 60) {
+          if (swipeActive && Math.abs(swipeX) > SWIPE_TRIGGER_DISTANCE) {
             setReplyTo(message);
           }
           setSwipeX(0);
           setSwipeActive(false);
         }}
-        onMouseDown={(e) => {
-          e.preventDefault();
-          startLongPress();
-        }}
+        onMouseDown={(e) => startLongPress()}
         onMouseUp={cancelLongPress}
         onMouseLeave={cancelLongPress}
         style={{
@@ -241,6 +250,22 @@ export default function MessageItem({
             {reactionAnim.emoji}
           </div>
         )}
+
+        {/* OPEN EMOJI PICKER BUTTON */}
+        <button
+          onClick={openEmojiPicker}
+          style={{
+            position: "absolute",
+            top: -28,
+            right: -4,
+            background: "transparent",
+            border: "none",
+            fontSize: 18,
+            cursor: "pointer",
+          }}
+        >
+          ➕
+        </button>
       </div>
 
       {/* LONG PRESS MODAL */}
@@ -266,6 +291,19 @@ export default function MessageItem({
           }}
           onReaction={handleReact}
           messageSenderName={senderName}
+        />
+      )}
+
+      {/* EMOJI PICKER */}
+      {showEmojiPicker && (
+        <EmojiPicker
+          onSelect={(emoji) => {
+            handleReact(emoji);
+            setShowEmojiPicker(false);
+          }}
+          onClose={() => setShowEmojiPicker(false)}
+          position={emojiPickerPosition}
+          isDark={isDark}
         />
       )}
 
