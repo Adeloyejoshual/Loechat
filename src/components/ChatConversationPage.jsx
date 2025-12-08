@@ -12,7 +12,7 @@ import {
   arrayUnion,
   serverTimestamp,
   getDocs,
-  limitToLast,
+  limit,
   endBefore,
 } from "firebase/firestore";
 import { db, auth } from "../firebaseConfig";
@@ -55,6 +55,10 @@ export default function ChatConversationPage() {
   const [mediaViewer, setMediaViewer] = useState({ open: false, startIndex: 0 });
   const [friendTyping, setFriendTyping] = useState(false);
   const [isAtBottom, setIsAtBottom] = useState(true);
+  const [loadingOlder, setLoadingOlder] = useState(false);
+  const [newMessageCount, setNewMessageCount] = useState(0);
+
+  const displayedMessageIds = useRef(new Set());
 
   // -------------------- Load chat & friend info --------------------
   useEffect(() => {
@@ -92,7 +96,7 @@ export default function ChatConversationPage() {
   useEffect(() => {
     if (!chatId) return;
     const messagesRef = collection(db, "chats", chatId, "messages");
-    const q = query(messagesRef, orderBy("createdAt", "asc"));
+    const q = query(messagesRef, orderBy("createdAt", "asc"), limit(PAGE_SIZE));
 
     const unsub = onSnapshot(q, (snap) => {
       const docs = snap.docs.map((d) => ({
@@ -101,16 +105,28 @@ export default function ChatConversationPage() {
         createdAt: d.data().createdAt?.toDate ? d.data().createdAt.toDate() : new Date(),
       }));
 
-      setMessages(docs);
+      // Filter out temp messages
+      const permanentMessages = docs.filter((m) => !m.id.startsWith("temp-"));
+      setMessages(permanentMessages);
 
       // Mark delivered
-      const undelivered = docs.filter((m) => m.senderId !== myUid && !(m.deliveredTo || []).includes(myUid));
+      const undelivered = permanentMessages.filter(
+        (m) => m.senderId !== myUid && !(m.deliveredTo || []).includes(myUid)
+      );
       undelivered.forEach((m) =>
         updateDoc(doc(db, "chats", chatId, "messages", m.id), { deliveredTo: arrayUnion(myUid) })
       );
 
-      // Auto-scroll if at bottom
-      if (isAtBottom) endRef.current?.scrollIntoView({ behavior: "auto" });
+      // New message toast logic
+      if (!isAtBottom) {
+        const newMsgs = permanentMessages.filter(
+          (m) => m.senderId !== myUid && !displayedMessageIds.current.has(m.id)
+        );
+        if (newMsgs.length > 0) setNewMessageCount((prev) => prev + newMsgs.length);
+      } else {
+        setNewMessageCount(0);
+        endRef.current?.scrollIntoView({ behavior: "auto" });
+      }
     });
 
     return () => unsub();
@@ -135,20 +151,38 @@ export default function ChatConversationPage() {
     return () => el.removeEventListener("scroll", onScroll);
   }, []);
 
-  // -------------------- Media items for viewer --------------------
-  const mediaItems = messages.filter((m) => m.mediaUrl).map((m) => ({ url: m.mediaUrl, id: m.id, type: m.mediaType }));
+  // -------------------- Load older messages --------------------
+  const loadOlderMessages = async () => {
+    if (loadingOlder || !messages.length) return;
+    setLoadingOlder(true);
 
-  // -------------------- Scroll to message --------------------
-  const scrollToMessage = (id) => {
-    const el = messageRefs.current[id];
-    if (el) {
-      el.scrollIntoView({ behavior: "smooth", block: "center" });
-      el.classList.add("flash-highlight");
-      setTimeout(() => el.classList.remove("flash-highlight"), 1200);
+    const container = messagesRefEl.current;
+    const scrollHeightBefore = container.scrollHeight;
+
+    const first = messages[0];
+    const messagesRef = collection(db, "chats", chatId, "messages");
+    const q = query(messagesRef, orderBy("createdAt", "asc"), endBefore(first.createdAt), limit(PAGE_SIZE));
+
+    const snap = await getDocs(q);
+    if (!snap.empty) {
+      const older = snap.docs.map((d) => ({
+        id: d.id,
+        ...d.data(),
+        createdAt: d.data().createdAt?.toDate ? d.data().createdAt.toDate() : new Date(),
+      }));
+      setMessages((prev) => [...older, ...prev]);
+
+      // Preserve scroll
+      setTimeout(() => {
+        const scrollHeightAfter = container.scrollHeight;
+        container.scrollTop = scrollHeightAfter - scrollHeightBefore;
+      }, 50);
     }
+
+    setLoadingOlder(false);
   };
 
-  // -------------------- Typing indicator --------------------
+  // -------------------- Typing --------------------
   const setTypingFlag = async (typing) => {
     if (!chatId || !myUid) return;
     try {
@@ -244,32 +278,32 @@ export default function ChatConversationPage() {
     setShowPreview(false);
   };
 
-  // -------------------- Open media viewer --------------------
+  // -------------------- Media viewer --------------------
+  const mediaItems = messages.filter((m) => m.mediaUrl).map((m) => ({ url: m.mediaUrl, id: m.id, type: m.mediaType }));
+
   const openMediaViewerAtMessage = (message) => {
     const index = mediaItems.findIndex((m) => m.id === message.id);
     setMediaViewer({ open: true, startIndex: index >= 0 ? index : 0 });
   };
 
-  // -------------------- Load older messages --------------------
-  const loadOlderMessages = async () => {
-    if (!messages.length) return;
-    const first = messages[0];
-    const messagesRef = collection(db, "chats", chatId, "messages");
-    const q = query(messagesRef, orderBy("createdAt", "asc"), endBefore(first.createdAt), limitToLast(PAGE_SIZE));
-    const snap = await getDocs(q);
-    if (!snap.empty) {
-      const older = snap.docs.map((d) => ({
-        id: d.id,
-        ...d.data(),
-        createdAt: d.data().createdAt?.toDate ? d.data().createdAt.toDate() : new Date(),
-      }));
-      setMessages((prev) => [...older, ...prev]);
+  const scrollToMessage = (id) => {
+    const el = messageRefs.current[id];
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+      el.classList.add("flash-highlight");
+      setTimeout(() => el.classList.remove("flash-highlight"), 1200);
     }
   };
 
+  // -------------------- Auto-hide new message toast --------------------
+  useEffect(() => {
+    if (newMessageCount === 0) return;
+    const timer = setTimeout(() => setNewMessageCount(0), 5000);
+    return () => clearTimeout(timer);
+  }, [newMessageCount]);
+
   // -------------------- Render --------------------
-  if (!chatInfo || !friendInfo)
-    return <div style={{ padding: 20 }}>Loading chat...</div>;
+  if (!chatInfo || !friendInfo) return <div style={{ padding: 20 }}>Loading chat...</div>;
 
   return (
     <div
@@ -277,6 +311,7 @@ export default function ChatConversationPage() {
         display: "flex",
         flexDirection: "column",
         height: "100vh",
+        position: "relative",
         backgroundColor: wallpaper || (isDark ? "#0b0b0b" : "#f5f5f5"),
         color: isDark ? "#fff" : "#000",
       }}
@@ -293,38 +328,63 @@ export default function ChatConversationPage() {
       <div
         ref={messagesRefEl}
         style={{ flex: 1, overflowY: "auto", padding: 8, display: "flex", flexDirection: "column" }}
-        onScroll={(e) => { if (e.currentTarget.scrollTop === 0) loadOlderMessages(); }}
+        onScroll={(e) => {
+          const el = e.currentTarget;
+          setIsAtBottom(el.scrollHeight - el.scrollTop - el.clientHeight < 80);
+          if (el.scrollTop === 0) loadOlderMessages();
+        }}
       >
-        {messages.map((msg) => (
-          <MessageItem
-            key={msg.id}
-            message={msg}
-            myUid={myUid}
-            isDark={isDark}
-            setReplyTo={setReplyTo}
-            setPinnedMessage={(m) => {
-              if (!m?.id) return;
-              updateDoc(doc(db, "chats", chatId), { pinnedMessageId: m.id }).catch(console.error);
-              setPinnedMessage(m);
-            }}
-            friendInfo={friendInfo}
-            onMediaClick={(message) => openMediaViewerAtMessage(message)}
-            registerRef={(el) => { if (el) messageRefs.current[msg.id] = el; }}
-            onReact={async (msgId, emoji) => {
-              const msgRef = doc(db, "chats", chatId, "messages", msgId);
-              await updateDoc(msgRef, { [`reactions.${emoji}`]: arrayUnion(myUid) });
-            }}
-            onDelete={async (messageToDelete) => {
-              await updateDoc(doc(db, "chats", chatId, "messages", messageToDelete.id), { deleted: true });
-            }}
-          />
-        ))}
+        {loadingOlder && <div style={{ textAlign: "center" }}>Loading...</div>}
+
+        {messages.map((msg) => {
+          const isNew = !displayedMessageIds.current.has(msg.id);
+          if (isNew) displayedMessageIds.current.add(msg.id);
+
+          return (
+            <div key={msg.id} className={isNew ? "message-fade-in" : ""}>
+              <MessageItem
+                message={msg}
+                myUid={myUid}
+                isDark={isDark}
+                setReplyTo={setReplyTo}
+                setPinnedMessage={(m) => {
+                  if (!m?.id) return;
+                  updateDoc(doc(db, "chats", chatId), { pinnedMessageId: m.id }).catch(console.error);
+                  setPinnedMessage(m);
+                }}
+                friendInfo={friendInfo}
+                onMediaClick={(message) => openMediaViewerAtMessage(message)}
+                registerRef={(el) => { if (el) messageRefs.current[msg.id] = el; }}
+                onReact={async (msgId, emoji) => {
+                  const msgRef = doc(db, "chats", chatId, "messages", msgId);
+                  await updateDoc(msgRef, { [`reactions.${emoji}`]: arrayUnion(myUid) });
+                }}
+                onDelete={async (messageToDelete) => {
+                  await updateDoc(doc(db, "chats", chatId, "messages", messageToDelete.id), { deleted: true });
+                }}
+              />
+            </div>
+          );
+        })}
         <div ref={endRef} />
       </div>
 
       {friendTyping && (
         <div style={{ padding: "0 12px 6px 12px", fontSize: 12, color: isDark ? "#ccc" : "#555" }}>
           {friendInfo?.displayName || "Contact"} is typing...
+        </div>
+      )}
+
+      {/* New message toast */}
+      {newMessageCount > 0 && (
+        <div
+          className="new-message-toast show"
+          onClick={() => {
+            endRef.current?.scrollIntoView({ behavior: "smooth" });
+            setNewMessageCount(0);
+          }}
+        >
+          {newMessageCount} new message{newMessageCount > 1 ? "s" : ""}
         </div>
       )}
 
