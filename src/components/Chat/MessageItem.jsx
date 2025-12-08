@@ -33,7 +33,6 @@ export default function MessageItem({
 
   const [showLongPress, setShowLongPress] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
-  const [emojiPickerPosition, setEmojiPickerPosition] = useState({ top: 0, left: 0 });
   const longPressTimer = useRef(null);
 
   const [visibleChars, setVisibleChars] = useState(READ_MORE_STEP);
@@ -51,20 +50,40 @@ export default function MessageItem({
     if (containerRef.current) registerRef?.(containerRef.current);
   }, []);
 
+  // Long press logic
   const startLongPress = () => {
-    longPressTimer.current = setTimeout(() => setShowLongPress(true), LONG_PRESS_DELAY);
+    longPressTimer.current = setTimeout(() => {
+      setShowLongPress(true);
+      setShowEmojiPicker(false); // Close emoji picker when long press opens
+    }, LONG_PRESS_DELAY);
   };
   const cancelLongPress = () => {
     if (longPressTimer.current) clearTimeout(longPressTimer.current);
     longPressTimer.current = null;
   };
 
+  // Handle emoji reaction
   const handleReact = (emoji) => {
     onReact?.(message.id, emoji);
     setReactionAnim({ show: true, emoji });
     setTimeout(() => setReactionAnim({ show: false, emoji }), 800);
   };
 
+  // Delete logic
+  const handleDeleteForMe = () => {
+    setMessages(messages.filter((m) => m.id !== message.id));
+    toast.info("Message deleted for you");
+    if (pinnedMessage?.id === message.id) setPinnedMessage(null);
+  };
+
+  const handleDeleteForEveryone = async () => {
+    await updateDoc(doc(db, "chats", message.chatId, "messages", message.id), { deleted: true });
+    setMessages(messages.filter((m) => m.id !== message.id));
+    toast.success("Message deleted for everyone");
+    if (pinnedMessage?.id === message.id) setPinnedMessage(null);
+  };
+
+  // Media rendering
   const mediaArray = message.mediaUrls || (message.mediaUrl ? [message.mediaUrl] : []);
   const renderMediaGrid = () => {
     if (!mediaArray.length) return null;
@@ -119,74 +138,28 @@ export default function MessageItem({
                 {message.uploadProgress}%
               </div>
             )}
-            {message.status === "failed" && (
-              <button
-                onClick={() => retryUpload(message)}
-                style={{
-                  position: "absolute",
-                  top: 6,
-                  right: 6,
-                  backgroundColor: "#ff4d4f",
-                  color: "#fff",
-                  border: "none",
-                  borderRadius: 6,
-                  padding: "2px 6px",
-                  cursor: "pointer",
-                  fontSize: 12,
-                }}
-              >
-                Retry
-              </button>
-            )}
-            {idx === maxVisible - 1 && extraCount > 0 && (
-              <div
-                style={{
-                  position: "absolute",
-                  inset: 0,
-                  backgroundColor: "rgba(0,0,0,0.5)",
-                  color: "#fff",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  fontSize: 24,
-                  fontWeight: "bold",
-                  borderRadius: 12,
-                }}
-              >
-                +{extraCount}
-              </div>
-            )}
           </div>
         ))}
+        {extraCount > 0 && (
+          <div
+            style={{
+              position: "absolute",
+              inset: 0,
+              backgroundColor: "rgba(0,0,0,0.5)",
+              color: "#fff",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontSize: 24,
+              fontWeight: "bold",
+              borderRadius: 12,
+            }}
+          >
+            +{extraCount}
+          </div>
+        )}
       </div>
     );
-  };
-
-  const openEmojiPicker = () => {
-    const rect = containerRef.current.getBoundingClientRect();
-    setEmojiPickerPosition({ top: rect.top - 240, left: rect.left });
-    setShowEmojiPicker(true);
-  };
-
-  const handleDeleteForMe = () => {
-    setMessages(messages.filter((m) => m.id !== message.id));
-    toast.info("Message deleted for you");
-    if (pinnedMessage?.id === message.id) setPinnedMessage(null);
-  };
-
-  const handleDeleteForEveryone = async () => {
-    await updateDoc(doc(db, "chats", message.chatId, "messages", message.id), { deleted: true });
-    setMessages(messages.filter((m) => m.id !== message.id));
-    toast.success("Message deleted for everyone");
-    if (pinnedMessage?.id === message.id) setPinnedMessage(null);
-  };
-
-  const retryUpload = async (msg) => {
-    if (!msg.failedFiles || !msg.failedFiles.length) return;
-    setMessages((prev) =>
-      prev.map((m) => (m.id === msg.id ? { ...m, status: "sending", uploadProgress: 0 } : m))
-    );
-    toast.info("Retrying upload...");
   };
 
   if (message.deleted || (message.deletedForMe && isMine)) return null;
@@ -236,7 +209,10 @@ export default function MessageItem({
           <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.4, marginTop: mediaArray.length ? 4 : 0 }}>
             {message.text.slice(0, visibleChars)}
             {isLongText && (
-              <span onClick={() => setVisibleChars((v) => v + READ_MORE_STEP)} style={{ color: "#888", cursor: "pointer" }}>
+              <span
+                onClick={() => setVisibleChars((v) => v + READ_MORE_STEP)}
+                style={{ color: "#888", cursor: "pointer" }}
+              >
                 ...more
               </span>
             )}
@@ -271,8 +247,12 @@ export default function MessageItem({
           </div>
         )}
 
+        {/* Emoji Picker button */}
         <button
-          onClick={openEmojiPicker}
+          onClick={() => {
+            setShowEmojiPicker((prev) => !prev);
+            setShowLongPress(false); // close long press modal
+          }}
           style={{
             position: "absolute",
             top: -28,
@@ -287,6 +267,7 @@ export default function MessageItem({
         </button>
       </div>
 
+      {/* Long Press Modal */}
       {showLongPress && (
         <LongPressMessageModal
           isDark={isDark}
@@ -297,11 +278,13 @@ export default function MessageItem({
           onReaction={handleReact}
           onDeleteForMe={handleDeleteForMe}
           onDeleteForEveryone={handleDeleteForEveryone}
-          message={message} // pass full message to fix media preview
-          onMediaClick={onMediaClick} // fix image preview modal
+          message={message}
+          onMediaClick={onMediaClick}
+          onOpen={() => setShowEmojiPicker(false)} // ensures emoji picker closes
         />
       )}
 
+      {/* Emoji Picker */}
       {showEmojiPicker && (
         <EmojiPicker
           onSelect={(emoji) => {
