@@ -1,4 +1,5 @@
-import React, { useRef, useEffect } from "react";
+// src/components/ChatInput.jsx
+import React, { useRef, useEffect, useMemo } from "react";
 import { Paperclip, Send, X } from "lucide-react";
 import ImagePreviewModal from "./ImagePreviewModal";
 
@@ -21,6 +22,21 @@ export default function ChatInput({
   const textareaRef = useRef(null);
   const lastInput = useRef("");
 
+  const previews = useMemo(
+    () => selectedFiles.map((file) => ({ file, url: URL.createObjectURL(file) })),
+    [selectedFiles]
+  );
+
+  // Auto-resize textarea with max height
+  useEffect(() => {
+    if (!textareaRef.current) return;
+    const el = textareaRef.current;
+    el.style.height = "auto"; // reset
+    const maxHeight = 120; // max height in px (~6 lines)
+    el.style.height = `${Math.min(el.scrollHeight, maxHeight)}px`;
+    el.style.overflowY = el.scrollHeight > maxHeight ? "auto" : "hidden";
+  }, [text]);
+
   // File selection
   const handleFileChange = (e) => {
     const files = Array.from(e.target.files || []);
@@ -40,10 +56,13 @@ export default function ChatInput({
     if (disabled) return;
     if (selectedFiles.length > 0) {
       sendMediaMessage(selectedFiles);
+      setSelectedFiles([]);
     } else if (text.trim()) {
       sendTextMessage();
     }
+    setReplyTo?.(null);
     setTyping?.(false);
+    setText("");
   };
 
   // Typing detection
@@ -55,100 +74,50 @@ export default function ChatInput({
     setTyping(text.length > 0);
   }, [text, setTyping]);
 
-  // Enter behavior
-  const handleKeyDown = (e) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      handleSend();
-    }
-  };
-
   return (
     <>
       {/* Typing indicator */}
       {friendTyping && (
-        <div
-          style={{
-            margin: "4px 10px 0",
-            fontSize: 12,
-            color: isDark ? "#ccc" : "#555",
-            fontStyle: "italic",
-            height: 18,
-          }}
-        >
+        <div style={{ margin: "4px 10px 0", fontSize: 12, color: isDark ? "#ccc" : "#555", fontStyle: "italic", height: 18 }}>
           {friendTyping === true ? "Typing..." : friendTyping}
         </div>
       )}
 
       {/* Reply preview */}
       {replyTo && (
-        <div
-          style={{
-            background: isDark ? "#333" : "#eee",
-            padding: 8,
-            borderRadius: 10,
-            margin: "6px 10px 0",
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            fontSize: 12,
-          }}
-        >
-          <div
-            style={{
-              opacity: 0.8,
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              whiteSpace: "nowrap",
-              maxWidth: "85%",
-            }}
-          >
+        <div style={{
+          background: isDark ? "#333" : "#eee",
+          padding: 8,
+          borderRadius: 10,
+          margin: "6px 10px 0",
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          fontSize: 12
+        }}>
+          <div style={{ opacity: 0.8, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "85%" }}>
             Replying to: {replyTo.text ? replyTo.text.slice(0, 50) : replyTo.mediaType ? replyTo.mediaType.toUpperCase() : "Media"}
           </div>
-          <button
-            onClick={() => setReplyTo(null)}
-            style={{ background: "transparent", border: "none", cursor: "pointer" }}
-          >
+          <button onClick={() => setReplyTo(null)} style={{ background: "transparent", border: "none", cursor: "pointer" }}>
             <X size={16} />
           </button>
         </div>
       )}
 
       {/* Input bar */}
-      <div
-        style={{
-          display: "flex",
-          alignItems: "flex-end",
-          padding: 10,
-          gap: 10,
-          borderTop: `1px solid ${isDark ? "#333" : "rgba(0,0,0,0.1)"}`,
-          background: isDark ? "#1b1b1b" : "#fff",
-          position: "sticky",
-          bottom: 0,
-          zIndex: 25,
-        }}
-      >
-        <input
-          type="file"
-          multiple
-          hidden
-          ref={fileInputRef}
-          onChange={handleFileChange}
-          accept="image/*,video/*"
-        />
-        <button
-          onClick={() => fileInputRef.current.click()}
-          style={{
-            background: "transparent",
-            border: "none",
-            cursor: "pointer",
-            padding: 6,
-            borderRadius: 6,
-            transition: "background 0.2s",
-          }}
-          onMouseEnter={(e) => e.currentTarget.style.background = isDark ? "#333" : "#eee"}
-          onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
-        >
+      <div style={{
+        display: "flex",
+        alignItems: "flex-end",
+        padding: 10,
+        gap: 10,
+        borderTop: `1px solid ${isDark ? "#333" : "rgba(0,0,0,0.1)"}`,
+        background: isDark ? "#1b1b1b" : "#fff",
+        position: "sticky",
+        bottom: 0,
+        zIndex: 25
+      }}>
+        <input type="file" multiple hidden ref={fileInputRef} onChange={handleFileChange} accept="image/*,video/*" />
+        <button onClick={() => fileInputRef.current.click()} style={{ background: "transparent", border: "none", cursor: "pointer", padding: 6, borderRadius: 6 }}>
           <Paperclip size={22} />
         </button>
 
@@ -158,7 +127,6 @@ export default function ChatInput({
           onChange={(e) => setText(e.target.value)}
           placeholder={disabled ? "You cannot send messages" : "Type a message..."}
           rows={1}
-          onKeyDown={handleKeyDown}
           style={{
             flex: 1,
             padding: "10px 14px",
@@ -171,23 +139,11 @@ export default function ChatInput({
             resize: "none",
             overflow: "hidden",
             lineHeight: 1.4,
+            maxHeight: 120
           }}
         />
 
-        <button
-          onClick={handleSend}
-          style={{
-            background: "transparent",
-            border: "none",
-            cursor: disabled ? "not-allowed" : "pointer",
-            padding: 6,
-            borderRadius: 6,
-            transition: "background 0.2s",
-          }}
-          disabled={disabled}
-          onMouseEnter={(e) => e.currentTarget.style.background = disabled ? "transparent" : isDark ? "#333" : "#eee"}
-          onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
-        >
+        <button onClick={handleSend} style={{ background: "transparent", border: "none", cursor: disabled ? "not-allowed" : "pointer", padding: 6, borderRadius: 6 }}>
           <Send size={22} />
         </button>
       </div>
@@ -195,7 +151,7 @@ export default function ChatInput({
       {/* Media preview */}
       {selectedFiles.length > 0 && (
         <ImagePreviewModal
-          previews={selectedFiles.map((file) => ({ file, url: URL.createObjectURL(file) }))}
+          previews={previews}
           onRemove={handleRemoveFile}
           onClose={handleCancelPreview}
           onSend={(caption) => sendMediaMessage(selectedFiles, caption)}
