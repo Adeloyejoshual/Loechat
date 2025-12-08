@@ -73,7 +73,7 @@ export default function ChatHeader({
   };
 
   // ---------------------------
-  // Toggle mute (24h)
+  // Toggle mute (24h) – notifications only
   // ---------------------------
   const toggleMute = async () => {
     if (!chatInfo) return;
@@ -91,7 +91,9 @@ export default function ChatHeader({
     if (!chatId) return;
     const messagesRef = collection(db, "chats", chatId, "messages");
     const snapshot = await getDocs(messagesRef);
-    const deletions = snapshot.docs.map((docSnap) => deleteDoc(doc(db, "chats", chatId, "messages", docSnap.id)));
+    const deletions = snapshot.docs.map((docSnap) =>
+      deleteDoc(doc(db, "chats", chatId, "messages", docSnap.id))
+    );
     await Promise.all(deletions);
     onClearChat?.();
     setMenuOpen(false);
