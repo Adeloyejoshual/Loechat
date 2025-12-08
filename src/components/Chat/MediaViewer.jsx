@@ -1,13 +1,13 @@
-import React, { useState, useEffect, useRef } from "react";
+// src/components/Chat/MediaViewer.jsx
+import React, { useState, useRef, useEffect } from "react";
 
 export default function MediaViewer({ items = [], startIndex = 0, onClose }) {
   const [index, setIndex] = useState(startIndex);
   const [scale, setScale] = useState(1);
   const touchStartX = useRef(0);
+  const mediaRef = useRef(null);
 
-  useEffect(() => {
-    setIndex(startIndex);
-  }, [startIndex]);
+  useEffect(() => setIndex(startIndex), [startIndex]);
 
   if (!items.length) return null;
 
@@ -32,7 +32,7 @@ export default function MediaViewer({ items = [], startIndex = 0, onClose }) {
 
   // ------------------ DOUBLE TAP ZOOM ------------------
   const handleDoubleClick = () => {
-    setScale((p) => (p === 1 ? 2 : 1));
+    if (current.type === "image") setScale((p) => (p === 1 ? 2 : 1));
   };
 
   // ------------------ SAVE TO DEVICE ------------------
@@ -50,6 +50,14 @@ export default function MediaViewer({ items = [], startIndex = 0, onClose }) {
       alert("Failed to save file");
     }
   };
+
+  // Pause video when switching slides
+  useEffect(() => {
+    if (mediaRef.current?.tagName === "VIDEO") {
+      mediaRef.current.pause();
+      mediaRef.current.currentTime = 0;
+    }
+  }, [index]);
 
   return (
     <div
@@ -81,8 +89,12 @@ export default function MediaViewer({ items = [], startIndex = 0, onClose }) {
         </span>
 
         <div style={{ display: "flex", gap: 16 }}>
-          <button onClick={handleSave} style={iconBtn}>⭳</button>
-          <button onClick={onClose} style={iconBtn}>✕</button>
+          <button onClick={handleSave} style={iconBtn}>
+            ⭳
+          </button>
+          <button onClick={onClose} style={iconBtn}>
+            ✕
+          </button>
         </div>
       </div>
 
@@ -101,6 +113,7 @@ export default function MediaViewer({ items = [], startIndex = 0, onClose }) {
       >
         {current.type === "video" ? (
           <video
+            ref={mediaRef}
             src={current.url}
             controls
             autoPlay
@@ -112,6 +125,7 @@ export default function MediaViewer({ items = [], startIndex = 0, onClose }) {
           />
         ) : (
           <img
+            ref={mediaRef}
             src={current.url}
             alt=""
             style={{
@@ -125,7 +139,7 @@ export default function MediaViewer({ items = [], startIndex = 0, onClose }) {
         )}
       </div>
 
-      {/* BOTTOM NAV */}
+      {/* NAVIGATION */}
       <div
         style={{
           height: 50,
@@ -136,11 +150,16 @@ export default function MediaViewer({ items = [], startIndex = 0, onClose }) {
           color: "#aaa",
         }}
       >
-        <span onClick={() => index > 0 && setIndex(index - 1)}>
+        <span
+          onClick={() => index > 0 && setIndex(index - 1)}
+          style={{ cursor: index > 0 ? "pointer" : "not-allowed" }}
+        >
           ◀ Prev
         </span>
-
-        <span onClick={() => index < items.length - 1 && setIndex(index + 1)}>
+        <span
+          onClick={() => index < items.length - 1 && setIndex(index + 1)}
+          style={{ cursor: index < items.length - 1 ? "pointer" : "not-allowed" }}
+        >
           Next ▶
         </span>
       </div>
