@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useMemo } from "react";
 import { doc, updateDoc } from "firebase/firestore";
 import { db } from "../firebaseConfig";
 import LongPressMessageModal from "./LongPressMessageModal";
@@ -71,17 +71,15 @@ export default function MessageItem({
 
   const bubbleBg = isMine ? "#007bff" : isDark ? "#222" : "#fff";
   const bubbleColor = isMine ? "#fff" : isDark ? "#fff" : "#000";
-  const reactionsEntries = Object.entries(localReactions || {});
+  const reactionsEntries = useMemo(() => Object.entries(localReactions || {}), [localReactions]);
   const senderName = isMine ? "You" : cleanName(friendInfo?.name);
 
   const startLongPress = () => {
     longPressTimer.current = setTimeout(() => setShowLongPress(true), LONG_PRESS_DELAY);
   };
   const cancelLongPress = () => {
-    if (longPressTimer.current) {
-      clearTimeout(longPressTimer.current);
-      longPressTimer.current = null;
-    }
+    if (longPressTimer.current) clearTimeout(longPressTimer.current);
+    longPressTimer.current = null;
   };
 
   const handleReact = (emoji) => {
@@ -121,9 +119,47 @@ export default function MessageItem({
                 objectFit: "cover",
                 borderRadius: 12,
                 cursor: "pointer",
+                opacity: message.status === "sending" ? 0.6 : 1,
               }}
               onClick={() => onMediaClick?.(message, idx)}
             />
+            {message.status === "sending" && message.uploadProgress != null && (
+              <div
+                style={{
+                  position: "absolute",
+                  inset: 0,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  backgroundColor: "rgba(0,0,0,0.3)",
+                  borderRadius: 12,
+                  fontSize: 16,
+                  color: "#fff",
+                  fontWeight: "bold",
+                }}
+              >
+                {message.uploadProgress}%
+              </div>
+            )}
+            {message.status === "failed" && (
+              <button
+                onClick={() => retryUpload(message)}
+                style={{
+                  position: "absolute",
+                  top: 6,
+                  right: 6,
+                  backgroundColor: "#ff4d4f",
+                  color: "#fff",
+                  border: "none",
+                  borderRadius: 6,
+                  padding: "2px 6px",
+                  cursor: "pointer",
+                  fontSize: 12,
+                }}
+              >
+                Retry
+              </button>
+            )}
             {idx === maxVisible - 1 && extraCount > 0 && (
               <div
                 style={{
@@ -167,7 +203,18 @@ export default function MessageItem({
     if (pinnedMessage?.id === message.id) setPinnedMessage(null);
   };
 
-  // Skip rendering if message is deleted for me or for everyone
+  // Retry upload for failed media messages
+  const retryUpload = async (msg) => {
+    if (!msg.failedFiles || !msg.failedFiles.length) return;
+    // Mark as sending again
+    setMessages((prev) =>
+      prev.map((m) => (m.id === msg.id ? { ...m, status: "sending", uploadProgress: 0 } : m))
+    );
+    // Call your ChatConversationPage sendMessage logic here
+    // sendMessage(msg.text, msg.failedFiles);
+    toast.info("Retrying upload...");
+  };
+
   if (message.deleted || (message.deletedForMe && isMine)) return null;
 
   return (
@@ -187,9 +234,7 @@ export default function MessageItem({
         }}
         onTouchEnd={() => {
           cancelLongPress();
-          if (swipeActive && Math.abs(swipeX) > SWIPE_TRIGGER_DISTANCE) {
-            setReplyTo(message);
-          }
+          if (swipeActive && Math.abs(swipeX) > SWIPE_TRIGGER_DISTANCE) setReplyTo(message);
           setSwipeX(0);
           setSwipeActive(false);
         }}
@@ -211,9 +256,7 @@ export default function MessageItem({
           userSelect: "none",
         }}
       >
-        {!isMine && (
-          <div style={{ fontSize: 11, opacity: 0.7, marginBottom: 4 }}>{senderName}</div>
-        )}
+        {!isMine && <div style={{ fontSize: 11, opacity: 0.7, marginBottom: 4 }}>{senderName}</div>}
 
         {renderMediaGrid()}
 
@@ -221,10 +264,7 @@ export default function MessageItem({
           <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.4, marginTop: mediaArray.length ? 4 : 0 }}>
             {message.text.slice(0, visibleChars)}
             {isLongText && (
-              <span
-                onClick={() => setVisibleChars((v) => v + READ_MORE_STEP)}
-                style={{ color: "#888", cursor: "pointer" }}
-              >
+              <span onClick={() => setVisibleChars((v) => v + READ_MORE_STEP)} style={{ color: "#888", cursor: "pointer" }}>
                 ...more
               </span>
             )}
@@ -279,19 +319,9 @@ export default function MessageItem({
         <LongPressMessageModal
           isDark={isDark}
           onClose={() => setShowLongPress(false)}
-          onReply={() => {
-            setReplyTo(message);
-            setShowLongPress(false);
-          }}
-          onPin={() => {
-            setPinnedMessage(message);
-            setShowLongPress(false);
-          }}
-          onCopy={() => {
-            navigator.clipboard.writeText(message.text || "");
-            toast.success("Copied!");
-            setShowLongPress(false);
-          }}
+          onReply={() => { setReplyTo(message); setShowLongPress(false); }}
+          onPin={() => { setPinnedMessage(message); setShowLongPress(false); }}
+          onCopy={() => { navigator.clipboard.writeText(message.text || ""); toast.success("Copied!"); setShowLongPress(false); }}
           onReaction={handleReact}
           messageSenderName={senderName}
           onDeleteForMe={handleDeleteForMe}
@@ -299,15 +329,7 @@ export default function MessageItem({
         />
       )}
 
-      {showEmojiPicker && (
-        <EmojiPicker
-          onSelect={(emoji) => {
-            handleReact(emoji);
-            setShowEmojiPicker(false);
-          }}
-          onClose={() => setShowEmojiPicker(false)}
-        />
-      )}
+      {showEmojiPicker && <EmojiPicker onSelect={(emoji) => { handleReact(emoji); setShowEmojiPicker(false); }} onClose={() => setShowEmojiPicker(false)} />}
 
       <style>{`
         @keyframes floatUp {
