@@ -77,9 +77,21 @@ export default function LongPressMessageModal({
   };
 
   const handleDelete = async (option) => {
-    if (option === "me" && onDeleteForMe) await onDeleteForMe();
-    if (option === "everyone" && onDeleteForEveryone) await onDeleteForEveryone();
-    safeClose();
+    try {
+      if (option === "me" && onDeleteForMe) {
+        await onDeleteForMe();
+        toast.info("Message deleted for you");
+      }
+      if (option === "everyone" && onDeleteForEveryone) {
+        await onDeleteForEveryone();
+        toast.success("Message deleted for everyone");
+      }
+    } catch (err) {
+      console.error("Delete failed", err);
+      toast.error("Failed to delete message");
+    } finally {
+      safeClose();
+    }
   };
 
   return (
@@ -143,7 +155,6 @@ export default function LongPressMessageModal({
                   {emoji}
                 </button>
               ))}
-
               <button
                 onClick={() => setShowEmojiPicker((v) => !v)}
                 style={{
@@ -160,13 +171,11 @@ export default function LongPressMessageModal({
               </button>
             </div>
 
-            {/* Emoji Picker */}
             {showEmojiPicker && (
               <EmojiPicker
                 onSelect={(emoji) => {
-                  onReaction(emoji);
+                  handleReaction(emoji);
                   setShowEmojiPicker(false);
-                  safeClose();
                 }}
                 onClose={() => setShowEmojiPicker(false)}
               />
