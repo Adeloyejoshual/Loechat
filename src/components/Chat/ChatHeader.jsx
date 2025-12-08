@@ -1,200 +1,152 @@
-import React, { useEffect, useState, useRef } from "react";
+// src/components/Chat/ChatHeader.jsx
+import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { doc, onSnapshot, updateDoc, collection, getDocs, deleteDoc } from "firebase/firestore";
+import { doc, onSnapshot, updateDoc } from "firebase/firestore";
 import { db } from "../../firebaseConfig";
-import { FiMoreVertical, FiPhone, FiVideo } from "react-icons/fi";
+import { HiArrowLeft } from "react-icons/hi";
+import { HiDotsVertical } from "react-icons/hi";
 
-export default function ChatHeader({
-  friendId,
-  chatId,
-  pinnedMessage,
-  onGoToPinned,
-  onSearch,
-  onClearChat,
-  setBlockedStatus,
-  onVoiceCall,
-  onVideoCall,
-}) {
+const ChatHeader = ({ chatId, otherUserId }) => {
   const navigate = useNavigate();
-  const [friendInfo, setFriendInfo] = useState(null);
-  const [chatInfo, setChatInfo] = useState(null);
-  const [menuOpen, setMenuOpen] = useState(false);
-  const menuRef = useRef(null);
 
-  /** -------------------------
-   * Load friend info
-   ---------------------------*/
+  const [otherUser, setOtherUser] = useState(null);
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [isMuted, setIsMuted] = useState(false);
+  const [isBlocked, setIsBlocked] = useState(false);
+
+  // ------------------------------
+  // FETCH USER DATA + CHAT SETTINGS
+  // ------------------------------
   useEffect(() => {
-    if (!friendId) return;
-    const ref = doc(db, "users", friendId);
-    const unsub = onSnapshot(ref, (snap) => {
-      if (snap.exists()) setFriendInfo({ id: snap.id, ...snap.data() });
+    const unsubUser = onSnapshot(doc(db, "users", otherUserId), (snap) => {
+      if (snap.exists()) setOtherUser(snap.data());
     });
-    return () => unsub();
-  }, [friendId]);
 
-  /** -------------------------
-   * Load chat info
-   ---------------------------*/
-  useEffect(() => {
-    if (!chatId) return;
-    const ref = doc(db, "chats", chatId);
-    const unsub = onSnapshot(ref, (snap) => {
+    const unsubChat = onSnapshot(doc(db, "chats", chatId), (snap) => {
       if (snap.exists()) {
         const data = snap.data();
-        setChatInfo(data);
-        setBlockedStatus?.(data.blocked || false);
+        setIsMuted(data?.muted?.includes(otherUserId) || false);
+        setIsBlocked(data?.blocked?.includes(otherUserId) || false);
       }
     });
-    return () => unsub();
-  }, [chatId, setBlockedStatus]);
 
-  /** -------------------------
-   * Close menu when clicking outside
-   ---------------------------*/
-  useEffect(() => {
-    const closeMenu = (e) => {
-      if (menuRef.current && !menuRef.current.contains(e.target)) setMenuOpen(false);
+    return () => {
+      unsubUser();
+      unsubChat();
     };
-    document.addEventListener("mousedown", closeMenu);
-    return () => document.removeEventListener("mousedown", closeMenu);
-  }, []);
+  }, [chatId, otherUserId]);
 
-  /** -------------------------
-   * Mute / Unmute Chat
-   * Mute for 24 hours
-   ---------------------------*/
+  // ------------------------------
+  // ACTIONS: Mute / Block / Clear
+  // ------------------------------
   const toggleMute = async () => {
-    if (!chatInfo) return;
-
-    const isMuted = chatInfo.mutedUntil && chatInfo.mutedUntil > Date.now();
-    const newMutedUntil = isMuted ? 0 : Date.now() + 24 * 60 * 60 * 1000;
-
-    // Update UI instantly
-    setChatInfo((prev) => ({ ...prev, mutedUntil: newMutedUntil }));
-
-    // Update Firebase
-    await updateDoc(doc(db, "chats", chatId), {
-      mutedUntil: newMutedUntil,
+    const chatRef = doc(db, "chats", chatId);
+    await updateDoc(chatRef, {
+      muted: isMuted
+        ? [] // Unmute
+        : [otherUserId], // Mute only this user
     });
-
-    setMenuOpen(false);
+    setIsMuted(!isMuted);
+    setIsMenuOpen(false);
   };
 
-  /** -------------------------
-   * Block / Unblock user
-   ---------------------------*/
   const toggleBlock = async () => {
-    if (!chatInfo) return;
-
-    const newState = !chatInfo.blocked;
-
-    setChatInfo((prev) => ({ ...prev, blocked: newState }));
-    setBlockedStatus?.(newState);
-
-    await updateDoc(doc(db, "chats", chatId), { blocked: newState });
-
-    setMenuOpen(false);
+    const chatRef = doc(db, "chats", chatId);
+    await updateDoc(chatRef, {
+      blocked: isBlocked
+        ? [] // Unblock
+        : [otherUserId], // Block
+    });
+    setIsBlocked(!isBlocked);
+    setIsMenuOpen(false);
   };
 
-  /** -------------------------
-   * Clear Chat (delete all messages)
-   ---------------------------*/
-  const handleClearChat = async () => {
-    if (!chatId) return;
+  const clearChat = async () => {
+    if (!window.confirm("Clear all messages? This cannot be undone.")) return;
 
-    const messagesRef = collection(db, "chats", chatId, "messages");
-    const msgs = await getDocs(messagesRef);
-
-    const deletions = msgs.docs.map((m) =>
-      deleteDoc(doc(db, "chats", chatId, "messages", m.id))
-    );
-
-    await Promise.all(deletions);
-
-    onClearChat?.();
-    setMenuOpen(false);
+    const chatRef = doc(db, "chats", chatId);
+    await updateDoc(chatRef, { messages: [] }); // Deletes all messages in Firebase
+    setIsMenuOpen(false);
   };
 
-  /** UTILITIES **/
-  const getInitials = (name) => {
-    if (!name) return "U";
-    const parts = name.trim().split(" ");
-    return parts.length > 1
-      ? (parts[0][0] + parts[1][0]).toUpperCase()
-      : parts[0][0].toUpperCase();
-  };
-
-  const formatLastSeen = (timestamp) => {
-    if (!timestamp) return "offline";
-
-    const last = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
-    const diff = Date.now() - last.getTime();
-
-    if (diff < 60000) return "Online";
-    if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
-    if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
-
-    return last.toLocaleDateString();
-  };
-
-  const startVoiceCall = () => onVoiceCall?.(chatId);
-  const startVideoCall = () => onVideoCall?.(chatId);
-
-  const goToFriendProfile = () => {
-    if (friendId) navigate(`/friend/${friendId}`);
-  };
+  if (!otherUser) return null;
 
   return (
-    <>
-      <div className="chat-header">
-        <div className="chat-back" onClick={() => navigate("/chat")}>←</div>
+    <div className="w-full bg-white dark:bg-gray-900 border-b dark:border-gray-700 flex items-center justify-between px-3 py-2 shadow-sm sticky top-0 z-20">
 
-        <div className="chat-avatar" onClick={goToFriendProfile}>
-          {friendInfo?.profilePic ? (
-            <img src={friendInfo.profilePic} alt="avatar" />
-          ) : (
-            <span>{getInitials(friendInfo?.name)}</span>
-          )}
-        </div>
+      {/* Back Button */}
+      <button
+        onClick={() => navigate(-1)}
+        className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800"
+      >
+        <HiArrowLeft size={24} />
+      </button>
 
-        <div className="chat-info" onClick={goToFriendProfile}>
-          <span className="chat-name">{friendInfo?.name || "Loading..."}</span>
-          <span className="chat-lastseen">{formatLastSeen(friendInfo?.lastSeen)}</span>
-        </div>
+      {/* USER INFO */}
+      <div
+        className="flex items-center gap-3 flex-1 ml-2 cursor-pointer"
+        onClick={() => navigate(`/profile/${otherUserId}`)}
+      >
+        <img
+          src={otherUser?.profilePicture}
+          alt="profile"
+          className="w-10 h-10 rounded-full object-cover border"
+        />
 
-        <div className="chat-actions">
-          <FiPhone size={21} onClick={startVoiceCall} />
-          <FiVideo size={21} onClick={startVideoCall} />
-        </div>
-
-        {/* Menu */}
-        <div ref={menuRef} className="chat-menu">
-          <FiMoreVertical size={22} onClick={() => setMenuOpen((p) => !p)} />
-
-          {menuOpen && (
-            <div className="menu-dropdown">
-              <div onClick={() => { onSearch?.(); setMenuOpen(false); }}>Search</div>
-
-              <div onClick={handleClearChat}>Clear Chat</div>
-
-              <div onClick={toggleMute}>
-                {chatInfo?.mutedUntil > Date.now() ? "Unmute" : "Mute"}
-              </div>
-
-              <div onClick={toggleBlock} className="danger">
-                {chatInfo?.blocked ? "Unblock" : "Block"}
-              </div>
-            </div>
-          )}
+        <div>
+          <p className="font-semibold text-gray-900 dark:text-white">
+            {otherUser?.name}
+          </p>
+          <p className="text-xs text-green-600">
+            {otherUser?.online ? "Online" : "Offline"}
+          </p>
         </div>
       </div>
 
-      {pinnedMessage && (
-        <div className="pinned-message" onClick={() => onGoToPinned?.(pinnedMessage.id)}>
-          📌 {pinnedMessage.text || "Pinned message"}
-        </div>
-      )}
-    </>
+      {/* MORE MENU BUTTON */}
+      <div className="relative">
+        <button
+          onClick={() => setIsMenuOpen(!isMenuOpen)}
+          className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800"
+        >
+          <HiDotsVertical size={22} />
+        </button>
+
+        {/* MENU */}
+        {isMenuOpen && (
+          <div className="absolute right-0 mt-2 w-40 bg-white dark:bg-gray-800 shadow-lg rounded-xl border dark:border-gray-700 p-2">
+            <button
+              onClick={toggleMute}
+              className="w-full text-left px-3 py-2 rounded hover:bg-gray-100 dark:hover:bg-gray-700"
+            >
+              {isMuted ? "Unmute" : "Mute"}
+            </button>
+
+            <button
+              onClick={toggleBlock}
+              className="w-full text-left px-3 py-2 rounded hover:bg-gray-100 dark:hover:bg-gray-700"
+            >
+              {isBlocked ? "Unblock" : "Block"}
+            </button>
+
+            <button
+              onClick={() => navigate(`/media/${chatId}`)}
+              className="w-full text-left px-3 py-2 rounded hover:bg-gray-100 dark:hover:bg-gray-700"
+            >
+              View Media
+            </button>
+
+            <button
+              onClick={clearChat}
+              className="w-full text-left px-3 py-2 text-red-600 rounded hover:bg-red-100 dark:hover:bg-red-900/40"
+            >
+              Clear Chat
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
   );
-}
+};
+
+export default ChatHeader;
