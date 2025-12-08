@@ -1,4 +1,6 @@
 import React, { useState, useRef, useEffect } from "react";
+import { doc, updateDoc } from "firebase/firestore";
+import { db } from "../firebaseConfig";
 import LongPressMessageModal from "./LongPressMessageModal";
 import EmojiPicker from "./EmojiPicker";
 
@@ -9,7 +11,7 @@ const SWIPE_TRIGGER_DISTANCE = 60;
 const cleanName = (name) => {
   if (!name) return "User";
   if (typeof name !== "string") return "User";
-  if (name.length > 20 && !name.includes(" ")) return "User"; // blocks Firebase UID
+  if (name.length > 20 && !name.includes(" ")) return "User"; 
   return name;
 };
 
@@ -29,7 +31,8 @@ export default function MessageItem({
   onMediaClick,
   registerRef,
   onReact,
-  onDelete,
+  messages,
+  setMessages,
 }) {
   const isMine = message.senderId === myUid;
   const containerRef = useRef(null);
@@ -70,11 +73,8 @@ export default function MessageItem({
   const reactionsEntries = Object.entries(localReactions || {});
   const senderName = isMine ? "You" : cleanName(friendInfo?.name);
 
-  // -------------------- LONG PRESS --------------------
   const startLongPress = () => {
-    longPressTimer.current = setTimeout(() => {
-      setShowLongPress(true);
-    }, LONG_PRESS_DELAY);
+    longPressTimer.current = setTimeout(() => setShowLongPress(true), LONG_PRESS_DELAY);
   };
   const cancelLongPress = () => {
     if (longPressTimer.current) {
@@ -83,18 +83,15 @@ export default function MessageItem({
     }
   };
 
-  // -------------------- Trigger Quick Reaction Animation --------------------
   const handleReact = (emoji) => {
     onReact?.(message.id, emoji);
     setReactionAnim({ show: true, emoji });
     setTimeout(() => setReactionAnim({ show: false, emoji }), 800);
   };
 
-  // -------------------- MEDIA GRID --------------------
   const mediaArray = message.mediaUrls || (message.mediaUrl ? [message.mediaUrl] : []);
   const renderMediaGrid = () => {
     if (!mediaArray.length) return null;
-
     const maxVisible = 4;
     const extraCount = mediaArray.length - maxVisible;
 
@@ -150,8 +147,7 @@ export default function MessageItem({
     );
   };
 
-  // -------------------- Show Emoji Picker --------------------
-  const openEmojiPicker = (e) => {
+  const openEmojiPicker = () => {
     const rect = containerRef.current.getBoundingClientRect();
     setEmojiPickerPosition({ top: rect.top - 240, left: rect.left });
     setShowEmojiPicker(true);
@@ -180,7 +176,7 @@ export default function MessageItem({
           setSwipeX(0);
           setSwipeActive(false);
         }}
-        onMouseDown={(e) => startLongPress()}
+        onMouseDown={startLongPress}
         onMouseUp={cancelLongPress}
         onMouseLeave={cancelLongPress}
         style={{
@@ -202,10 +198,8 @@ export default function MessageItem({
           <div style={{ fontSize: 11, opacity: 0.7, marginBottom: 4 }}>{senderName}</div>
         )}
 
-        {/* MEDIA FIRST */}
         {renderMediaGrid()}
 
-        {/* TEXT UNDER IMAGES */}
         {message.text && (
           <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.4, marginTop: mediaArray.length ? 4 : 0 }}>
             {message.text.slice(0, visibleChars)}
@@ -220,7 +214,6 @@ export default function MessageItem({
           </div>
         )}
 
-        {/* REACTIONS */}
         {reactionsEntries.length > 0 && (
           <div style={{ marginTop: 6, display: "flex", gap: 6 }}>
             {reactionsEntries.map(([emoji, users]) => (
@@ -231,12 +224,10 @@ export default function MessageItem({
           </div>
         )}
 
-        {/* TIME + STATUS */}
         <div style={{ fontSize: 10, opacity: 0.6, textAlign: "right", marginTop: 6 }}>
           {formatTime(message.createdAt)} {renderStatus()}
         </div>
 
-        {/* Quick reaction animation */}
         {reactionAnim.show && (
           <div
             style={{
@@ -251,7 +242,6 @@ export default function MessageItem({
           </div>
         )}
 
-        {/* OPEN EMOJI PICKER BUTTON */}
         <button
           onClick={openEmojiPicker}
           style={{
@@ -268,7 +258,6 @@ export default function MessageItem({
         </button>
       </div>
 
-      {/* LONG PRESS MODAL */}
       {showLongPress && (
         <LongPressMessageModal
           isDark={isDark}
@@ -277,24 +266,29 @@ export default function MessageItem({
             setReplyTo(message);
             setShowLongPress(false);
           }}
-          onDelete={() => {
-            onDelete?.(message);
-            setShowLongPress(false);
-          }}
           onPin={() => {
             setPinnedMessage(message);
             setShowLongPress(false);
           }}
           onCopy={() => {
             navigator.clipboard.writeText(message.text || "");
+            toast.success("Copied!");
             setShowLongPress(false);
           }}
           onReaction={handleReact}
           messageSenderName={senderName}
+          onDeleteForMe={async () => {
+            // soft delete: remove message locally
+            setMessages(messages.filter((m) => m.id !== message.id));
+          }}
+          onDeleteForEveryone={async () => {
+            // hard delete in Firestore & locally
+            await updateDoc(doc(db, "chats", message.chatId, "messages", message.id), { deleted: true });
+            setMessages(messages.filter((m) => m.id !== message.id));
+          }}
         />
       )}
 
-      {/* EMOJI PICKER */}
       {showEmojiPicker && (
         <EmojiPicker
           onSelect={(emoji) => {
@@ -302,8 +296,6 @@ export default function MessageItem({
             setShowEmojiPicker(false);
           }}
           onClose={() => setShowEmojiPicker(false)}
-          position={emojiPickerPosition}
-          isDark={isDark}
         />
       )}
 
