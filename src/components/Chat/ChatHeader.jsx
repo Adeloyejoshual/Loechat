@@ -1,20 +1,19 @@
 import React, { useEffect, useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { doc, onSnapshot, updateDoc } from "firebase/firestore";
+import { doc, onSnapshot, updateDoc, collection, getDocs, deleteDoc } from "firebase/firestore";
 import { db } from "../../firebaseConfig";
-import { FiMoreVertical, FiPhone, FiVideo, FiImage } from "react-icons/fi";
+import { FiMoreVertical, FiPhone, FiVideo } from "react-icons/fi";
 
 export default function ChatHeader({
   friendId,
   chatId,
   pinnedMessage,
   onGoToPinned,
-  onClearChat,
   onSearch,
+  onClearChat,
   setBlockedStatus,
   onVoiceCall,
   onVideoCall,
-  onViewMedia,
 }) {
   const navigate = useNavigate();
   const [friendInfo, setFriendInfo] = useState(null);
@@ -86,6 +85,19 @@ export default function ChatHeader({
   };
 
   // ---------------------------
+  // Clear Chat
+  // ---------------------------
+  const handleClearChat = async () => {
+    if (!chatId) return;
+    const messagesRef = collection(db, "chats", chatId, "messages");
+    const snapshot = await getDocs(messagesRef);
+    const deletions = snapshot.docs.map((docSnap) => deleteDoc(doc(db, "chats", chatId, "messages", docSnap.id)));
+    await Promise.all(deletions);
+    onClearChat?.();
+    setMenuOpen(false);
+  };
+
+  // ---------------------------
   // Utilities
   // ---------------------------
   const getInitials = (name) => {
@@ -119,17 +131,15 @@ export default function ChatHeader({
   // Safe navigation to friend profile
   // ---------------------------
   const goToFriendProfile = () => {
-    if (!friendId) return; // Guard against undefined
+    if (!friendId) return;
     navigate(`/friend/${friendId}`);
   };
 
   return (
     <>
       <div className="chat-header">
-        {/* Back button */}
         <div className="chat-back" onClick={() => navigate("/chat")}>←</div>
 
-        {/* Avatar */}
         <div className="chat-avatar" onClick={goToFriendProfile}>
           {friendInfo?.profilePic ? (
             <img src={friendInfo.profilePic} alt="avatar" />
@@ -138,22 +148,14 @@ export default function ChatHeader({
           )}
         </div>
 
-        {/* Name & Last Seen */}
         <div className="chat-info" onClick={goToFriendProfile}>
           <span className="chat-name">{friendInfo?.name || "Loading..."}</span>
           <span className="chat-lastseen">{formatLastSeen(friendInfo?.lastSeen)}</span>
         </div>
 
-        {/* Call Buttons */}
         <div className="chat-actions">
           <FiPhone size={21} onClick={startVoiceCall} />
           <FiVideo size={21} onClick={startVideoCall} />
-          <FiImage
-            size={20}
-            title="View Shared Media"
-            className="cursor-pointer"
-            onClick={() => onViewMedia?.()}
-          />
         </div>
 
         {/* Menu */}
@@ -162,18 +164,14 @@ export default function ChatHeader({
           {menuOpen && (
             <div className="menu-dropdown">
               <div onClick={() => { setMenuOpen(false); onSearch?.(); }}>Search</div>
-              <div onClick={() => { setMenuOpen(false); onClearChat?.(); }}>Clear Chat</div>
+              <div onClick={handleClearChat}>Clear Chat</div>
               <div onClick={toggleMute}>{chatInfo?.mutedUntil > Date.now() ? "Unmute" : "Mute"}</div>
               <div onClick={toggleBlock} className="danger">{chatInfo?.blocked ? "Unblock" : "Block"}</div>
-              <div onClick={() => { setMenuOpen(false); onViewMedia?.(); }}>
-                <FiImage className="inline mr-1" /> View Shared Media
-              </div>
             </div>
           )}
         </div>
       </div>
 
-      {/* Pinned message */}
       {pinnedMessage && (
         <div className="pinned-message" onClick={() => onGoToPinned?.(pinnedMessage.id)}>
           📌 {pinnedMessage.text || (pinnedMessage.mediaType === "image" ? "Photo" : "Pinned message")}
