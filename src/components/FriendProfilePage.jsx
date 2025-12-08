@@ -16,6 +16,7 @@ import {
   FiBellOff,
   FiFlag,
   FiX,
+  FiArrowLeft,
 } from "react-icons/fi";
 
 /* ---------------- Utilities ---------------- */
@@ -30,6 +31,7 @@ const getInitials = (name) => {
 
 const formatLastSeen = (timestamp) => {
   if (!timestamp) return "Offline";
+
   const last = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
   const diff = Date.now() - last.getTime();
 
@@ -44,7 +46,7 @@ const formatLastSeen = (timestamp) => {
 };
 
 export default function FriendProfilePage() {
-  const { uid } = useParams(); // ✅ FIXED
+  const { uid } = useParams();
   const navigate = useNavigate();
   const { theme } = useContext(ThemeContext);
   const { currentUser } = useContext(UserContext);
@@ -60,6 +62,7 @@ export default function FriendProfilePage() {
 
   const backend = "https://www.loechat.com";
 
+  /* ✅ REALTIME USER DATA */
   useEffect(() => {
     if (!uid) return;
 
@@ -126,7 +129,13 @@ export default function FriendProfilePage() {
   return (
     <div className={`friend-wrapper ${isDark ? "dark" : ""}`}>
 
-      {/* ✅ SMALL CIRCULAR PROFILE IMAGE */}
+      {/* ✅ BACK HEADER */}
+      <div className="friend-header">
+        <FiArrowLeft onClick={() => navigate(-1)} />
+        <span>Profile</span>
+      </div>
+
+      {/* ✅ SMALL CENTERED PROFILE IMAGE */}
       <div className="friend-avatar-wrapper">
         <div className="friend-avatar" onClick={() => setShowImage(true)}>
           {friend.profilePic ? (
@@ -137,7 +146,7 @@ export default function FriendProfilePage() {
         </div>
       </div>
 
-      {/* ✅ NAME & LAST SEEN */}
+      {/* ✅ USER INFO */}
       <div className="friend-info">
         <h3>{friend.name}</h3>
         <p>{formatLastSeen(friend.lastSeen)}</p>
@@ -158,7 +167,7 @@ export default function FriendProfilePage() {
         </button>
       </div>
 
-      {/* ✅ FULLSCREEN IMAGE VIEW */}
+      {/* ✅ FULLSCREEN IMAGE */}
       {showImage && (
         <div className="fullscreen-img">
           <FiX onClick={() => setShowImage(false)} />
@@ -184,75 +193,76 @@ export default function FriendProfilePage() {
         </div>
       )}
 
-      {/* ✅ STYLES AT BOTTOM */}
+      {/* ✅ STYLES */}
       <style>{`
         .friend-wrapper {
           min-height: 100vh;
-          background: #f4f4f4;
-          padding: 25px 15px;
+          background: linear-gradient(180deg, #0f3d2e, #145c46);
+          padding: 20px 14px;
         }
-        .friend-wrapper.dark {
-          background: #000;
+
+        .friend-header {
+          display: flex;
+          align-items: center;
+          gap: 12px;
           color: white;
+          font-size: 17px;
+          margin-bottom: 15px;
+          cursor: pointer;
         }
+
         .friend-avatar-wrapper {
           display: flex;
           justify-content: center;
-          margin-top: 15px;
+          margin-top: 10px;
         }
+
         .friend-avatar {
-          width: 90px;
-          height: 90px;
+          width: 85px;
+          height: 85px;
           border-radius: 50%;
           overflow: hidden;
-          border: 3px solid #ddd;
-          cursor: pointer;
+          border: 3px solid white;
           background: #666;
           display: flex;
           align-items: center;
           justify-content: center;
-          font-size: 28px;
+          font-size: 30px;
           color: white;
+          cursor: pointer;
         }
-        .friend-avatar img {
-          width: 100%;
-          height: 100%;
-          object-fit: cover;
-        }
+
         .friend-info {
           text-align: center;
           margin-top: 10px;
+          color: white;
         }
-        .friend-info h3 {
-          font-size: 20px;
-          font-weight: bold;
-        }
-        .friend-info p {
-          font-size: 12px;
-          color: gray;
-        }
+
         .friend-actions {
-          margin-top: 20px;
+          margin-top: 25px;
           display: grid;
           grid-template-columns: 1fr 1fr;
-          gap: 10px;
+          gap: 12px;
         }
+
         .friend-actions button {
-          padding: 10px;
-          border-radius: 8px;
-          background: #eaeaea;
+          padding: 12px;
+          border-radius: 10px;
+          background: white;
           border: none;
           display: flex;
           align-items: center;
           justify-content: center;
           gap: 6px;
-          cursor: pointer;
+          font-size: 14px;
         }
+
         .friend-actions .danger {
           grid-column: span 2;
-          background: #ff4d4d;
+          background: #e63946;
           color: white;
         }
+
         .fullscreen-img {
           position: fixed;
           inset: 0;
@@ -262,18 +272,21 @@ export default function FriendProfilePage() {
           justify-content: center;
           z-index: 999;
         }
+
         .fullscreen-img img {
           max-width: 100%;
           max-height: 100%;
         }
+
         .fullscreen-img svg {
           position: absolute;
           top: 20px;
           right: 20px;
-          font-size: 24px;
+          font-size: 26px;
           color: white;
           cursor: pointer;
         }
+
         .report-modal {
           position: fixed;
           inset: 0;
@@ -283,16 +296,14 @@ export default function FriendProfilePage() {
           justify-content: center;
           z-index: 999;
         }
+
         .report-box {
           background: white;
           padding: 20px;
           width: 280px;
-          border-radius: 10px;
+          border-radius: 12px;
         }
-        .report-box textarea {
-          width: 100%;
-          height: 80px;
-        }
+
         .friend-loading {
           height: 100vh;
           display: flex;
