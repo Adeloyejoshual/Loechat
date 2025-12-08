@@ -54,7 +54,10 @@ export default function ChatConversationPage() {
   const [mediaViewer, setMediaViewer] = useState({ open: false, startIndex: 0 });
   const [friendTyping, setFriendTyping] = useState(false);
   const [isAtBottom, setIsAtBottom] = useState(true);
-  const [longPressModal, setLongPressModal] = useState(null);
+
+  // -------------------- Global Modals --------------------
+  const [longPressMessage, setLongPressMessage] = useState(null); // currently long-pressed message
+  const [emojiPickerMessage, setEmojiPickerMessage] = useState(null); // currently emoji picker open
 
   // -------------------- Chat & Friend Subscriptions --------------------
   useEffect(() => {
@@ -161,7 +164,7 @@ export default function ChatConversationPage() {
 
   // -------------------- Send Message --------------------
   const sendMessage = useCallback(async (textMsg = "", files = []) => {
-    if (isBlocked) return toast.error("You cannot send messages to this user"); // Only blocked stops sending
+    if (isBlocked) return toast.error("You cannot send messages to this user");
     if (!textMsg && files.length === 0) return;
 
     if (isMuted) toast.info("This chat is muted. You won't receive notifications.");
@@ -173,7 +176,6 @@ export default function ChatConversationPage() {
       senderId: myUid,
       text: textMsg.trim(),
       mediaUrls: files.map((f) => URL.createObjectURL(f)),
-      mediaType: files.length ? "image" : null,
       createdAt: new Date(),
       reactions: {},
       seenBy: [],
@@ -243,6 +245,20 @@ export default function ChatConversationPage() {
     }
   }, []);
 
+  // -------------------- Handle Global Modal Actions --------------------
+  const handleDeleteForMe = (message) => {
+    setMessages((prev) => prev.filter((m) => m.id !== message.id));
+    toast.info("Message deleted for you");
+    if (pinnedMessage?.id === message.id) setPinnedMessage(null);
+  };
+
+  const handleDeleteForEveryone = async (message) => {
+    await updateDoc(doc(db, "chats", chatId, "messages", message.id), { deleted: true });
+    setMessages((prev) => prev.filter((m) => m.id !== message.id));
+    toast.success("Message deleted for everyone");
+    if (pinnedMessage?.id === message.id) setPinnedMessage(null);
+  };
+
   // -------------------- Render --------------------
   if (!chatInfo || !friendInfo) return <div style={{ padding: 20 }}>Loading chat...</div>;
 
@@ -271,11 +287,22 @@ export default function ChatConversationPage() {
 
       <div ref={messagesRefEl} style={{ flex: 1, overflowY: "auto", padding: 8, display: "flex", flexDirection: "column" }}>
         {messages.map((msg) => (
-          <MessageItem key={msg.id} message={msg} myUid={myUid} isDark={isDark} setReplyTo={setReplyTo}
-            setPinnedMessage={(m) => { if (!m?.id) return; updateDoc(doc(db, "chats", chatId), { pinnedMessageId: m.id }).catch(console.error); setPinnedMessage(m); }}
-            friendInfo={friendInfo} onMediaClick={openMediaViewerAtMessage}
+          <MessageItem
+            key={msg.id}
+            message={msg}
+            myUid={myUid}
+            isDark={isDark}
+            setReplyTo={setReplyTo}
+            setPinnedMessage={setPinnedMessage}
+            onMediaClick={openMediaViewerAtMessage}
             registerRef={(el) => { if (el) messageRefs.current[msg.id] = el; else delete messageRefs.current[msg.id]; }}
-            onReact={handleReact} onDelete={(messageToDelete) => setLongPressModal(messageToDelete)}
+            onReact={handleReact}
+            onDeleteForMe={handleDeleteForMe}
+            onDeleteForEveryone={handleDeleteForEveryone}
+            onOpenLongPress={(msg) => { setLongPressMessage(msg); setEmojiPickerMessage(null); }}
+            onOpenEmojiPicker={(msg) => { setEmojiPickerMessage(msg); setLongPressMessage(null); }}
+            isLongPressOpen={longPressMessage?.id === msg.id}
+            isEmojiPickerOpen={emojiPickerMessage?.id === msg.id}
           />
         ))}
         <div ref={endRef} />
@@ -283,22 +310,37 @@ export default function ChatConversationPage() {
 
       {friendTyping && <div style={{ padding: "0 12px 6px 12px", fontSize: 12, color: isDark ? "#ccc" : "#555" }}>{friendInfo?.name || "Contact"} is typing...</div>}
 
-      <ChatInput text={text} setText={setText} selectedFiles={selectedFiles} setSelectedFiles={setSelectedFiles} setShowPreview={setShowPreview} isDark={isDark} replyTo={replyTo} setReplyTo={setReplyTo} sendTextMessage={() => sendMessage(text, [])} sendMediaMessage={(files) => sendMessage(caption, files)} disabled={isBlocked} friendTyping={friendTyping} setTyping={handleUserTyping} />
-
-      {showPreview && selectedFiles.length > 0 && <ImagePreviewModal previews={selectedFiles.map((f) => ({ file: f, url: URL.createObjectURL(f) }))} caption={caption} setCaption={setCaption} onRemove={(i) => setSelectedFiles((prev) => prev.filter((_, idx) => idx !== i))} onSend={async () => { await sendMessage(caption, selectedFiles); setShowPreview(false); setCaption(""); }} onClose={() => setShowPreview(false)} isDark={isDark} />}
-
-      {mediaViewer.open && <MediaViewer items={mediaItems} startIndex={mediaViewer.startIndex} onClose={() => setMediaViewer({ open: false, startIndex: 0 })} />}
-
-      {longPressModal && <LongPressMessageModal
-        onClose={() => setLongPressModal(null)}
-        onReaction={(emoji) => handleReact(longPressModal.id, emoji)}
-        onReply={() => { setReplyTo(longPressModal); setLongPressModal(null); }}
-        onCopy={() => { navigator.clipboard.writeText(longPressModal.text || ""); toast.success("Copied!"); setLongPressModal(null); }}
-        onPin={async () => { await updateDoc(doc(db, "chats", chatId), { pinnedMessageId: longPressModal.id }); setPinnedMessage(longPressModal); toast.success("Pinned!"); setLongPressModal(null); }}
-        onDelete={async () => { await updateDoc(doc(db, "chats", chatId, "messages", longPressModal.id), { deleted: true }); setLongPressModal(null); }}
+      <ChatInput
+        text={text}
+        setText={setText}
+        selectedFiles={selectedFiles}
+        setSelectedFiles={setSelectedFiles}
+        setShowPreview={setShowPreview}
         isDark={isDark}
-        messageSenderName={longPressModal.senderId === myUid ? "You" : friendInfo.name}
-      />}
+        replyTo={replyTo}
+        setReplyTo={setReplyTo}
+        sendTextMessage={() => sendMessage(text, [])}
+        sendMediaMessage={(files) => sendMessage(caption, files)}
+        disabled={isBlocked}
+        friendTyping={friendTyping}
+        setTyping={handleUserTyping}
+      />
+
+      {showPreview && selectedFiles.length > 0 && (
+        <ImagePreviewModal
+          previews={selectedFiles.map((f) => ({ file: f, url: URL.createObjectURL(f) }))}
+          caption={caption}
+          setCaption={setCaption}
+          onRemove={(i) => setSelectedFiles((prev) => prev.filter((_, idx) => idx !== i))}
+          onSend={async () => { await sendMessage(caption, selectedFiles); setShowPreview(false); setCaption(""); }}
+          onClose={() => setShowPreview(false)}
+          isDark={isDark}
+        />
+      )}
+
+      {mediaViewer.open && (
+        <MediaViewer items={mediaItems} startIndex={mediaViewer.startIndex} onClose={() => setMediaViewer({ open: false, startIndex: 0 })} />
+      )}
 
       <ToastContainer position="top-center" autoClose={1500} hideProgressBar />
     </div>
