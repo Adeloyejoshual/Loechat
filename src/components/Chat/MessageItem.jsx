@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useMemo } from "react";
 import { doc, updateDoc } from "firebase/firestore";
-import { db } from "../firebaseConfig";
+import { db } from "../../firebaseConfig";
 import LongPressMessageModal from "./LongPressMessageModal";
 import EmojiPicker from "./EmojiPicker";
 import { toast } from "react-toastify";
