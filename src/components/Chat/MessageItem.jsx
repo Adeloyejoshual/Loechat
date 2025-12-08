@@ -85,6 +85,66 @@ export default function MessageItem({
     setTimeout(() => setReactionAnim({ show: false, emoji }), 800);
   };
 
+  // -------------------- MEDIA GRID --------------------
+  const mediaArray = message.mediaUrls || (message.mediaUrl ? [message.mediaUrl] : []);
+  const renderMediaGrid = () => {
+    if (!mediaArray.length) return null;
+
+    const maxVisible = 4;
+    const extraCount = mediaArray.length - maxVisible;
+
+    return (
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns:
+            mediaArray.length === 1
+              ? "1fr"
+              : mediaArray.length === 2
+              ? "1fr 1fr"
+              : "repeat(auto-fit, minmax(120px, 1fr))",
+          gap: 4,
+          marginBottom: 6,
+        }}
+      >
+        {mediaArray.slice(0, maxVisible).map((url, idx) => (
+          <div key={idx} style={{ position: "relative" }}>
+            <img
+              src={url}
+              alt=""
+              style={{
+                width: "100%",
+                aspectRatio: "1/1",
+                objectFit: "cover",
+                borderRadius: 12,
+                cursor: "pointer",
+              }}
+              onClick={() => onMediaClick?.(message, idx)}
+            />
+            {idx === maxVisible - 1 && extraCount > 0 && (
+              <div
+                style={{
+                  position: "absolute",
+                  inset: 0,
+                  backgroundColor: "rgba(0,0,0,0.5)",
+                  color: "#fff",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontSize: 24,
+                  fontWeight: "bold",
+                  borderRadius: 12,
+                }}
+              >
+                +{extraCount}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    );
+  };
+
   return (
     <>
       <div
@@ -102,7 +162,7 @@ export default function MessageItem({
         }}
         onTouchEnd={() => {
           cancelLongPress();
-          if (swipeActive && Math.abs(swipeX) > SWIPE_TRIGGER_DISTANCE) {
+          if (swipeActive && Math.abs(swipeX) > 60) {
             setReplyTo(message);
           }
           setSwipeX(0);
@@ -133,8 +193,12 @@ export default function MessageItem({
           <div style={{ fontSize: 11, opacity: 0.7, marginBottom: 4 }}>{senderName}</div>
         )}
 
+        {/* MEDIA FIRST */}
+        {renderMediaGrid()}
+
+        {/* TEXT UNDER IMAGES */}
         {message.text && (
-          <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.4 }}>
+          <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.4, marginTop: mediaArray.length ? 4 : 0 }}>
             {message.text.slice(0, visibleChars)}
             {isLongText && (
               <span
@@ -147,15 +211,7 @@ export default function MessageItem({
           </div>
         )}
 
-        {message.mediaUrl && (
-          <img
-            src={message.mediaUrl}
-            alt=""
-            style={{ width: "100%", marginTop: 6, borderRadius: 12 }}
-            onClick={() => onMediaClick?.(message)}
-          />
-        )}
-
+        {/* REACTIONS */}
         {reactionsEntries.length > 0 && (
           <div style={{ marginTop: 6, display: "flex", gap: 6 }}>
             {reactionsEntries.map(([emoji, users]) => (
@@ -166,11 +222,12 @@ export default function MessageItem({
           </div>
         )}
 
+        {/* TIME + STATUS */}
         <div style={{ fontSize: 10, opacity: 0.6, textAlign: "right", marginTop: 6 }}>
           {formatTime(message.createdAt)} {renderStatus()}
         </div>
 
-        {/* Quick reaction floating animation */}
+        {/* Quick reaction animation */}
         {reactionAnim.show && (
           <div
             style={{
@@ -186,6 +243,7 @@ export default function MessageItem({
         )}
       </div>
 
+      {/* LONG PRESS MODAL */}
       {showLongPress && (
         <LongPressMessageModal
           isDark={isDark}
