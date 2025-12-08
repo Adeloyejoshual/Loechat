@@ -1,28 +1,29 @@
 import React, { useState, useRef, useEffect } from "react";
 import LongPressMessageModal from "./LongPressMessageModal";
 
-/**
- * MessageItem
- *
- * Props:
- * - message: the message object
- * - myUid: current user's uid
- * - isDark: theme flag
- * - setReplyTo(message) -> sets reply state in parent
- * - setPinnedMessage(message) -> sets pinned message in parent
- * - friendInfo: friend user object (for long-press labels)
- * - onMediaClick(message) -> open media viewer (parent decides how to locate index)
- * - registerRef(el) -> parent registers DOM node for scroll/highlight
- * - onReact(messageId, emoji) -> optional callback to persist reactions
- * - onDelete(message) -> optional callback
- */
+// Utilities for date formatting
+const isSameDay = (d1, d2) => d1.toDateString() === d2.toDateString();
+const formatDateHeader = (date) => {
+  const today = new Date();
+  const yesterday = new Date();
+  yesterday.setDate(today.getDate() - 1);
 
-const READ_MORE_STEP = 450; // characters to reveal per "Read more"
-const LONG_PRESS_DELAY = 700; // ms
-const SWIPE_TRIGGER_DISTANCE = 60; // px
+  if (isSameDay(date, today)) return "Today";
+  if (isSameDay(date, yesterday)) return "Yesterday";
+  return date.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+};
+
+const formatTime = (date) => {
+  return date.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+};
+
+const READ_MORE_STEP = 450;
+const LONG_PRESS_DELAY = 700;
+const SWIPE_TRIGGER_DISTANCE = 60;
 
 export default function MessageItem({
   message,
+  previousMessage, // NEW: previous message to compare dates
   myUid,
   isDark,
   setReplyTo,
@@ -36,36 +37,23 @@ export default function MessageItem({
   const isMine = message.senderId === myUid;
   const containerRef = useRef(null);
 
-  // Long-press modal
   const [showLongPress, setShowLongPress] = useState(false);
   const longPressTimer = useRef(null);
-
-  // Read-more
   const [visibleChars, setVisibleChars] = useState(READ_MORE_STEP);
   const isLongText = Boolean(message.text && message.text.length > visibleChars);
-
-  // Swipe
   const swipeStartX = useRef(0);
   const [swipeX, setSwipeX] = useState(0);
   const [swipeActive, setSwipeActive] = useState(false);
-
-  // Double-tap / double-click reaction
   const lastTap = useRef(0);
   const [showQuickReactionAnim, setShowQuickReactionAnim] = useState(false);
-
-  // Local reactions state (renders instantly); prefer parent persistence via onReact
   const [localReactions, setLocalReactions] = useState(message.reactions || {});
 
-  // Keep localReactions in sync when message changes
   useEffect(() => setLocalReactions(message.reactions || {}), [message.reactions]);
 
-  // Register DOM ref with parent (so parent can scroll to it)
   useEffect(() => {
     if (containerRef.current) registerRef?.(containerRef.current);
-    // <-- we intentionally DO NOT depend on registerRef to avoid repeated calls
-  }, []); // run once
+  }, []);
 
-  // ---------------- Long-press detection ----------------
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -95,7 +83,6 @@ export default function MessageItem({
     };
   }, []);
 
-  // ---------------- Swipe handlers ----------------
   const handleTouchStart = (e) => {
     swipeStartX.current = e.touches[0].clientX;
     setSwipeActive(true);
@@ -104,59 +91,38 @@ export default function MessageItem({
   const handleTouchMove = (e) => {
     if (!swipeActive) return;
     const diff = e.touches[0].clientX - swipeStartX.current;
-    // allow both directions but limit amplitude for UX
-    const limited = Math.max(Math.min(diff, 120), -120);
-    setSwipeX(limited);
+    setSwipeX(Math.max(Math.min(diff, 120), -120));
   };
 
   const handleTouchEnd = () => {
     if (!swipeActive) return;
-    // trigger reply when horizontal swipe exceeds threshold either way
-    if (Math.abs(swipeX) > SWIPE_TRIGGER_DISTANCE) {
-      setReplyTo(message);
-    }
+    if (Math.abs(swipeX) > SWIPE_TRIGGER_DISTANCE) setReplyTo(message);
     setSwipeX(0);
     setSwipeActive(false);
   };
 
-  // ---------------- Double-tap reaction ----------------
   const handleDoubleTapOrClick = (e) => {
     const now = Date.now();
     const dt = now - lastTap.current;
     lastTap.current = now;
 
-    // double-tap within 300ms
     if (dt > 0 && dt < 350) {
-      // quick "like" reaction animation
       setShowQuickReactionAnim(true);
       setTimeout(() => setShowQuickReactionAnim(false), 700);
 
-      // Default emoji (you can change to open a picker)
       const emoji = "❤️";
-
-      // Optimistically update UI
       setLocalReactions((prev) => {
         const users = prev[emoji] ? [...prev[emoji]] : [];
-        // toggle for current user: if present remove, else add
         const hasIt = users.includes(myUid);
         const nextUsers = hasIt ? users.filter((u) => u !== myUid) : [...users, myUid];
         return { ...prev, [emoji]: nextUsers };
       });
-
-      // Delegate persistence to parent if provided (e.g. Firestore update)
-      onReact?.(message.id, emoji).catch(() => {
-        // on failure, revert optimistic change — parent can also handle
-        setLocalReactions(message.reactions || {});
-      });
-    } else {
-      // single tap: if there's media, open it; if not, focus/ noop
-      if (message.mediaUrl) {
-        onMediaClick?.(message);
-      }
+      onReact?.(message.id, emoji);
+    } else if (message.mediaUrl) {
+      onMediaClick?.(message);
     }
   };
 
-  // ---------------- Render status (sent / delivered / seen) ----------------
   const renderStatus = () => {
     if (!isMine) return null;
     const total = message.totalParticipants || 2;
@@ -167,13 +133,11 @@ export default function MessageItem({
     return "✔";
   };
 
-  // ---------------- Helper: render reply preview content ----------------
   const ReplyPreview = ({ reply }) => {
     if (!reply) return null;
     return (
       <div
         onClick={() => {
-          // scroll to original if parent registered
           if (reply.id) {
             const el = document.getElementById(reply.id);
             if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -206,15 +170,23 @@ export default function MessageItem({
     );
   };
 
-  // ---------------- UI variables ----------------
   const bubbleBg = isMine ? "#007bff" : isDark ? "#222" : "#fff";
   const bubbleColor = isMine ? "#fff" : isDark ? "#fff" : "#000";
-
-  // show reactions merged from server/local
   const reactionsEntries = Object.entries(localReactions || {});
+
+  // ---------------- Group date header logic ----------------
+  const showDateHeader =
+    !previousMessage ||
+    !isSameDay(previousMessage.createdAt, message.createdAt);
 
   return (
     <>
+      {showDateHeader && (
+        <div style={{ textAlign: "center", fontSize: 12, margin: "12px 0", color: isDark ? "#ccc" : "#666" }}>
+          {formatDateHeader(message.createdAt)}
+        </div>
+      )}
+
       <div
         id={message.id}
         ref={(el) => {
@@ -247,28 +219,10 @@ export default function MessageItem({
           boxShadow: isMine ? "0 4px 18px rgba(0,0,0,0.12)" : "0 2px 10px rgba(0,0,0,0.06)",
         }}
       >
-        {/* swipe indicator (arrow) */}
-        <div
-          aria-hidden
-          style={{
-            position: "absolute",
-            left: !isMine ? -36 : undefined,
-            right: isMine ? -36 : undefined,
-            top: "50%",
-            transform: "translateY(-50%)",
-            fontSize: 18,
-            opacity: Math.min(1, Math.abs(swipeX) / SWIPE_TRIGGER_DISTANCE),
-            color: "#4caf50",
-            pointerEvents: "none",
-          }}
-        >
-          ↪
-        </div>
-
         {/* reply preview */}
         <ReplyPreview reply={message.replyTo} />
 
-        {/* text */}
+        {/* message text */}
         {message.text && (
           <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.4 }}>
             {message.text.slice(0, visibleChars)}
@@ -322,7 +276,7 @@ export default function MessageItem({
             />
           ))}
 
-        {/* reactions row */}
+        {/* reactions */}
         {reactionsEntries.length > 0 && (
           <div
             style={{
@@ -355,14 +309,18 @@ export default function MessageItem({
           </div>
         )}
 
-        {/* status */}
+        {/* timestamp */}
+        <div style={{ fontSize: 10, opacity: 0.5, textAlign: "right", marginTop: 4 }}>
+          {formatTime(message.createdAt)}
+        </div>
+
+        {/* message status */}
         {isMine && (
-          <div style={{ fontSize: 11, opacity: 0.75, textAlign: "right", marginTop: 6 }}>
+          <div style={{ fontSize: 11, opacity: 0.75, textAlign: "right", marginTop: 2 }}>
             {renderStatus()}
           </div>
         )}
 
-        {/* quick reaction Lottie-esque small animation */}
         {showQuickReactionAnim && (
           <div
             style={{
@@ -381,7 +339,6 @@ export default function MessageItem({
         )}
       </div>
 
-      {/* long-press modal */}
       {showLongPress && (
         <LongPressMessageModal
           isDark={isDark}
@@ -391,7 +348,6 @@ export default function MessageItem({
             setShowLongPress(false);
           }}
           onReaction={(emoji) => {
-            // optimistic UI update
             setLocalReactions((prev) => {
               const users = prev[emoji] ? [...prev[emoji]] : [];
               const hasIt = users.includes(myUid);
