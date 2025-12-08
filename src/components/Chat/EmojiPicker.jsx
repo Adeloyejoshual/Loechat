@@ -1,4 +1,3 @@
-// src/components/Chat/EmojiPicker.jsx
 import React, { useEffect, useRef } from "react";
 
 const EMOJIS = [
@@ -23,8 +22,15 @@ export default function EmojiPicker({ onSelect, onClose, position, isDark = fals
         onClose?.();
       }
     };
+    const handleKeyDown = (e) => {
+      if (e.key === "Escape") onClose?.();
+    };
     document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
   }, [onClose]);
 
   const backgroundColor = isDark ? "#1b1b1b" : "#fff";
@@ -43,6 +49,7 @@ export default function EmojiPicker({ onSelect, onClose, position, isDark = fals
         zIndex: 2000,
         width: "90vw",
         maxWidth: 340,
+        overscrollBehavior: "contain",
       }}
     >
       <div
@@ -69,8 +76,8 @@ export default function EmojiPicker({ onSelect, onClose, position, isDark = fals
               borderRadius: 8,
               transition: "transform 0.1s",
             }}
-            onMouseEnter={(e) => e.currentTarget.style.transform = "scale(1.2)"}
-            onMouseLeave={(e) => e.currentTarget.style.transform = "scale(1)"}
+            onMouseEnter={(e) => (e.currentTarget.style.transform = "scale(1.2)")}
+            onMouseLeave={(e) => (e.currentTarget.style.transform = "scale(1)")}
           >
             {emoji}
           </button>
