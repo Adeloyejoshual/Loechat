@@ -13,6 +13,7 @@ import {
   getDoc,
   orderBy,
   query,
+  getDocs
 } from "firebase/firestore";
 import { db, auth } from "../firebaseConfig";
 import { ThemeContext } from "../context/ThemeContext";
@@ -55,9 +56,9 @@ export default function ChatConversationPage() {
   const [friendTyping, setFriendTyping] = useState(false);
   const [isAtBottom, setIsAtBottom] = useState(true);
 
-  // -------------------- Global Modals --------------------
-  const [longPressMessage, setLongPressMessage] = useState(null); // currently long-pressed message
-  const [emojiPickerMessage, setEmojiPickerMessage] = useState(null); // currently emoji picker open
+  // Global modals
+  const [longPressMessage, setLongPressMessage] = useState(null);
+  const [emojiPickerMessage, setEmojiPickerMessage] = useState(null);
 
   // -------------------- Chat & Friend Subscriptions --------------------
   useEffect(() => {
@@ -185,6 +186,9 @@ export default function ChatConversationPage() {
       uploadProgress: 0,
     };
     setMessages((prev) => [...prev, tempMessage]);
+    setText("");  // ← clear ChatInput instantly
+    setReplyTo(null);
+
     if (isAtBottom) endRef.current?.scrollIntoView({ behavior: "smooth" });
 
     try {
@@ -221,7 +225,7 @@ export default function ChatConversationPage() {
       toast.error("Failed to send message");
       setMessages((prev) => prev.map((m) => m.id === tempId ? { ...m, status: "failed" } : m));
     } finally {
-      setText(""); setSelectedFiles([]); setCaption(""); setReplyTo(null); setShowPreview(false);
+      setSelectedFiles([]); setCaption(""); setShowPreview(false);
     }
   }, [chatId, myUid, isBlocked, isAtBottom, replyTo, isMuted]);
 
@@ -245,7 +249,7 @@ export default function ChatConversationPage() {
     }
   }, []);
 
-  // -------------------- Handle Global Modal Actions --------------------
+  // -------------------- Global Modal Actions --------------------
   const handleDeleteForMe = (message) => {
     setMessages((prev) => prev.filter((m) => m.id !== message.id));
     toast.info("Message deleted for you");
@@ -340,6 +344,20 @@ export default function ChatConversationPage() {
 
       {mediaViewer.open && (
         <MediaViewer items={mediaItems} startIndex={mediaViewer.startIndex} onClose={() => setMediaViewer({ open: false, startIndex: 0 })} />
+      )}
+
+      {longPressMessage && (
+        <LongPressMessageModal
+          onClose={() => setLongPressMessage(null)}
+          onReaction={(emoji) => handleReact(longPressMessage.id, emoji)}
+          onReply={() => { setReplyTo(longPressMessage); setLongPressMessage(null); }}
+          onCopy={() => { navigator.clipboard.writeText(longPressMessage.text || ""); toast.success("Copied!"); setLongPressMessage(null); }}
+          onPin={async () => { await updateDoc(doc(db, "chats", chatId), { pinnedMessageId: longPressMessage.id }); setPinnedMessage(longPressMessage); toast.success("Pinned!"); setLongPressMessage(null); }}
+          onDeleteForMe={() => handleDeleteForMe(longPressMessage)}
+          onDeleteForEveryone={() => handleDeleteForEveryone(longPressMessage)}
+          isDark={isDark}
+          messageSenderName={longPressMessage.senderId === myUid ? "You" : friendInfo.name}
+        />
       )}
 
       <ToastContainer position="top-center" autoClose={1500} hideProgressBar />
