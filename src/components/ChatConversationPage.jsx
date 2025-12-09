@@ -36,11 +36,8 @@ import { toast, ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import axios from "axios";
 
-// -------------------- FLASH HIGHLIGHT CSS --------------------
 const flashHighlightStyle = `
-.flash-highlight {
-  animation: flash 1.2s ease;
-}
+.flash-highlight { animation: flash 1.2s ease; }
 @keyframes flash {
   0% { background-color: rgba(255,255,0,0.4); }
   100% { background-color: transparent; }
@@ -60,7 +57,6 @@ export default function ChatConversationPage() {
   const typingTimer = useRef(null);
   const initialScrollDone = useRef(false);
 
-  // -------------------- STATE --------------------
   const [chatInfo, setChatInfo] = useState(null);
   const [friendInfo, setFriendInfo] = useState(null);
   const [messages, setMessages] = useState([]);
@@ -78,7 +74,7 @@ export default function ChatConversationPage() {
   const [longPressMessage, setLongPressMessage] = useState(null);
   const [stickyDate, setStickyDate] = useState(null);
 
-  // -------------------- CHAT & FRIEND SUB --------------------
+  // -------------------- CHAT INFO & FRIEND INFO --------------------
   useEffect(() => {
     if (!chatId) return;
     const chatRef = doc(db, "chats", chatId);
@@ -124,35 +120,29 @@ export default function ChatConversationPage() {
     const messagesRef = collection(db, "chats", chatId, "messages");
     const q = query(messagesRef, orderBy("createdAt", "asc"));
 
-    const unsub = onSnapshot(
-      q,
-      (snap) => {
-        const docs = snap.docs.map((d) => ({
-          id: d.id,
-          ...d.data(),
-          createdAt: d.data().createdAt?.toDate?.() || new Date(),
-        }));
-        setMessages(docs);
+    const unsub = onSnapshot(q, (snap) => {
+      const docs = snap.docs.map((d) => ({
+        id: d.id,
+        ...d.data(),
+        createdAt: d.data().createdAt?.toDate?.() || new Date(),
+      }));
+      setMessages(docs);
 
-        // mark delivered
-        docs
-          .filter((m) => m.senderId !== myUid && !(m.deliveredTo || []).includes(myUid))
-          .forEach((m) => {
-            updateDoc(doc(db, "chats", chatId, "messages", m.id), {
-              deliveredTo: arrayUnion(myUid),
-            }).catch(() => {});
-          });
+      // mark delivered
+      docs
+        .filter((m) => m.senderId !== myUid && !(m.deliveredTo || []).includes(myUid))
+        .forEach((m) => {
+          updateDoc(doc(db, "chats", chatId, "messages", m.id), {
+            deliveredTo: arrayUnion(myUid),
+          }).catch(() => {});
+        });
 
-        // scroll to bottom
-        if (isAtBottom || !initialScrollDone.current) {
-          setTimeout(() => {
-            endRef.current?.scrollIntoView({ behavior: "auto" });
-            initialScrollDone.current = true;
-          }, 50);
-        }
-      },
-      (err) => console.error(err)
-    );
+      // scroll to bottom
+      if (isAtBottom || !initialScrollDone.current) {
+        setTimeout(() => endRef.current?.scrollIntoView({ behavior: "auto" }), 50);
+        initialScrollDone.current = true;
+      }
+    });
 
     return () => unsub();
   }, [chatId, myUid, isAtBottom]);
@@ -341,23 +331,7 @@ export default function ChatConversationPage() {
     [chatId, myUid, isBlocked, isAtBottom, replyTo, isMuted]
   );
 
-  // -------------------- HELPERS --------------------
-  const sendTextHandler = (givenText) => {
-    const t = typeof givenText === "string" ? givenText : text;
-    if (!t || !t.trim()) return;
-    setText("");
-    setReplyTo(null);
-    sendMessage(t, []);
-  };
-  const sendMediaHandler = (files) => {
-    if (!files?.length) return;
-    setSelectedFiles([]);
-    setCaption("");
-    setShowPreview(false);
-    setReplyTo(null);
-    sendMessage(caption || "", files);
-  };
-
+  // -------------------- MEDIA VIEWER --------------------
   const mediaItems = useMemo(
     () =>
       messages
@@ -415,6 +389,24 @@ export default function ChatConversationPage() {
     initialScrollDone.current = false;
     setTimeout(() => endRef.current?.scrollIntoView({ behavior: "auto" }), 80);
   }, [chatId]);
+
+  // -------------------- HANDLERS --------------------
+  const sendTextHandler = (givenText) => {
+    const t = typeof givenText === "string" ? givenText : text;
+    if (!t || !t.trim()) return;
+    setText("");
+    setReplyTo(null);
+    sendMessage(t, []);
+  };
+
+  const sendMediaHandler = (files) => {
+    if (!files?.length) return;
+    setSelectedFiles([]);
+    setCaption("");
+    setShowPreview(false);
+    setReplyTo(null);
+    sendMessage(caption || "", files);
+  };
 
   // -------------------- RENDER --------------------
   if (!chatInfo || !friendInfo)
@@ -521,8 +513,8 @@ export default function ChatConversationPage() {
                   else delete messageRefs.current[msg.id];
                 }}
                 onReact={handleReact}
-                onDeleteForMe={handleDeleteForMe}
-                onDeleteForEveryone={handleDeleteForEveryone}
+                onDeleteForMe={() => handleDeleteForMe(msg)}
+                onDeleteForEveryone={() => handleDeleteForEveryone(msg)}
                 onOpenLongPress={(m) => setLongPressMessage(m)}
                 isLongPressOpen={longPressMessage?.id === msg.id}
                 data-date={new Date(msg.createdAt).toDateString()}
