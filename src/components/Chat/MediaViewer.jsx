@@ -5,6 +5,7 @@ export default function MediaViewer({ items = [], startIndex = 0, onClose }) {
   const [index, setIndex] = useState(startIndex);
   const [scale, setScale] = useState(1);
   const touchStartX = useRef(0);
+  const touchStartY = useRef(0);
   const mediaRef = useRef(null);
 
   useEffect(() => setIndex(startIndex), [startIndex]);
@@ -13,20 +14,26 @@ export default function MediaViewer({ items = [], startIndex = 0, onClose }) {
 
   const current = items[index];
 
-  // ------------------ SWIPE LEFT / RIGHT ------------------
+  // ------------------ TOUCH HANDLERS ------------------
   const handleTouchStart = (e) => {
     touchStartX.current = e.touches[0].clientX;
+    touchStartY.current = e.touches[0].clientY;
   };
 
   const handleTouchEnd = (e) => {
-    const diff = e.changedTouches[0].clientX - touchStartX.current;
+    const diffX = e.changedTouches[0].clientX - touchStartX.current;
+    const diffY = e.changedTouches[0].clientY - touchStartY.current;
 
-    if (diff > 80 && index > 0) {
-      setIndex((p) => p - 1);
+    // Swipe left/right
+    if (Math.abs(diffX) > 80 && Math.abs(diffX) > Math.abs(diffY)) {
+      if (diffX > 0 && index > 0) setIndex((p) => p - 1);
+      else if (diffX < 0 && index < items.length - 1) setIndex((p) => p + 1);
       setScale(1);
-    } else if (diff < -80 && index < items.length - 1) {
-      setIndex((p) => p + 1);
-      setScale(1);
+    }
+
+    // Swipe down to close
+    if (diffY > 100 && Math.abs(diffY) > Math.abs(diffX)) {
+      onClose();
     }
   };
 
