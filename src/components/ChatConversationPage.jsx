@@ -36,7 +36,7 @@ import { toast, ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import axios from "axios";
 
-const flashHighlightStyle = `
+const FLASH_HIGHLIGHT_STYLE = `
 .flash-highlight { animation: flash 1.2s ease; }
 @keyframes flash {
   0% { background-color: rgba(255,255,0,0.4); }
@@ -74,15 +74,17 @@ export default function ChatConversationPage() {
   const [longPressMessage, setLongPressMessage] = useState(null);
   const [stickyDate, setStickyDate] = useState(null);
 
-  // -------------------- CHAT INFO & FRIEND INFO --------------------
+  // -------------------- CHAT & FRIEND INFO --------------------
   useEffect(() => {
     if (!chatId) return;
+
     const chatRef = doc(db, "chats", chatId);
     const unsubList = [];
 
     const unsubChat = onSnapshot(chatRef, (snap) => {
       if (!snap.exists()) return;
       const data = snap.data();
+
       setChatInfo({ id: snap.id, ...data });
       setIsBlocked(Boolean(data.blocked));
       setIsMuted(Boolean(data.mutedUntil && data.mutedUntil > Date.now()));
@@ -117,6 +119,7 @@ export default function ChatConversationPage() {
   // -------------------- MESSAGES SUB --------------------
   useEffect(() => {
     if (!chatId) return;
+
     const messagesRef = collection(db, "chats", chatId, "messages");
     const q = query(messagesRef, orderBy("createdAt", "asc"));
 
@@ -137,7 +140,7 @@ export default function ChatConversationPage() {
           }).catch(() => {});
         });
 
-      // scroll to bottom
+      // auto-scroll if at bottom or first load
       if (isAtBottom || !initialScrollDone.current) {
         setTimeout(() => endRef.current?.scrollIntoView({ behavior: "auto" }), 50);
         initialScrollDone.current = true;
@@ -150,32 +153,32 @@ export default function ChatConversationPage() {
   // -------------------- MARK SEEN --------------------
   useEffect(() => {
     if (!chatId || !myUid || messages.length === 0) return;
-    const unseen = messages.filter(
-      (m) => m.senderId !== myUid && !(m.seenBy || []).includes(myUid)
-    );
-    unseen.forEach((m) => {
-      updateDoc(doc(db, "chats", chatId, "messages", m.id), { seenBy: arrayUnion(myUid) }).catch(() => {});
-    });
-    updateDoc(doc(db, "chats", chatId), {
-      [`lastSeen.${myUid}`]: serverTimestamp(),
-    }).catch(() => {});
+
+    messages
+      .filter((m) => m.senderId !== myUid && !(m.seenBy || []).includes(myUid))
+      .forEach((m) =>
+        updateDoc(doc(db, "chats", chatId, "messages", m.id), {
+          seenBy: arrayUnion(myUid),
+        }).catch(() => {})
+      );
+
+    updateDoc(doc(db, "chats", chatId), { [`lastSeen.${myUid}`]: serverTimestamp() }).catch(() => {});
   }, [messages, chatId, myUid]);
 
-  // -------------------- SCROLL DETECTION & STICKY DATE --------------------
+  // -------------------- SCROLL & STICKY DATE --------------------
   useEffect(() => {
     const el = messagesRefEl.current;
     if (!el) return;
-
     let timeout;
+
     const onScroll = () => {
       clearTimeout(timeout);
       timeout = setTimeout(() => {
         const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
         setIsAtBottom(atBottom);
 
-        // sticky date
         const children = Array.from(el.children).filter((c) => c.dataset?.type === "message");
-        for (let child of children) {
+        for (const child of children) {
           const rect = child.getBoundingClientRect();
           const parentRect = el.getBoundingClientRect();
           if (rect.top - parentRect.top >= 0) {
@@ -196,12 +199,15 @@ export default function ChatConversationPage() {
   }, [messages, stickyDate]);
 
   // -------------------- TYPING --------------------
-  const setTypingFlag = useCallback(async (typing) => {
-    if (!chatId || !myUid) return;
-    try {
-      await updateDoc(doc(db, "chats", chatId), { [`typing.${myUid}`]: typing });
-    } catch {}
-  }, [chatId, myUid]);
+  const setTypingFlag = useCallback(
+    async (typing) => {
+      if (!chatId || !myUid) return;
+      try {
+        await updateDoc(doc(db, "chats", chatId), { [`typing.${myUid}`]: typing });
+      } catch {}
+    },
+    [chatId, myUid]
+  );
 
   const handleUserTyping = useCallback(
     (isTyping) => {
@@ -268,10 +274,8 @@ export default function ChatConversationPage() {
         uploadProgress: 0,
       };
 
-      // immediately show message
       setMessages((prev) => [...prev, tempMessage]);
-      if (isAtBottom)
-        setTimeout(() => endRef.current?.scrollIntoView({ behavior: "smooth" }), 40);
+      if (isAtBottom) setTimeout(() => endRef.current?.scrollIntoView({ behavior: "smooth" }), 40);
 
       try {
         const uploadedUrls = [];
@@ -409,8 +413,7 @@ export default function ChatConversationPage() {
   };
 
   // -------------------- RENDER --------------------
-  if (!chatInfo || !friendInfo)
-    return <div style={{ padding: 20 }}>Loading chat...</div>;
+  if (!chatInfo || !friendInfo) return <div style={{ padding: 20 }}>Loading chat...</div>;
 
   return (
     <div
@@ -423,7 +426,7 @@ export default function ChatConversationPage() {
         position: "relative",
       }}
     >
-      <style>{flashHighlightStyle}</style>
+      <style>{FLASH_HIGHLIGHT_STYLE}</style>
 
       {/* Header */}
       <ChatHeader
