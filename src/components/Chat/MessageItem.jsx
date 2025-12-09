@@ -17,6 +17,7 @@ const READ_MORE_STEP = 450;
 const LONG_PRESS_DELAY = 700;
 const SWIPE_TRIGGER_DISTANCE = 60;
 
+// Format timestamp to "HH:MM"
 const fmtTime = (ts) => {
   if (!ts) return "";
   const d = ts.toDate ? ts.toDate() : new Date(ts);
@@ -47,29 +48,28 @@ export default function MessageItem({
   const longPressTimer = useRef(null);
   const touchStartX = useRef(0);
 
-  // keep local reactions in sync
+  // Sync local reactions with message
   useEffect(() => {
     setLocalReactions(message.reactions || {});
   }, [message.reactions]);
 
-  // register for scroll-to
+  // Register ref for scroll-to
   useEffect(() => {
     if (containerRef.current && registerRef) registerRef(containerRef.current);
   }, [registerRef]);
 
-  // smart auto-scroll
+  // Auto-scroll if near bottom
   useEffect(() => {
     if (!chatContainerRef?.current || !containerRef.current) return;
     const container = chatContainerRef.current;
     const distanceFromBottom =
       container.scrollHeight - container.scrollTop - container.clientHeight;
-    const scrollThreshold = 120;
-    if (distanceFromBottom < scrollThreshold) {
+    if (distanceFromBottom < 120) {
       containerRef.current.scrollIntoView({ behavior: "smooth", block: "end" });
     }
   }, [message.createdAt, chatContainerRef]);
 
-  // long press / swipe
+  // ------------------- LONG PRESS & SWIPE -------------------
   const startLongPress = () => {
     if (longPressOpen || emojiOpen) return;
     longPressTimer.current = setTimeout(() => {
@@ -77,7 +77,6 @@ export default function MessageItem({
       setEmojiOpen(false);
     }, LONG_PRESS_DELAY);
   };
-
   const cancelLongPress = () => {
     if (longPressTimer.current) {
       clearTimeout(longPressTimer.current);
@@ -90,14 +89,12 @@ export default function MessageItem({
     setSwipeActive(true);
     startLongPress();
   };
-
   const onTouchMove = (e) => {
     const diff = e.touches[0].clientX - touchStartX.current;
     if (Math.abs(diff) > 10) cancelLongPress();
     if (!swipeActive) return;
     setSwipeX(Math.max(Math.min(diff, 140), -140));
   };
-
   const onTouchEnd = () => {
     cancelLongPress();
     if (swipeActive && Math.abs(swipeX) > SWIPE_TRIGGER_DISTANCE) {
@@ -107,7 +104,7 @@ export default function MessageItem({
     setSwipeActive(false);
   };
 
-  // reactions
+  // ------------------- REACTIONS -------------------
   const toggleReaction = async (emoji) => {
     if (!message?.id || !message?.chatId) return;
     const msgRef = doc(db, "chats", message.chatId, "messages", message.id);
@@ -131,20 +128,13 @@ export default function MessageItem({
     }
   };
 
-  // pin / edit / delete / copy
+  // ------------------- PIN / DELETE / COPY -------------------
   const pinMessage = async () => {
-    if (!message?.id || !message?.chatId) return;
     try {
       const msgRef = doc(db, "chats", message.chatId, "messages", message.id);
-      await updateDoc(msgRef, {
-        pinned: true,
-        pinnedAt: serverTimestamp(),
-        pinnedBy: myUid,
-      });
+      await updateDoc(msgRef, { pinned: true, pinnedAt: serverTimestamp(), pinnedBy: myUid });
       try {
-        await updateDoc(doc(db, "chats", message.chatId), {
-          pinnedMessageId: message.id,
-        });
+        await updateDoc(doc(db, "chats", message.chatId), { pinnedMessageId: message.id });
       } catch {}
       setPinnedMessage?.(message);
       toast.success("Pinned message");
@@ -192,7 +182,7 @@ export default function MessageItem({
     }
   };
 
-  // media
+  // ------------------- MEDIA -------------------
   const mediaArray = message.mediaUrls || (message.mediaUrl ? [message.mediaUrl] : []);
   const renderMediaGrid = () => {
     if (!mediaArray.length) return null;
@@ -215,15 +205,18 @@ export default function MessageItem({
         }}
       >
         {mediaArray.slice(0, maxVisible).map((url, i) => (
-          <div
-            key={i}
-            style={{ position: "relative", borderRadius: 12, overflow: "hidden" }}
-          >
+          <div key={i} style={{ position: "relative", borderRadius: 12, overflow: "hidden" }}>
             <img
               src={url}
               alt=""
               onClick={() => onMediaClick?.(message, i)}
-              style={{ width: "100%", height: "100%", objectFit: "cover", cursor: "pointer" }}
+              style={{
+                width: "100%",
+                height: "100%",
+                objectFit: "cover",
+                cursor: "pointer",
+                filter: message.status === "sending" ? "brightness(0.6)" : "none",
+              }}
             />
             {message.status === "sending" && message.uploadProgress != null && (
               <div
@@ -236,6 +229,7 @@ export default function MessageItem({
                   backgroundColor: "rgba(0,0,0,0.28)",
                   color: "#fff",
                   fontWeight: 700,
+                  fontSize: 16,
                 }}
               >
                 {message.uploadProgress}%
@@ -322,9 +316,7 @@ export default function MessageItem({
                   gap: 6,
                   padding: "4px 6px",
                   borderRadius: 14,
-                  background: isDark
-                    ? "rgba(255,255,255,0.03)"
-                    : "rgba(0,0,0,0.04)",
+                  background: isDark ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.04)",
                   border: "none",
                   cursor: "pointer",
                   fontSize: 13,
@@ -365,7 +357,7 @@ export default function MessageItem({
         )}
       </div>
 
-      {/* Long press modal */}
+      {/* Long Press Modal */}
       {longPressOpen && (
         <LongPressMessageModal
           isDark={isDark}
