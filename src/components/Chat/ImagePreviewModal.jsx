@@ -6,7 +6,7 @@ export default function ImagePreviewModal({
   setCaption = () => {},
   onRemove = () => {},
   onClose = () => {},
-  onSend = async () => {}, // expects: (files, caption) => {}
+  onSend = async () => {}, // (files, caption) => {}
   isDark = false,
   disabled = false,
 }) {
@@ -15,6 +15,7 @@ export default function ImagePreviewModal({
   const [translate, setTranslate] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
   const startPos = useRef({ x: 0, y: 0 });
+  const [caption, setLocalCaption] = useState(initialCaption);
 
   if (!previews.length) return null;
   const current = previews[index];
@@ -22,13 +23,12 @@ export default function ImagePreviewModal({
   const handleNext = () => setIndex((i) => Math.min(i + 1, previews.length - 1));
   const handlePrev = () => setIndex((i) => Math.max(i - 1, 0));
 
-  // --- Touch handlers for swipe ---
+  // --- Touch handlers ---
   const handleTouchStart = (e) => {
     const t = e.touches[0];
     startPos.current = { x: t.clientX, y: t.clientY };
     setIsDragging(true);
   };
-
   const handleTouchMove = (e) => {
     if (!isDragging) return;
     const t = e.touches[0];
@@ -36,19 +36,12 @@ export default function ImagePreviewModal({
     const dy = t.clientY - startPos.current.y;
     setTranslate({ x: dx, y: dy });
   };
-
   const handleTouchEnd = () => {
     setIsDragging(false);
     const { x, y } = translate;
-
-    // Swipe down to close
     if (y > 120) return onClose();
-
-    // Swipe left/right for navigation
     if (x < -80 && index < previews.length - 1) handleNext();
     else if (x > 80 && index > 0) handlePrev();
-
-    // reset translate
     setTranslate({ x: 0, y: 0 });
   };
 
@@ -57,8 +50,8 @@ export default function ImagePreviewModal({
     if (sending || disabled) return;
     setSending(true);
     try {
-      await onSend(previews.map((p) => p.file), initialCaption);
-      setCaption("");
+      await onSend(previews.map((p) => p.file), caption || "");
+      setLocalCaption("");
       onClose();
     } catch (err) {
       console.error("Send failed", err);
@@ -66,7 +59,6 @@ export default function ImagePreviewModal({
     }
   };
 
-  // --- Revoke object URLs to prevent memory leaks ---
   useEffect(() => {
     return () => previews.forEach((p) => p.previewUrl && URL.revokeObjectURL(p.previewUrl));
   }, [previews]);
@@ -82,6 +74,7 @@ export default function ImagePreviewModal({
         justifyContent: "center",
         alignItems: "center",
         zIndex: 9999,
+        padding: 12,
       }}
     >
       {/* Close button */}
@@ -94,14 +87,14 @@ export default function ImagePreviewModal({
           background: "transparent",
           border: "none",
           color: isDark ? "#fff" : "#000",
-          fontSize: 26,
+          fontSize: 28,
           cursor: "pointer",
         }}
       >
         ×
       </button>
 
-      {/* Media preview */}
+      {/* Media Preview */}
       <div
         style={{
           display: "flex",
@@ -132,7 +125,7 @@ export default function ImagePreviewModal({
         )}
       </div>
 
-      {/* Navigation buttons for non-touch users */}
+      {/* Navigation */}
       {previews.length > 1 && (
         <div style={{ display: "flex", marginTop: 12, gap: 16 }}>
           <button onClick={handlePrev} disabled={index === 0}>
@@ -147,11 +140,11 @@ export default function ImagePreviewModal({
         </div>
       )}
 
-      {/* Caption Input */}
+      {/* Caption */}
       <textarea
         placeholder="Add a caption..."
-        value={initialCaption}
-        onChange={(e) => setCaption(e.target.value)}
+        value={caption}
+        onChange={(e) => setLocalCaption(e.target.value)}
         style={{
           marginTop: 12,
           width: "80%",
