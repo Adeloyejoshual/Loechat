@@ -13,18 +13,6 @@ import LongPressMessageModal from "./LongPressMessageModal";
 import EmojiPicker from "./EmojiPicker";
 import { toast } from "react-toastify";
 
-/**
- * MessageItem
- *
- * Props:
- *  - message: { id, chatId, senderId, text, mediaUrls[], createdAt, reactions, status, editedAt, ... }
- *  - myUid
- *  - isDark
- *  - setReplyTo (fn)
- *  - setPinnedMessage (fn)  -- optional, used to update UI after pin
- *  - onMediaClick (fn(message, index))
- *  - registerRef (fn(el)) for scroll-to
- */
 const READ_MORE_STEP = 450;
 const LONG_PRESS_DELAY = 700;
 const SWIPE_TRIGGER_DISTANCE = 60;
@@ -43,11 +31,11 @@ export default function MessageItem({
   setPinnedMessage,
   onMediaClick,
   registerRef,
+  chatContainerRef, // <-- parent scroll container
 }) {
   const isMine = message.senderId === myUid;
   const containerRef = useRef(null);
 
-  // UI state
   const [visibleChars, setVisibleChars] = useState(READ_MORE_STEP);
   const [swipeX, setSwipeX] = useState(0);
   const [swipeActive, setSwipeActive] = useState(false);
@@ -56,7 +44,6 @@ export default function MessageItem({
   const [reactionAnim, setReactionAnim] = useState({ show: false, emoji: "" });
   const [localReactions, setLocalReactions] = useState(message.reactions || {});
 
-  // refs
   const longPressTimer = useRef(null);
   const touchStartX = useRef(0);
 
@@ -68,12 +55,23 @@ export default function MessageItem({
   // register for scroll-to
   useEffect(() => {
     if (containerRef.current && registerRef) registerRef(containerRef.current);
-    // parent is responsible for removing refs
   }, [registerRef]);
 
-  // --------- long press / swipe handling ----------
+  // --------- smart auto-scroll ---------
+  useEffect(() => {
+    if (!chatContainerRef?.current || !containerRef.current) return;
+
+    const container = chatContainerRef.current;
+    const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+    const scrollThreshold = 120; // px considered "near bottom"
+
+    if (distanceFromBottom < scrollThreshold) {
+      containerRef.current.scrollIntoView({ behavior: "smooth", block: "end" });
+    }
+  }, [message.createdAt, chatContainerRef]);
+
+  // --------- long press / swipe ----------
   const startLongPress = () => {
-    // if either modal already open, don't start a new timer
     if (longPressOpen || emojiOpen) return;
     longPressTimer.current = setTimeout(() => {
       setLongPressOpen(true);
@@ -104,22 +102,20 @@ export default function MessageItem({
   const onTouchEnd = () => {
     cancelLongPress();
     if (swipeActive && Math.abs(swipeX) > SWIPE_TRIGGER_DISTANCE) {
-      // reply
       setReplyTo?.(message);
     }
     setSwipeX(0);
     setSwipeActive(false);
   };
 
-  // --------- reactions (toggle) ----------
+  // --------- reactions ----------
   const toggleReaction = async (emoji) => {
     if (!message?.id || !message?.chatId) return;
     const msgRef = doc(db, "chats", message.chatId, "messages", message.id);
     try {
       const snap = await getDoc(msgRef);
       const data = snap.data() || {};
-      const current = data.reactions || {};
-      const users = current[emoji] || [];
+      const users = data.reactions?.[emoji] || [];
       const reacted = users.includes(myUid);
 
       if (reacted) {
@@ -128,7 +124,6 @@ export default function MessageItem({
         await updateDoc(msgRef, { [`reactions.${emoji}`]: arrayUnion(myUid) });
       }
 
-      // small visual animation
       setReactionAnim({ show: true, emoji });
       setTimeout(() => setReactionAnim({ show: false, emoji: "" }), 700);
     } catch (err) {
@@ -137,23 +132,13 @@ export default function MessageItem({
     }
   };
 
-  // --------- pin, edit, delete, copy ----------
+  // --------- pin / edit / delete / copy ----------
   const pinMessage = async () => {
     if (!message?.id || !message?.chatId) return;
     try {
       const msgRef = doc(db, "chats", message.chatId, "messages", message.id);
-      await updateDoc(msgRef, {
-        pinned: true,
-        pinnedAt: serverTimestamp(),
-        pinnedBy: myUid,
-      });
-      // also update chat doc pointer so UI (ChatHeader / pinned area) can read pinnedMessageId
-      try {
-        await updateDoc(doc(db, "chats", message.chatId), { pinnedMessageId: message.id });
-      } catch (e) {
-        // not fatal - message still has a pinned flag
-        console.warn("failed to update chat.pinnedMessageId", e);
-      }
+      await updateDoc(msgRef, { pinned: true, pinnedAt: serverTimestamp(), pinnedBy: myUid });
+      try { await updateDoc(doc(db, "chats", message.chatId), { pinnedMessageId: message.id }); } catch {}
       setPinnedMessage?.(message);
       toast.success("Pinned message");
     } catch (err) {
@@ -165,7 +150,7 @@ export default function MessageItem({
   const editMessage = async () => {
     if (!isMine) return toast.info("You can only edit your messages");
     const newText = window.prompt("Edit message:", message.text || "");
-    if (newText == null) return; // cancelled
+    if (newText == null) return;
     try {
       await updateDoc(doc(db, "chats", message.chatId, "messages", message.id), {
         text: newText,
@@ -221,8 +206,7 @@ export default function MessageItem({
   // --------- media rendering ----------
   const mediaArray = message.mediaUrls || (message.mediaUrl ? [message.mediaUrl] : []);
   const renderMediaGrid = () => {
-    if (!mediaArray || mediaArray.length === 0) return null;
-
+    if (!mediaArray.length) return null;
     const maxVisible = 4;
     const extra = Math.max(0, mediaArray.length - maxVisible);
 
@@ -247,7 +231,7 @@ export default function MessageItem({
               src={url}
               alt=""
               onClick={() => onMediaClick?.(message, i)}
-              style={{ display: "block", width: "100%", height: "100%", objectFit: "cover", cursor: "pointer" }}
+              style={{ width: "100%", height: "100%", objectFit: "cover", cursor: "pointer" }}
             />
             {message.status === "sending" && message.uploadProgress != null && (
               <div style={{
@@ -257,7 +241,6 @@ export default function MessageItem({
             )}
           </div>
         ))}
-
         {extra > 0 && (
           <div style={{
             position: "absolute", right: 10, bottom: 10, backgroundColor: "rgba(0,0,0,0.5)",
@@ -268,7 +251,6 @@ export default function MessageItem({
     );
   };
 
-  // --------- rendering ----------
   if (message.deleted || (message.deletedFor && message.deletedFor.includes?.(myUid))) return null;
 
   return (
@@ -298,17 +280,19 @@ export default function MessageItem({
         }}
       >
         {renderMediaGrid()}
-
-        {message.text ? (
+        {message.text && (
           <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.4 }}>
             {message.text.slice(0, visibleChars)}
             {message.text.length > visibleChars && (
-              <span onClick={() => setVisibleChars((v) => v + READ_MORE_STEP)} style={{ color: "#888", cursor: "pointer", marginLeft: 6 }}>
+              <span
+                onClick={() => setVisibleChars((v) => v + READ_MORE_STEP)}
+                style={{ color: "#888", cursor: "pointer", marginLeft: 6 }}
+              >
                 ...more
               </span>
             )}
           </div>
-        ) : null}
+        )}
 
         {/* reactions summary */}
         {localReactions && Object.keys(localReactions).length > 0 && (
@@ -351,14 +335,14 @@ export default function MessageItem({
         )}
       </div>
 
-      {/* Long press modal (open only for this message) */}
+      {/* Long press modal */}
       {longPressOpen && (
         <LongPressMessageModal
           isDark={isDark}
           onClose={() => setLongPressOpen(false)}
           onReaction={(emoji) => { toggleReaction(emoji); setLongPressOpen(false); }}
           onReply={() => { setReplyTo?.(message); setLongPressOpen(false); }}
-          onCopy={() => { copyText(); }}
+          onCopy={copyText}
           onPin={async () => { await pinMessage(); setLongPressOpen(false); }}
           onDeleteForMe={async () => { await deleteForMe(); setLongPressOpen(false); }}
           onDeleteForEveryone={async () => { await deleteForEveryone(); setLongPressOpen(false); }}
@@ -367,7 +351,7 @@ export default function MessageItem({
         />
       )}
 
-      {/* Emoji picker (only opened from long-press's ➕ inside modal) */}
+      {/* Emoji picker */}
       {emojiOpen && (
         <div style={{ position: "fixed", inset: 0, zIndex: 4000, display: "flex", justifyContent: "center", alignItems: "flex-end", padding: 12 }}>
           <div style={{ width: "100%", maxWidth: 500 }}>
