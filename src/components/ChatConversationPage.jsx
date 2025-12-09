@@ -1,5 +1,12 @@
 // src/components/ChatConversationPage.jsx
-import React, { useEffect, useState, useRef, useContext, useCallback, useMemo } from "react";
+import React, {
+  useEffect,
+  useState,
+  useRef,
+  useContext,
+  useCallback,
+  useMemo,
+} from "react";
 import { useParams } from "react-router-dom";
 import {
   collection,
@@ -13,7 +20,7 @@ import {
   getDoc,
   orderBy,
   query,
-  getDocs
+  getDocs,
 } from "firebase/firestore";
 import { db, auth } from "../firebaseConfig";
 import { ThemeContext } from "../context/ThemeContext";
@@ -29,6 +36,16 @@ import { toast, ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import axios from "axios";
 
+/**
+ * ChatConversationPage (rewritten)
+ *
+ * Behavior:
+ * - Firestore query: orderBy("createdAt", "asc") => oldest -> newest
+ * - Scroll to bottom on first load and whenever new messages arrive (only auto-scroll if user is at bottom)
+ * - Input is cleared immediately on send (handlers below)
+ * - Keeps optimistic UI for outgoing messages
+ */
+
 export default function ChatConversationPage() {
   const { chatId } = useParams();
   const { theme, wallpaper } = useContext(ThemeContext);
@@ -40,6 +57,7 @@ export default function ChatConversationPage() {
   const endRef = useRef(null);
   const messageRefs = useRef({});
   const typingTimer = useRef(null);
+  const initialScrollDone = useRef(false);
 
   const [chatInfo, setChatInfo] = useState(null);
   const [friendInfo, setFriendInfo] = useState(null);
@@ -56,11 +74,10 @@ export default function ChatConversationPage() {
   const [friendTyping, setFriendTyping] = useState(false);
   const [isAtBottom, setIsAtBottom] = useState(true);
 
-  // Global modals
+  // Global modal state
   const [longPressMessage, setLongPressMessage] = useState(null);
-  const [emojiPickerMessage, setEmojiPickerMessage] = useState(null);
 
-  // -------------------- Chat & Friend Subscriptions --------------------
+  // -------------------- Chat & Friend subscription --------------------
   useEffect(() => {
     if (!chatId) return;
     const chatRef = doc(db, "chats", chatId);
@@ -71,24 +88,28 @@ export default function ChatConversationPage() {
       const data = snap.data();
       setChatInfo({ id: snap.id, ...data });
       setIsBlocked(Boolean(data.blocked));
-      setIsMuted(data.mutedUntil && data.mutedUntil > Date.now());
+      setIsMuted(Boolean(data.mutedUntil && data.mutedUntil > Date.now()));
 
       const friendId = (data.participants || []).find((p) => p !== myUid);
       if (friendId) {
         const userRef = doc(db, "users", friendId);
         const unsubFriend = onSnapshot(userRef, (s) => s.exists() && setFriendInfo({ id: s.id, ...s.data() }));
         unsubList.push(unsubFriend);
-      } else setFriendInfo(null);
+      } else {
+        setFriendInfo(null);
+      }
 
-      // Pinned message
+      // pinned message subscription
       if (data.pinnedMessageId) {
         const pinnedRef = doc(db, "chats", chatId, "messages", data.pinnedMessageId);
         const unsubPinned = onSnapshot(pinnedRef, (s) => s.exists() && setPinnedMessage({ id: s.id, ...s.data() }));
         unsubList.push(unsubPinned);
-      } else setPinnedMessage(null);
+      } else {
+        setPinnedMessage(null);
+      }
 
-      // Typing
-      const friendIdForTyping = friendId;
+      // typing indicator
+      const friendIdForTyping = (data.participants || []).find((p) => p !== myUid);
       setFriendTyping(Boolean(data.typing?.[friendIdForTyping]));
     });
 
@@ -96,150 +117,244 @@ export default function ChatConversationPage() {
     return () => unsubList.forEach((u) => u());
   }, [chatId, myUid]);
 
-  // -------------------- Real-time Messages --------------------
+  // -------------------- Real-time messages (old -> new) --------------------
   useEffect(() => {
     if (!chatId) return;
     const messagesRef = collection(db, "chats", chatId, "messages");
     const q = query(messagesRef, orderBy("createdAt", "asc"));
 
-    const unsub = onSnapshot(q, (snap) => {
-      const docs = snap.docs.map((d) => ({ id: d.id, ...d.data(), createdAt: d.data().createdAt?.toDate?.() || new Date() }));
-      setMessages(docs);
+    const unsub = onSnapshot(
+      q,
+      (snap) => {
+        const docs = snap.docs.map((d) => ({
+          id: d.id,
+          ...d.data(),
+          createdAt: d.data().createdAt?.toDate?.() || new Date(),
+        }));
 
-      // Mark delivered
-      docs.filter((m) => m.senderId !== myUid && !(m.deliveredTo || []).includes(myUid))
-        .forEach((m) => updateDoc(doc(db, "chats", chatId, "messages", m.id), { deliveredTo: arrayUnion(myUid) }));
+        setMessages(docs);
 
-      if (isAtBottom) endRef.current?.scrollIntoView({ behavior: "auto" });
-    });
+        // Mark delivered for new messages not from me
+        docs
+          .filter((m) => m.senderId !== myUid && !(m.deliveredTo || []).includes(myUid))
+          .forEach((m) => {
+            updateDoc(doc(db, "chats", chatId, "messages", m.id), { deliveredTo: arrayUnion(myUid) }).catch(() => {});
+          });
+
+        // Automatic scrolling logic:
+        // - If the user is at bottom, scroll to bottom on updates
+        // - Also scroll to bottom on first load (initialScrollDone flag)
+        if (isAtBottom || !initialScrollDone.current) {
+          // small timeout to let DOM render the new message items
+          setTimeout(() => {
+            endRef.current?.scrollIntoView({ behavior: "auto" });
+            initialScrollDone.current = true;
+          }, 50);
+        }
+      },
+      (err) => {
+        console.error("Messages subscription error:", err);
+      }
+    );
 
     return () => unsub();
   }, [chatId, myUid, isAtBottom]);
 
-  // -------------------- Mark Seen --------------------
+  // -------------------- Mark seen when messages change --------------------
   useEffect(() => {
-    if (!chatId || !myUid || !messages.length) return;
+    if (!chatId || !myUid || messages.length === 0) return;
     const unseen = messages.filter((m) => m.senderId !== myUid && !(m.seenBy || []).includes(myUid));
-    unseen.forEach((m) => updateDoc(doc(db, "chats", chatId, "messages", m.id), { seenBy: arrayUnion(myUid) }));
-    updateDoc(doc(db, "chats", chatId), { [`lastSeen.${myUid}`]: serverTimestamp() });
+    unseen.forEach((m) => {
+      updateDoc(doc(db, "chats", chatId, "messages", m.id), { seenBy: arrayUnion(myUid) }).catch(() => {});
+    });
+    updateDoc(doc(db, "chats", chatId), { [`lastSeen.${myUid}`]: serverTimestamp() }).catch(() => {});
   }, [messages, chatId, myUid]);
 
-  // -------------------- Scroll Detection --------------------
+  // -------------------- Scroll detection --------------------
   useEffect(() => {
     const el = messagesRefEl.current;
     if (!el) return;
-    const onScroll = () => setIsAtBottom(el.scrollHeight - el.scrollTop - el.clientHeight < 80);
+    const onScroll = () => {
+      const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+      setIsAtBottom(atBottom);
+    };
     el.addEventListener("scroll", onScroll);
+    // run once to initialize state
+    onScroll();
     return () => el.removeEventListener("scroll", onScroll);
   }, []);
 
-  // -------------------- Typing --------------------
-  const setTypingFlag = useCallback(async (typing) => {
-    if (!chatId || !myUid) return;
-    try { await updateDoc(doc(db, "chats", chatId), { [`typing.${myUid}`]: typing }); }
-    catch (e) { console.warn("Typing write failed", e); }
-  }, [chatId, myUid]);
+  // -------------------- Typing flag helpers --------------------
+  const setTypingFlag = useCallback(
+    async (typing) => {
+      if (!chatId || !myUid) return;
+      try {
+        await updateDoc(doc(db, "chats", chatId), { [`typing.${myUid}`]: typing });
+      } catch (e) {
+        // ignore
+      }
+    },
+    [chatId, myUid]
+  );
 
-  const handleUserTyping = useCallback((isTyping) => {
-    if (isTyping) {
-      setTypingFlag(true);
-      typingTimer.current && clearTimeout(typingTimer.current);
-      typingTimer.current = setTimeout(() => setTypingFlag(false), 1800);
-    } else {
-      setTypingFlag(false);
-      typingTimer.current && clearTimeout(typingTimer.current);
-    }
-  }, [setTypingFlag]);
+  const handleUserTyping = useCallback(
+    (isTyping) => {
+      if (isTyping) {
+        setTypingFlag(true);
+        typingTimer.current && clearTimeout(typingTimer.current);
+        typingTimer.current = setTimeout(() => setTypingFlag(false), 1800);
+      } else {
+        setTypingFlag(false);
+        typingTimer.current && clearTimeout(typingTimer.current);
+      }
+    },
+    [setTypingFlag]
+  );
 
-  // -------------------- Reaction Toggle --------------------
-  const handleReact = useCallback(async (messageId, emoji) => {
-    if (!chatId || !messageId || !myUid) return;
-    const msgRef = doc(db, "chats", chatId, "messages", messageId);
-    try {
-      const snap = await getDoc(msgRef);
-      const data = snap.data();
-      const userReacted = data?.reactions?.[emoji]?.includes(myUid);
-      await updateDoc(msgRef, { [`reactions.${emoji}`]: userReacted ? arrayRemove(myUid) : arrayUnion(myUid) });
-    } catch (err) { console.error("React failed", err); }
-  }, [chatId, myUid]);
+  // -------------------- React to a message --------------------
+  const handleReact = useCallback(
+    async (messageId, emoji) => {
+      if (!chatId || !messageId || !myUid) return;
+      const msgRef = doc(db, "chats", chatId, "messages", messageId);
+      try {
+        const snap = await getDoc(msgRef);
+        const data = snap.data();
+        const userReacted = data?.reactions?.[emoji]?.includes(myUid);
+        await updateDoc(msgRef, {
+          [`reactions.${emoji}`]: userReacted ? arrayRemove(myUid) : arrayUnion(myUid),
+        });
+      } catch (err) {
+        console.error("React failed", err);
+      }
+    },
+    [chatId, myUid]
+  );
 
-  // -------------------- Send Message --------------------
-  const sendMessage = useCallback(async (textMsg = "", files = []) => {
-    if (isBlocked) return toast.error("You cannot send messages to this user");
-    if (!textMsg && files.length === 0) return;
+  // -------------------- Core sendMessage (optimistic + persistence) --------------------
+  const sendMessage = useCallback(
+    async (textMsg = "", files = []) => {
+      if (isBlocked) {
+        toast.error("You cannot send messages to this user");
+        return;
+      }
+      if (!textMsg && files.length === 0) return;
 
-    if (isMuted) toast.info("This chat is muted. You won't receive notifications.");
+      if (isMuted) toast.info("This chat is muted. You won't receive notifications.");
 
-    const messagesCol = collection(db, "chats", chatId, "messages");
-    const tempId = `temp-${Date.now()}-${Math.random()}`;
-    const tempMessage = {
-      id: tempId,
-      senderId: myUid,
-      text: textMsg.trim(),
-      mediaUrls: files.map((f) => URL.createObjectURL(f)),
-      createdAt: new Date(),
-      reactions: {},
-      seenBy: [],
-      deliveredTo: [],
-      replyTo: replyTo ? { id: replyTo.id, text: replyTo.text, senderId: replyTo.senderId } : null,
-      status: "sending",
-      uploadProgress: 0,
-    };
-    setMessages((prev) => [...prev, tempMessage]);
-    setText("");  // ← clear ChatInput instantly
-    setReplyTo(null);
+      const messagesCol = collection(db, "chats", chatId, "messages");
+      const tempId = `temp-${Date.now()}-${Math.random()}`;
+      const tempMessage = {
+        id: tempId,
+        senderId: myUid,
+        text: textMsg?.trim() || "",
+        mediaUrls: files.map((f) => (typeof f === "string" ? f : URL.createObjectURL(f))),
+        createdAt: new Date(),
+        reactions: {},
+        seenBy: [],
+        deliveredTo: [],
+        replyTo: replyTo ? { id: replyTo.id, text: replyTo.text, senderId: replyTo.senderId } : null,
+        status: "sending",
+        uploadProgress: 0,
+      };
 
-    if (isAtBottom) endRef.current?.scrollIntoView({ behavior: "smooth" });
+      // Optimistically append
+      setMessages((prev) => [...prev, tempMessage]);
 
-    try {
-      const uploadedUrls = [];
-      for (const file of files) {
-        const formData = new FormData();
-        formData.append("file", file);
-        formData.append("upload_preset", import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET);
-        const res = await axios.post(
-          `https://api.cloudinary.com/v1_1/${import.meta.env.VITE_CLOUDINARY_CLOUD_NAME}/auto/upload`,
-          formData,
-          {
-            onUploadProgress: (ev) => {
-              const pct = Math.round((ev.loaded * 100) / ev.total);
-              setMessages((prev) => prev.map((m) => m.id === tempId ? { ...m, uploadProgress: pct } : m));
-            },
-          }
-        );
-        uploadedUrls.push(res.data.secure_url);
+      if (isAtBottom) {
+        setTimeout(() => endRef.current?.scrollIntoView({ behavior: "smooth" }), 40);
       }
 
-      const payload = { ...tempMessage, mediaUrls: uploadedUrls, createdAt: serverTimestamp(), status: "sent" };
-      const docRef = await addDoc(messagesCol, payload);
-      setMessages((prev) => prev.map((m) => m.id === tempId ? { ...payload, id: docRef.id, createdAt: new Date() } : m));
+      try {
+        const uploadedUrls = [];
+        for (const file of files) {
+          if (typeof file === "string") {
+            uploadedUrls.push(file);
+            continue;
+          }
+          const formData = new FormData();
+          formData.append("file", file);
+          formData.append("upload_preset", import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET);
+          const res = await axios.post(
+            `https://api.cloudinary.com/v1_1/${import.meta.env.VITE_CLOUDINARY_CLOUD_NAME}/auto/upload`,
+            formData,
+            {
+              onUploadProgress: (ev) => {
+                const pct = Math.round((ev.loaded * 100) / ev.total);
+                setMessages((prev) => prev.map((m) => (m.id === tempId ? { ...m, uploadProgress: pct } : m)));
+              },
+            }
+          );
+          uploadedUrls.push(res.data.secure_url);
+        }
 
-      await updateDoc(doc(db, "chats", chatId), {
-        lastMessage: textMsg || (files[0]?.name || "Media"),
-        lastMessageSender: myUid,
-        lastMessageAt: serverTimestamp(),
-        lastMessageStatus: "delivered",
-      });
-    } catch (err) {
-      console.error("Send message failed:", err);
-      toast.error("Failed to send message");
-      setMessages((prev) => prev.map((m) => m.id === tempId ? { ...m, status: "failed" } : m));
-    } finally {
-      setSelectedFiles([]); setCaption(""); setShowPreview(false);
-    }
-  }, [chatId, myUid, isBlocked, isAtBottom, replyTo, isMuted]);
+        const payload = {
+          ...tempMessage,
+          mediaUrls: uploadedUrls,
+          createdAt: serverTimestamp(),
+          status: "sent",
+        };
 
-  // -------------------- Media Viewer --------------------
-  const mediaItems = useMemo(() =>
-    messages.filter((m) => m.mediaUrls?.length).flatMap((m) => m.mediaUrls.map((url) => ({ url, id: m.id }))),
+        const docRef = await addDoc(messagesCol, payload);
+
+        // replace temp with real message
+        setMessages((prev) => prev.map((m) => (m.id === tempId ? { ...payload, id: docRef.id, createdAt: new Date() } : m)));
+
+        // update chat meta
+        await updateDoc(doc(db, "chats", chatId), {
+          lastMessage: textMsg || (files[0]?.name || "Media"),
+          lastMessageSender: myUid,
+          lastMessageAt: serverTimestamp(),
+          lastMessageStatus: "delivered",
+        });
+      } catch (err) {
+        console.error("Send message failed:", err);
+        toast.error("Failed to send message");
+        setMessages((prev) => prev.map((m) => (m.id === tempId ? { ...m, status: "failed" } : m)));
+      } finally {
+        setShowPreview(false);
+      }
+    },
+    [chatId, myUid, isBlocked, isAtBottom, replyTo, isMuted]
+  );
+
+  // Wrappers for ChatInput to clear input immediately
+  const sendTextHandler = (messageText) => {
+    const t = typeof messageText === "string" ? messageText : text;
+    if (!t || !t.trim()) return;
+    // clear UI immediately
+    setText("");
+    setReplyTo(null);
+    sendMessage(t, []);
+  };
+
+  const sendMediaHandler = (files) => {
+    if (!files || files.length === 0) return;
+    // clear preview/selection immediately
+    setSelectedFiles([]);
+    setCaption("");
+    setShowPreview(false);
+    setReplyTo(null);
+    sendMessage(caption || "", files);
+  };
+
+  // -------------------- Media items for MediaViewer --------------------
+  const mediaItems = useMemo(
+    () =>
+      messages
+        .filter((m) => m.mediaUrls?.length)
+        .flatMap((m) => m.mediaUrls.map((url) => ({ url, id: m.id }))),
     [messages]
   );
-  const openMediaViewerAtMessage = useCallback((message) => {
-    const index = mediaItems.findIndex((m) => m.id === message.id);
-    setMediaViewer({ open: true, startIndex: index >= 0 ? index : 0 });
-  }, [mediaItems]);
 
-  // -------------------- Scroll to Message --------------------
+  const openMediaViewerAtMessage = useCallback(
+    (message) => {
+      const index = mediaItems.findIndex((m) => m.id === message.id);
+      setMediaViewer({ open: true, startIndex: index >= 0 ? index : 0 });
+    },
+    [mediaItems]
+  );
+
+  // -------------------- Scroll to message helper --------------------
   const scrollToMessage = useCallback((id) => {
     const el = messageRefs.current[id];
     if (el) {
@@ -249,7 +364,7 @@ export default function ChatConversationPage() {
     }
   }, []);
 
-  // -------------------- Global Modal Actions --------------------
+  // -------------------- Delete helpers --------------------
   const handleDeleteForMe = (message) => {
     setMessages((prev) => prev.filter((m) => m.id !== message.id));
     toast.info("Message deleted for you");
@@ -257,17 +372,34 @@ export default function ChatConversationPage() {
   };
 
   const handleDeleteForEveryone = async (message) => {
-    await updateDoc(doc(db, "chats", chatId, "messages", message.id), { deleted: true });
+    await updateDoc(doc(db, "chats", chatId, "messages", message.id), { deleted: true }).catch(() => {});
     setMessages((prev) => prev.filter((m) => m.id !== message.id));
     toast.success("Message deleted for everyone");
     if (pinnedMessage?.id === message.id) setPinnedMessage(null);
   };
 
+  // -------------------- On chatId change: initial scroll to bottom --------------------
+  useEffect(() => {
+    if (!chatId) return;
+    initialScrollDone.current = false;
+    // scroll after small delay so DOM has time to render messages
+    setTimeout(() => endRef.current?.scrollIntoView({ behavior: "auto" }), 80);
+  }, [chatId]);
+
   // -------------------- Render --------------------
   if (!chatInfo || !friendInfo) return <div style={{ padding: 20 }}>Loading chat...</div>;
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100vh", backgroundColor: wallpaper || (isDark ? "#0b0b0b" : "#f5f5f5"), color: isDark ? "#fff" : "#000", position: "relative" }}>
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        height: "100vh",
+        backgroundColor: wallpaper || (isDark ? "#0b0b0b" : "#f5f5f5"),
+        color: isDark ? "#fff" : "#000",
+        position: "relative",
+      }}
+    >
       <ChatHeader
         friendId={friendInfo.id}
         chatId={chatId}
@@ -280,11 +412,10 @@ export default function ChatConversationPage() {
           if (!confirmed) return;
           const msgsRef = collection(db, "chats", chatId, "messages");
           const snap = await getDocs(msgsRef);
-          snap.forEach(async (m) => await updateDoc(doc(db, "chats", chatId, "messages", m.id), { deleted: true }));
+          await Promise.all(snap.docs.map((m) => updateDoc(doc(db, "chats", chatId, "messages", m.id), { deleted: true })));
           setMessages([]);
           toast.success("Chat cleared");
         }}
-        onViewMedia={() => setMediaViewer({ open: true, startIndex: 0 })}
         onVoiceCall={() => toast.info("Voice call started")}
         onVideoCall={() => toast.info("Video call started")}
       />
@@ -297,22 +428,32 @@ export default function ChatConversationPage() {
             myUid={myUid}
             isDark={isDark}
             setReplyTo={setReplyTo}
-            setPinnedMessage={setPinnedMessage}
+            setPinnedMessage={(m) => {
+              if (!m?.id) return;
+              updateDoc(doc(db, "chats", chatId), { pinnedMessageId: m.id }).catch(console.error);
+              setPinnedMessage(m);
+            }}
             onMediaClick={openMediaViewerAtMessage}
-            registerRef={(el) => { if (el) messageRefs.current[msg.id] = el; else delete messageRefs.current[msg.id]; }}
+            registerRef={(el) => {
+              if (el) messageRefs.current[msg.id] = el;
+              else delete messageRefs.current[msg.id];
+            }}
             onReact={handleReact}
             onDeleteForMe={handleDeleteForMe}
             onDeleteForEveryone={handleDeleteForEveryone}
-            onOpenLongPress={(msg) => { setLongPressMessage(msg); setEmojiPickerMessage(null); }}
-            onOpenEmojiPicker={(msg) => { setEmojiPickerMessage(msg); setLongPressMessage(null); }}
+            onOpenLongPress={(m) => setLongPressMessage(m)}
             isLongPressOpen={longPressMessage?.id === msg.id}
-            isEmojiPickerOpen={emojiPickerMessage?.id === msg.id}
           />
         ))}
+
         <div ref={endRef} />
       </div>
 
-      {friendTyping && <div style={{ padding: "0 12px 6px 12px", fontSize: 12, color: isDark ? "#ccc" : "#555" }}>{friendInfo?.name || "Contact"} is typing...</div>}
+      {friendTyping && (
+        <div style={{ padding: "0 12px 6px 12px", fontSize: 12, color: isDark ? "#ccc" : "#555" }}>
+          {friendInfo?.name || "Contact"} is typing...
+        </div>
+      )}
 
       <ChatInput
         text={text}
@@ -323,8 +464,8 @@ export default function ChatConversationPage() {
         isDark={isDark}
         replyTo={replyTo}
         setReplyTo={setReplyTo}
-        sendTextMessage={() => sendMessage(text, [])}
-        sendMediaMessage={(files) => sendMessage(caption, files)}
+        sendTextMessage={(givenText) => sendTextHandler(givenText)}
+        sendMediaMessage={(files) => sendMediaHandler(files)}
         disabled={isBlocked}
         friendTyping={friendTyping}
         setTyping={handleUserTyping}
@@ -336,27 +477,43 @@ export default function ChatConversationPage() {
           caption={caption}
           setCaption={setCaption}
           onRemove={(i) => setSelectedFiles((prev) => prev.filter((_, idx) => idx !== i))}
-          onSend={async () => { await sendMessage(caption, selectedFiles); setShowPreview(false); setCaption(""); }}
+          onSend={async () => {
+            await sendMessage(caption, selectedFiles);
+            setShowPreview(false);
+            setCaption("");
+            setSelectedFiles([]);
+          }}
           onClose={() => setShowPreview(false)}
           isDark={isDark}
         />
       )}
 
-      {mediaViewer.open && (
-        <MediaViewer items={mediaItems} startIndex={mediaViewer.startIndex} onClose={() => setMediaViewer({ open: false, startIndex: 0 })} />
-      )}
+      {mediaViewer.open && <MediaViewer items={mediaItems} startIndex={mediaViewer.startIndex} onClose={() => setMediaViewer({ open: false, startIndex: 0 })} />}
 
       {longPressMessage && (
         <LongPressMessageModal
           onClose={() => setLongPressMessage(null)}
           onReaction={(emoji) => handleReact(longPressMessage.id, emoji)}
-          onReply={() => { setReplyTo(longPressMessage); setLongPressMessage(null); }}
-          onCopy={() => { navigator.clipboard.writeText(longPressMessage.text || ""); toast.success("Copied!"); setLongPressMessage(null); }}
-          onPin={async () => { await updateDoc(doc(db, "chats", chatId), { pinnedMessageId: longPressMessage.id }); setPinnedMessage(longPressMessage); toast.success("Pinned!"); setLongPressMessage(null); }}
+          onReply={() => {
+            setReplyTo(longPressMessage);
+            setLongPressMessage(null);
+            setTimeout(() => scrollToMessage(longPressMessage.id), 200);
+          }}
+          onCopy={() => {
+            navigator.clipboard.writeText(longPressMessage.text || "");
+            toast.success("Copied!");
+            setLongPressMessage(null);
+          }}
+          onPin={async () => {
+            await updateDoc(doc(db, "chats", chatId), { pinnedMessageId: longPressMessage.id });
+            setPinnedMessage(longPressMessage);
+            toast.success("Pinned!");
+            setLongPressMessage(null);
+          }}
           onDeleteForMe={() => handleDeleteForMe(longPressMessage)}
           onDeleteForEveryone={() => handleDeleteForEveryone(longPressMessage)}
           isDark={isDark}
-          messageSenderName={longPressMessage.senderId === myUid ? "You" : friendInfo.name}
+          messageSenderName={longPressMessage.senderId === myUid ? "You" : friendInfo?.name}
         />
       )}
 
