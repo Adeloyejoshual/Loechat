@@ -11,10 +11,9 @@ export default function MediaViewer({ items = [], startIndex = 0, onClose }) {
   useEffect(() => setIndex(startIndex), [startIndex]);
 
   if (!items.length) return null;
-
   const current = items[index];
 
-  // ------------------ TOUCH HANDLERS ------------------
+  // ---------------- SWIPE ----------------
   const handleTouchStart = (e) => {
     touchStartX.current = e.touches[0].clientX;
     touchStartY.current = e.touches[0].clientY;
@@ -24,25 +23,32 @@ export default function MediaViewer({ items = [], startIndex = 0, onClose }) {
     const diffX = e.changedTouches[0].clientX - touchStartX.current;
     const diffY = e.changedTouches[0].clientY - touchStartY.current;
 
-    // Swipe left/right
-    if (Math.abs(diffX) > 80 && Math.abs(diffX) > Math.abs(diffY)) {
-      if (diffX > 0 && index > 0) setIndex((p) => p - 1);
-      else if (diffX < 0 && index < items.length - 1) setIndex((p) => p + 1);
-      setScale(1);
-    }
-
     // Swipe down to close
-    if (diffY > 100 && Math.abs(diffY) > Math.abs(diffX)) {
-      onClose();
+    if (diffY > 100) return onClose?.();
+
+    if (diffX > 80 && index > 0) {
+      setIndex((p) => p - 1);
+      setScale(1);
+    } else if (diffX < -80 && index < items.length - 1) {
+      setIndex((p) => p + 1);
+      setScale(1);
     }
   };
 
-  // ------------------ DOUBLE TAP ZOOM ------------------
+  // ---------------- DOUBLE TAP ZOOM ----------------
   const handleDoubleClick = () => {
     if (current.type === "image") setScale((p) => (p === 1 ? 2 : 1));
   };
 
-  // ------------------ SAVE TO DEVICE ------------------
+  // Pause video when switching
+  useEffect(() => {
+    if (mediaRef.current?.tagName === "VIDEO") {
+      mediaRef.current.pause();
+      mediaRef.current.currentTime = 0;
+    }
+  }, [index]);
+
+  // ---------------- SAVE ----------------
   const handleSave = async () => {
     try {
       const response = await fetch(current.url);
@@ -53,18 +59,10 @@ export default function MediaViewer({ items = [], startIndex = 0, onClose }) {
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
-    } catch (err) {
+    } catch {
       alert("Failed to save file");
     }
   };
-
-  // Pause video when switching slides
-  useEffect(() => {
-    if (mediaRef.current?.tagName === "VIDEO") {
-      mediaRef.current.pause();
-      mediaRef.current.currentTime = 0;
-    }
-  }, [index]);
 
   return (
     <div
@@ -91,17 +89,10 @@ export default function MediaViewer({ items = [], startIndex = 0, onClose }) {
         }}
         onClick={(e) => e.stopPropagation()}
       >
-        <span>
-          {index + 1} / {items.length}
-        </span>
-
+        <span>{index + 1} / {items.length}</span>
         <div style={{ display: "flex", gap: 16 }}>
-          <button onClick={handleSave} style={iconBtn}>
-            ⭳
-          </button>
-          <button onClick={onClose} style={iconBtn}>
-            ✕
-          </button>
+          <button onClick={handleSave} style={iconBtn}>⭳</button>
+          <button onClick={onClose} style={iconBtn}>✕</button>
         </div>
       </div>
 
@@ -124,10 +115,7 @@ export default function MediaViewer({ items = [], startIndex = 0, onClose }) {
             src={current.url}
             controls
             autoPlay
-            style={{
-              maxWidth: "100%",
-              maxHeight: "100%",
-            }}
+            style={{ maxWidth: "100%", maxHeight: "100%" }}
             onClick={(e) => e.stopPropagation()}
           />
         ) : (
@@ -174,10 +162,4 @@ export default function MediaViewer({ items = [], startIndex = 0, onClose }) {
   );
 }
 
-const iconBtn = {
-  background: "none",
-  color: "#fff",
-  border: "none",
-  fontSize: 22,
-  cursor: "pointer",
-};
+const iconBtn = { background: "none", color: "#fff", border: "none", fontSize: 22, cursor: "pointer" };
