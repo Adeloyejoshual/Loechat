@@ -157,35 +157,39 @@ export default function ImagePreviewModal({
       />
 
       {/* Controls */}
-      <div style={{ marginTop: 16, display: "flex", gap: 12 }}>
-        <button
-          onClick={() => onRemove(index)}
-          style={{
-            padding: "8px 16px",
-            backgroundColor: "red",
-            color: "#fff",
-            border: "none",
-            borderRadius: 4,
-            cursor: "pointer",
-          }}
-        >
-          Remove
-        </button>
-        <button
-          onClick={handleSend}
-          disabled={sending || disabled}
-          style={{
-            padding: "8px 16px",
-            backgroundColor: isDark ? "#4caf50" : "#1976d2",
-            color: "#fff",
-            border: "none",
-            borderRadius: 4,
-            cursor: sending || disabled ? "not-allowed" : "pointer",
-          }}
-        >
-          {sending ? "Sending..." : "Send"}
-        </button>
-      </div>
+<div style={{ marginTop: 16, display: "flex", gap: 12 }}>
+  <button
+    onClick={() => onRemove(index)}
+    style={{
+      padding: "8px 16px",
+      backgroundColor: "red",
+      color: "#fff",
+      border: "none",
+      borderRadius: 4,
+      cursor: "pointer",
+    }}
+  >
+    Remove
+  </button>
+  <button
+    onClick={handleSend}
+    disabled={sending || disabled}
+    style={{
+      padding: "8px 16px",
+      backgroundColor: isDark ? "#4caf50" : "#1976d2",
+      color: "#fff",
+      border: "none",
+      borderRadius: 4,
+      cursor: sending || disabled ? "not-allowed" : "pointer",
+    }}
+  >
+    {sending
+      ? "Sending..."
+      : previews.length > 1
+      ? `Send (${previews.length})`
+      : "Send"}
+  </button>
+</div>
     </div>
   );
 }
