@@ -13,14 +13,14 @@ import {
   addDoc,
   doc,
   updateDoc,
-  onSnapshot,
   arrayUnion,
   arrayRemove,
   serverTimestamp,
-  getDoc,
+  onSnapshot,
+  getDocs,
   orderBy,
   query,
-  getDocs,
+  getDoc,
 } from "firebase/firestore";
 import { db, auth } from "../firebaseConfig";
 import { ThemeContext } from "../context/ThemeContext";
@@ -60,6 +60,7 @@ export default function ChatConversationPage() {
   const typingTimer = useRef(null);
   const initialScrollDone = useRef(false);
 
+  // -------------------- STATE --------------------
   const [chatInfo, setChatInfo] = useState(null);
   const [friendInfo, setFriendInfo] = useState(null);
   const [messages, setMessages] = useState([]);
@@ -74,11 +75,10 @@ export default function ChatConversationPage() {
   const [mediaViewer, setMediaViewer] = useState({ open: false, startIndex: 0 });
   const [friendTyping, setFriendTyping] = useState(false);
   const [isAtBottom, setIsAtBottom] = useState(true);
-
-  // Long press modal
   const [longPressMessage, setLongPressMessage] = useState(null);
+  const [stickyDate, setStickyDate] = useState(null);
 
-  // -------------------- CHAT & FRIEND SUBS --------------------
+  // -------------------- CHAT & FRIEND SUB --------------------
   useEffect(() => {
     if (!chatId) return;
     const chatRef = doc(db, "chats", chatId);
@@ -94,18 +94,18 @@ export default function ChatConversationPage() {
       const friendId = (data.participants || []).find((p) => p !== myUid);
       if (friendId) {
         const userRef = doc(db, "users", friendId);
-        const unsubFriend = onSnapshot(userRef, (s) =>
-          s.exists() && setFriendInfo({ id: s.id, ...s.data() })
-        );
+        const unsubFriend = onSnapshot(userRef, (s) => {
+          if (s.exists()) setFriendInfo({ id: s.id, ...s.data() });
+        });
         unsubList.push(unsubFriend);
       } else setFriendInfo(null);
 
       // pinned message
       if (data.pinnedMessageId) {
         const pinnedRef = doc(db, "chats", chatId, "messages", data.pinnedMessageId);
-        const unsubPinned = onSnapshot(pinnedRef, (s) =>
-          s.exists() && setPinnedMessage({ id: s.id, ...s.data() })
-        );
+        const unsubPinned = onSnapshot(pinnedRef, (s) => {
+          if (s.exists()) setPinnedMessage({ id: s.id, ...s.data() });
+        });
         unsubList.push(unsubPinned);
       } else setPinnedMessage(null);
 
@@ -132,7 +132,6 @@ export default function ChatConversationPage() {
           ...d.data(),
           createdAt: d.data().createdAt?.toDate?.() || new Date(),
         }));
-
         setMessages(docs);
 
         // mark delivered
@@ -165,45 +164,54 @@ export default function ChatConversationPage() {
       (m) => m.senderId !== myUid && !(m.seenBy || []).includes(myUid)
     );
     unseen.forEach((m) => {
-      updateDoc(doc(db, "chats", chatId, "messages", m.id), {
-        seenBy: arrayUnion(myUid),
-      }).catch(() => {});
+      updateDoc(doc(db, "chats", chatId, "messages", m.id), { seenBy: arrayUnion(myUid) }).catch(() => {});
     });
     updateDoc(doc(db, "chats", chatId), {
       [`lastSeen.${myUid}`]: serverTimestamp(),
     }).catch(() => {});
   }, [messages, chatId, myUid]);
 
-  // -------------------- SCROLL DETECTION --------------------
+  // -------------------- SCROLL DETECTION & STICKY DATE --------------------
   useEffect(() => {
     const el = messagesRefEl.current;
     if (!el) return;
+
     let timeout;
     const onScroll = () => {
       clearTimeout(timeout);
       timeout = setTimeout(() => {
         const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
         setIsAtBottom(atBottom);
+
+        // sticky date
+        const children = Array.from(el.children).filter((c) => c.dataset?.type === "message");
+        for (let child of children) {
+          const rect = child.getBoundingClientRect();
+          const parentRect = el.getBoundingClientRect();
+          if (rect.top - parentRect.top >= 0) {
+            const msgDate = child.dataset.date;
+            if (msgDate !== stickyDate) setStickyDate(msgDate);
+            break;
+          }
+        }
       }, 50);
     };
+
     el.addEventListener("scroll", onScroll);
     onScroll();
     return () => {
       clearTimeout(timeout);
       el.removeEventListener("scroll", onScroll);
     };
-  }, []);
+  }, [messages, stickyDate]);
 
   // -------------------- TYPING --------------------
-  const setTypingFlag = useCallback(
-    async (typing) => {
-      if (!chatId || !myUid) return;
-      try {
-        await updateDoc(doc(db, "chats", chatId), { [`typing.${myUid}`]: typing });
-      } catch {}
-    },
-    [chatId, myUid]
-  );
+  const setTypingFlag = useCallback(async (typing) => {
+    if (!chatId || !myUid) return;
+    try {
+      await updateDoc(doc(db, "chats", chatId), { [`typing.${myUid}`]: typing });
+    } catch {}
+  }, [chatId, myUid]);
 
   const handleUserTyping = useCallback(
     (isTyping) => {
@@ -250,7 +258,6 @@ export default function ChatConversationPage() {
     async (textMsg = "", files = []) => {
       if (isBlocked) return toast.error("You cannot send messages to this user");
       if (!textMsg && files.length === 0) return;
-
       if (isMuted) toast.info("This chat is muted.");
 
       const messagesCol = collection(db, "chats", chatId, "messages");
@@ -271,6 +278,7 @@ export default function ChatConversationPage() {
         uploadProgress: 0,
       };
 
+      // immediately show message
       setMessages((prev) => [...prev, tempMessage]);
       if (isAtBottom)
         setTimeout(() => endRef.current?.scrollIntoView({ behavior: "smooth" }), 40);
@@ -285,6 +293,7 @@ export default function ChatConversationPage() {
           const formData = new FormData();
           formData.append("file", file);
           formData.append("upload_preset", import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET);
+
           const res = await axios.post(
             `https://api.cloudinary.com/v1_1/${import.meta.env.VITE_CLOUDINARY_CLOUD_NAME}/auto/upload`,
             formData,
@@ -300,7 +309,12 @@ export default function ChatConversationPage() {
           uploadedUrls.push(res.data.secure_url);
         }
 
-        const payload = { ...tempMessage, mediaUrls: uploadedUrls, createdAt: serverTimestamp(), status: "sent" };
+        const payload = {
+          ...tempMessage,
+          mediaUrls: uploadedUrls,
+          createdAt: serverTimestamp(),
+          status: "sent",
+        };
         const docRef = await addDoc(messagesCol, payload);
 
         setMessages((prev) =>
@@ -316,7 +330,9 @@ export default function ChatConversationPage() {
           lastMessageStatus: "delivered",
         });
       } catch {
-        setMessages((prev) => prev.map((m) => (m.id === tempId ? { ...m, status: "failed" } : m)));
+        setMessages((prev) =>
+          prev.map((m) => (m.id === tempId ? { ...m, status: "failed" } : m))
+        );
         toast.error("Failed to send message");
       } finally {
         setShowPreview(false);
@@ -367,18 +383,31 @@ export default function ChatConversationPage() {
     }
   }, []);
 
-  const handleDeleteForMe = (message) => {
-    setMessages((prev) => prev.filter((m) => m.id !== message.id));
-    toast.info("Message deleted for you");
-    if (pinnedMessage?.id === message.id) setPinnedMessage(null);
+  // -------------------- DATE HELPERS --------------------
+  const formatDateLabel = (dateStr) => {
+    const date = new Date(dateStr);
+    const today = new Date();
+    const yesterday = new Date(today);
+    yesterday.setDate(today.getDate() - 1);
+
+    if (date.toDateString() === today.toDateString()) return "Today";
+    if (date.toDateString() === yesterday.toDateString()) return "Yesterday";
+    return date.toLocaleDateString();
   };
 
-  const handleDeleteForEveryone = async (message) => {
-    await updateDoc(doc(db, "chats", chatId, "messages", message.id), { deleted: true }).catch(() => {});
-    setMessages((prev) => prev.filter((m) => m.id !== message.id));
-    toast.success("Message deleted for everyone");
-    if (pinnedMessage?.id === message.id) setPinnedMessage(null);
-  };
+  const messagesWithDateSeparators = useMemo(() => {
+    const res = [];
+    let lastDate = null;
+    messages.forEach((m) => {
+      const msgDate = new Date(m.createdAt).toDateString();
+      if (msgDate !== lastDate) {
+        res.push({ type: "date-separator", date: msgDate });
+        lastDate = msgDate;
+      }
+      res.push({ type: "message", data: m });
+    });
+    return res;
+  }, [messages]);
 
   // -------------------- INITIAL SCROLL --------------------
   useEffect(() => {
@@ -388,7 +417,8 @@ export default function ChatConversationPage() {
   }, [chatId]);
 
   // -------------------- RENDER --------------------
-  if (!chatInfo || !friendInfo) return <div style={{ padding: 20 }}>Loading chat...</div>;
+  if (!chatInfo || !friendInfo)
+    return <div style={{ padding: 20 }}>Loading chat...</div>;
 
   return (
     <div
@@ -403,6 +433,7 @@ export default function ChatConversationPage() {
     >
       <style>{flashHighlightStyle}</style>
 
+      {/* Header */}
       <ChatHeader
         friendId={friendInfo.id}
         chatId={chatId}
@@ -411,11 +442,14 @@ export default function ChatConversationPage() {
         onGoToPinned={() => pinnedMessage && scrollToMessage(pinnedMessage.id)}
         onSearch={() => toast.info("Search triggered")}
         onClearChat={async () => {
-          const confirmed = window.confirm("Clear all messages?");
-          if (!confirmed) return;
+          if (!window.confirm("Clear all messages?")) return;
           const msgsRef = collection(db, "chats", chatId, "messages");
           const snap = await getDocs(msgsRef);
-          await Promise.all(snap.docs.map((m) => updateDoc(doc(db, "chats", chatId, "messages", m.id), { deleted: true })));
+          await Promise.all(
+            snap.docs.map((m) =>
+              updateDoc(doc(db, "chats", chatId, "messages", m.id), { deleted: true })
+            )
+          );
           setMessages([]);
           toast.success("Chat cleared");
         }}
@@ -423,40 +457,92 @@ export default function ChatConversationPage() {
         onVideoCall={() => toast.info("Video call started")}
       />
 
-      <div ref={messagesRefEl} style={{ flex: 1, overflowY: "auto", padding: 8, display: "flex", flexDirection: "column" }}>
-        {messages.map((msg) => (
-          <MessageItem
-            key={msg.id}
-            message={msg}
-            myUid={myUid}
-            isDark={isDark}
-            setReplyTo={setReplyTo}
-            setPinnedMessage={(m) => {
-              if (!m?.id) return;
-              updateDoc(doc(db, "chats", chatId), { pinnedMessageId: m.id }).catch(console.error);
-              setPinnedMessage(m);
-            }}
-            onMediaClick={openMediaViewerAtMessage}
-            registerRef={(el) => {
-              if (el) messageRefs.current[msg.id] = el;
-              else delete messageRefs.current[msg.id];
-            }}
-            onReact={handleReact}
-            onDeleteForMe={handleDeleteForMe}
-            onDeleteForEveryone={handleDeleteForEveryone}
-            onOpenLongPress={(m) => setLongPressMessage(m)}
-            isLongPressOpen={longPressMessage?.id === msg.id}
-          />
-        ))}
+      {/* Sticky Date */}
+      {stickyDate && (
+        <div
+          style={{
+            position: "sticky",
+            top: 0,
+            zIndex: 5,
+            textAlign: "center",
+            background: wallpaper || (isDark ? "#0b0b0b" : "#f5f5f5"),
+            color: isDark ? "#888" : "#555",
+            fontSize: 12,
+            padding: "4px 0",
+          }}
+        >
+          {formatDateLabel(stickyDate)}
+        </div>
+      )}
+
+      {/* Messages List */}
+      <div
+        ref={messagesRefEl}
+        style={{
+          flex: 1,
+          overflowY: "auto",
+          padding: 8,
+          display: "flex",
+          flexDirection: "column",
+        }}
+      >
+        {messagesWithDateSeparators.map((item, idx) => {
+          if (item.type === "date-separator") {
+            return (
+              <div
+                key={`date-${idx}`}
+                style={{
+                  textAlign: "center",
+                  margin: "8px 0",
+                  color: isDark ? "#888" : "#555",
+                  fontSize: 12,
+                }}
+              >
+                {formatDateLabel(item.date)}
+              </div>
+            );
+          } else if (item.type === "message") {
+            const msg = item.data;
+            return (
+              <MessageItem
+                key={msg.id}
+                message={msg}
+                myUid={myUid}
+                isDark={isDark}
+                setReplyTo={setReplyTo}
+                setPinnedMessage={(m) => {
+                  if (!m?.id) return;
+                  updateDoc(doc(db, "chats", chatId), { pinnedMessageId: m.id }).catch(console.error);
+                  setPinnedMessage(m);
+                }}
+                onMediaClick={openMediaViewerAtMessage}
+                registerRef={(el) => {
+                  if (el) messageRefs.current[msg.id] = el;
+                  else delete messageRefs.current[msg.id];
+                }}
+                onReact={handleReact}
+                onDeleteForMe={handleDeleteForMe}
+                onDeleteForEveryone={handleDeleteForEveryone}
+                onOpenLongPress={(m) => setLongPressMessage(m)}
+                isLongPressOpen={longPressMessage?.id === msg.id}
+                data-date={new Date(msg.createdAt).toDateString()}
+                data-type="message"
+              />
+            );
+          }
+          return null;
+        })}
         <div ref={endRef} />
       </div>
 
+      {/* Typing Indicator */}
       {friendTyping && (
         <div style={{ padding: "0 12px 6px 12px", fontSize: 12, color: isDark ? "#ccc" : "#555" }}>
           {friendInfo?.name || "Contact"} is typing...
         </div>
       )}
 
+      {/* Chat Input */}
       <ChatInput
         text={text}
         setText={setText}
@@ -473,7 +559,7 @@ export default function ChatConversationPage() {
         setTyping={handleUserTyping}
       />
 
-      {/* Image / Media preview modal */}
+      {/* Image Preview Modal */}
       {showPreview && selectedFiles.length > 0 && (
         <ImagePreviewModal
           previews={selectedFiles.map((f) => ({ file: f, url: URL.createObjectURL(f) }))}
@@ -491,7 +577,7 @@ export default function ChatConversationPage() {
         />
       )}
 
-      {/* Media viewer */}
+      {/* Media Viewer */}
       {mediaViewer.open && (
         <MediaViewer
           items={mediaItems}
@@ -500,7 +586,7 @@ export default function ChatConversationPage() {
         />
       )}
 
-      {/* Long press message modal */}
+      {/* Long Press Message Modal */}
       {longPressMessage && (
         <LongPressMessageModal
           onClose={() => setLongPressMessage(null)}
