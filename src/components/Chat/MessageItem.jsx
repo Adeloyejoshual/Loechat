@@ -31,7 +31,7 @@ export default function MessageItem({
   setPinnedMessage,
   onMediaClick,
   registerRef,
-  chatContainerRef, // <-- parent scroll container
+  chatContainerRef,
 }) {
   const isMine = message.senderId === myUid;
   const containerRef = useRef(null);
@@ -57,20 +57,19 @@ export default function MessageItem({
     if (containerRef.current && registerRef) registerRef(containerRef.current);
   }, [registerRef]);
 
-  // --------- smart auto-scroll ---------
+  // smart auto-scroll
   useEffect(() => {
     if (!chatContainerRef?.current || !containerRef.current) return;
-
     const container = chatContainerRef.current;
-    const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
-    const scrollThreshold = 120; // px considered "near bottom"
-
+    const distanceFromBottom =
+      container.scrollHeight - container.scrollTop - container.clientHeight;
+    const scrollThreshold = 120;
     if (distanceFromBottom < scrollThreshold) {
       containerRef.current.scrollIntoView({ behavior: "smooth", block: "end" });
     }
   }, [message.createdAt, chatContainerRef]);
 
-  // --------- long press / swipe ----------
+  // long press / swipe
   const startLongPress = () => {
     if (longPressOpen || emojiOpen) return;
     longPressTimer.current = setTimeout(() => {
@@ -108,7 +107,7 @@ export default function MessageItem({
     setSwipeActive(false);
   };
 
-  // --------- reactions ----------
+  // reactions
   const toggleReaction = async (emoji) => {
     if (!message?.id || !message?.chatId) return;
     const msgRef = doc(db, "chats", message.chatId, "messages", message.id);
@@ -132,36 +131,26 @@ export default function MessageItem({
     }
   };
 
-  // --------- pin / edit / delete / copy ----------
+  // pin / edit / delete / copy
   const pinMessage = async () => {
     if (!message?.id || !message?.chatId) return;
     try {
       const msgRef = doc(db, "chats", message.chatId, "messages", message.id);
-      await updateDoc(msgRef, { pinned: true, pinnedAt: serverTimestamp(), pinnedBy: myUid });
-      try { await updateDoc(doc(db, "chats", message.chatId), { pinnedMessageId: message.id }); } catch {}
+      await updateDoc(msgRef, {
+        pinned: true,
+        pinnedAt: serverTimestamp(),
+        pinnedBy: myUid,
+      });
+      try {
+        await updateDoc(doc(db, "chats", message.chatId), {
+          pinnedMessageId: message.id,
+        });
+      } catch {}
       setPinnedMessage?.(message);
       toast.success("Pinned message");
     } catch (err) {
       console.error("pinMessage", err);
       toast.error("Pin failed");
-    }
-  };
-
-  const editMessage = async () => {
-    if (!isMine) return toast.info("You can only edit your messages");
-    const newText = window.prompt("Edit message:", message.text || "");
-    if (newText == null) return;
-    try {
-      await updateDoc(doc(db, "chats", message.chatId, "messages", message.id), {
-        text: newText,
-        editedAt: serverTimestamp(),
-        editedBy: myUid,
-      });
-      toast.success("Message edited");
-      setLongPressOpen(false);
-    } catch (err) {
-      console.error("editMessage", err);
-      toast.error("Edit failed");
     }
   };
 
@@ -203,7 +192,7 @@ export default function MessageItem({
     }
   };
 
-  // --------- media rendering ----------
+  // media
   const mediaArray = message.mediaUrls || (message.mediaUrl ? [message.mediaUrl] : []);
   const renderMediaGrid = () => {
     if (!mediaArray.length) return null;
@@ -226,7 +215,10 @@ export default function MessageItem({
         }}
       >
         {mediaArray.slice(0, maxVisible).map((url, i) => (
-          <div key={i} style={{ position: "relative", borderRadius: 12, overflow: "hidden" }}>
+          <div
+            key={i}
+            style={{ position: "relative", borderRadius: 12, overflow: "hidden" }}
+          >
             <img
               src={url}
               alt=""
@@ -234,24 +226,45 @@ export default function MessageItem({
               style={{ width: "100%", height: "100%", objectFit: "cover", cursor: "pointer" }}
             />
             {message.status === "sending" && message.uploadProgress != null && (
-              <div style={{
-                position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center",
-                backgroundColor: "rgba(0,0,0,0.28)", color: "#fff", fontWeight: 700
-              }}>{message.uploadProgress}%</div>
+              <div
+                style={{
+                  position: "absolute",
+                  inset: 0,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  backgroundColor: "rgba(0,0,0,0.28)",
+                  color: "#fff",
+                  fontWeight: 700,
+                }}
+              >
+                {message.uploadProgress}%
+              </div>
             )}
           </div>
         ))}
         {extra > 0 && (
-          <div style={{
-            position: "absolute", right: 10, bottom: 10, backgroundColor: "rgba(0,0,0,0.5)",
-            color: "#fff", padding: "6px 8px", borderRadius: 10, fontWeight: 700
-          }}>{`+${extra}`}</div>
+          <div
+            style={{
+              position: "absolute",
+              right: 10,
+              bottom: 10,
+              backgroundColor: "rgba(0,0,0,0.5)",
+              color: "#fff",
+              padding: "6px 8px",
+              borderRadius: 10,
+              fontWeight: 700,
+            }}
+          >
+            {`+${extra}`}
+          </div>
         )}
       </div>
     );
   };
 
-  if (message.deleted || (message.deletedFor && message.deletedFor.includes?.(myUid))) return null;
+  if (message.deleted || (message.deletedFor && message.deletedFor.includes?.(myUid)))
+    return null;
 
   return (
     <>
@@ -280,6 +293,7 @@ export default function MessageItem({
         }}
       >
         {renderMediaGrid()}
+
         {message.text && (
           <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.4 }}>
             {message.text.slice(0, visibleChars)}
@@ -294,7 +308,7 @@ export default function MessageItem({
           </div>
         )}
 
-        {/* reactions summary */}
+        {/* Reactions summary */}
         {localReactions && Object.keys(localReactions).length > 0 && (
           <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
             {Object.entries(localReactions).map(([emoji, users]) => (
@@ -308,7 +322,9 @@ export default function MessageItem({
                   gap: 6,
                   padding: "4px 6px",
                   borderRadius: 14,
-                  background: isDark ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.04)",
+                  background: isDark
+                    ? "rgba(255,255,255,0.03)"
+                    : "rgba(0,0,0,0.04)",
                   border: "none",
                   cursor: "pointer",
                   fontSize: 13,
@@ -321,15 +337,29 @@ export default function MessageItem({
           </div>
         )}
 
-        <div style={{ fontSize: 10, opacity: 0.6, textAlign: "right", marginTop: 8 }}>
-          {fmtTime(message.createdAt)}{message.editedAt ? " • edited" : ""}
+        <div
+          style={{
+            fontSize: 10,
+            opacity: 0.6,
+            textAlign: "right",
+            marginTop: 8,
+          }}
+        >
+          {fmtTime(message.createdAt)}
+          {message.editedAt ? " • edited" : ""}
         </div>
 
         {reactionAnim.show && (
-          <div style={{
-            position: "absolute", top: -20, right: 10, fontSize: 20,
-            animation: "floatUp 0.8s ease-out forwards", pointerEvents: "none"
-          }}>
+          <div
+            style={{
+              position: "absolute",
+              top: -20,
+              right: 10,
+              fontSize: 20,
+              animation: "floatUp 0.8s ease-out forwards",
+              pointerEvents: "none",
+            }}
+          >
             {reactionAnim.emoji}
           </div>
         )}
@@ -340,23 +370,58 @@ export default function MessageItem({
         <LongPressMessageModal
           isDark={isDark}
           onClose={() => setLongPressOpen(false)}
-          onReaction={(emoji) => { toggleReaction(emoji); setLongPressOpen(false); }}
-          onReply={() => { setReplyTo?.(message); setLongPressOpen(false); }}
+          onReaction={(emoji) => {
+            toggleReaction(emoji);
+            setLongPressOpen(false);
+          }}
+          onReply={() => {
+            setReplyTo?.(message);
+            setLongPressOpen(false);
+          }}
           onCopy={copyText}
-          onPin={async () => { await pinMessage(); setLongPressOpen(false); }}
-          onDeleteForMe={async () => { await deleteForMe(); setLongPressOpen(false); }}
-          onDeleteForEveryone={async () => { await deleteForEveryone(); setLongPressOpen(false); }}
+          onPin={async () => {
+            await pinMessage();
+            setLongPressOpen(false);
+          }}
+          onDeleteForMe={async () => {
+            await deleteForMe();
+            setLongPressOpen(false);
+          }}
+          onDeleteForEveryone={async () => {
+            await deleteForEveryone();
+            setLongPressOpen(false);
+          }}
           message={message}
-          onMediaClick={(m, i) => { onMediaClick?.(m, i); setLongPressOpen(false); }}
+          onMediaClick={(m, i) => {
+            onMediaClick?.(m, i);
+            setLongPressOpen(false);
+          }}
+          openFullEmojiPicker={() => {
+            setLongPressOpen(false);
+            setEmojiOpen(true);
+          }}
         />
       )}
 
-      {/* Emoji picker */}
+      {/* Full Emoji picker */}
       {emojiOpen && (
-        <div style={{ position: "fixed", inset: 0, zIndex: 4000, display: "flex", justifyContent: "center", alignItems: "flex-end", padding: 12 }}>
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 4000,
+            display: "flex",
+            justifyContent: "center",
+            alignItems: "flex-end",
+            padding: 12,
+          }}
+        >
           <div style={{ width: "100%", maxWidth: 500 }}>
             <EmojiPicker
-              onSelect={(emoji) => { toggleReaction(emoji); setEmojiOpen(false); }}
+              onSelect={(emoji) => {
+                toggleReaction(emoji);
+                setEmojiOpen(false);
+              }}
               onClose={() => setEmojiOpen(false)}
             />
           </div>
