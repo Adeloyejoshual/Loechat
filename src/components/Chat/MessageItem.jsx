@@ -3,10 +3,11 @@ import React, { useRef, useEffect, useState } from "react";
 import {
   doc,
   updateDoc,
-  getDoc,
   arrayUnion,
   arrayRemove,
   serverTimestamp,
+  onSnapshot,
+  getDoc,
 } from "firebase/firestore";
 import { db } from "../../firebaseConfig";
 import LongPressMessageModal from "./LongPressMessageModal";
@@ -17,7 +18,6 @@ const READ_MORE_STEP = 450;
 const LONG_PRESS_DELAY = 700;
 const SWIPE_TRIGGER_DISTANCE = 60;
 
-// Format timestamp to "HH:MM"
 const fmtTime = (ts) => {
   if (!ts) return "";
   const d = ts.toDate ? ts.toDate() : new Date(ts);
@@ -44,21 +44,73 @@ export default function MessageItem({
   const [emojiOpen, setEmojiOpen] = useState(false);
   const [reactionAnim, setReactionAnim] = useState({ show: false, emoji: "" });
   const [localReactions, setLocalReactions] = useState(message.reactions || {});
+  const [status, setStatus] = useState(message.status || "sending");
 
   const longPressTimer = useRef(null);
   const touchStartX = useRef(0);
 
-  // Sync local reactions with message
+  // ------------------- Real-time reactions & status -------------------
   useEffect(() => {
     setLocalReactions(message.reactions || {});
   }, [message.reactions]);
 
-  // Register ref for scroll-to
+  // Real-time updates for delivered/seen
+  useEffect(() => {
+    if (!message.id || !message.chatId) return;
+    const msgRef = doc(db, "chats", message.chatId, "messages", message.id);
+
+    const unsubscribe = onSnapshot(msgRef, (snap) => {
+      const data = snap.data();
+      if (!data) return;
+
+      setLocalReactions(data.reactions || {});
+
+      if (isMine) {
+        if (data.seenBy?.length > 0) setStatus("seen");
+        else if (data.deliveredTo?.length > 0) setStatus("delivered");
+        else setStatus("sent");
+      }
+    });
+
+    return () => unsubscribe();
+  }, [message.id, message.chatId, isMine]);
+
+  // Mark as delivered if incoming message
+  useEffect(() => {
+    if (!message.id || !message.chatId || isMine) return;
+    const msgRef = doc(db, "chats", message.chatId, "messages", message.id);
+
+    getDoc(msgRef).then((snap) => {
+      const data = snap.data() || {};
+      if (!(data.deliveredTo || []).includes(myUid)) {
+        updateDoc(msgRef, { deliveredTo: arrayUnion(myUid) }).catch(console.error);
+      }
+    });
+  }, [message.id, message.chatId, isMine, myUid]);
+
+  // Mark as seen when visible
+  useEffect(() => {
+    if (!containerRef.current || isMine) return;
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          const msgRef = doc(db, "chats", message.chatId, "messages", message.id);
+          updateDoc(msgRef, { seenBy: arrayUnion(myUid) }).catch(console.error);
+        }
+      },
+      { threshold: 0.6 }
+    );
+
+    observer.observe(containerRef.current);
+    return () => observer.disconnect();
+  }, [message, myUid, isMine]);
+
+  // ------------------- Scroll & refs -------------------
   useEffect(() => {
     if (containerRef.current && registerRef) registerRef(containerRef.current);
   }, [registerRef]);
 
-  // Auto-scroll if near bottom
   useEffect(() => {
     if (!chatContainerRef?.current || !containerRef.current) return;
     const container = chatContainerRef.current;
@@ -329,15 +381,17 @@ export default function MessageItem({
           </div>
         )}
 
-        <div
-          style={{
-            fontSize: 10,
-            opacity: 0.6,
-            textAlign: "right",
-            marginTop: 8,
-          }}
-        >
-          {fmtTime(message.createdAt)}
+        {/* Timestamp + status ticks */}
+        <div style={{ fontSize: 10, opacity: 0.6, textAlign: "right", marginTop: 8 }}>
+          {fmtTime(message.createdAt)}{" "}
+          {isMine && (
+            <span style={{ color: status === "seen" ? "green" : "inherit" }}>
+              {status === "sending" && "•"}
+              {status === "sent" && "✓"}
+              {status === "delivered" && "✓✓"}
+              {status === "seen" && "✓✓"}
+            </span>
+          )}
           {message.editedAt ? " • edited" : ""}
         </div>
 
