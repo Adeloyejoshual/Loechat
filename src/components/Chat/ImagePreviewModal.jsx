@@ -1,4 +1,4 @@
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
 
 export default function ImagePreviewModal({
   previews = [], // [{ file, previewUrl }]
@@ -12,46 +12,64 @@ export default function ImagePreviewModal({
 }) {
   const [index, setIndex] = useState(0);
   const [sending, setSending] = useState(false);
-  const [translateY, setTranslateY] = useState(0);
+  const [translate, setTranslate] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
-  const startY = useRef(0);
+  const startPos = useRef({ x: 0, y: 0 });
 
   if (!previews.length) return null;
-
   const current = previews[index];
 
-  const handleNext = () => setIndex((p) => Math.min(p + 1, previews.length - 1));
-  const handlePrev = () => setIndex((p) => Math.max(p - 1, 0));
+  const handleNext = () => setIndex((i) => Math.min(i + 1, previews.length - 1));
+  const handlePrev = () => setIndex((i) => Math.max(i - 1, 0));
 
-  // Touch swipe to close
+  // --- Touch handlers for swipe ---
   const handleTouchStart = (e) => {
-    startY.current = e.touches[0].clientY;
+    const t = e.touches[0];
+    startPos.current = { x: t.clientX, y: t.clientY };
     setIsDragging(true);
   };
+
   const handleTouchMove = (e) => {
     if (!isDragging) return;
-    const dy = e.touches[0].clientY - startY.current;
-    if (dy > 0) setTranslateY(dy);
-  };
-  const handleTouchEnd = () => {
-    setIsDragging(false);
-    if (translateY > 120) onClose();
-    setTranslateY(0);
+    const t = e.touches[0];
+    const dx = t.clientX - startPos.current.x;
+    const dy = t.clientY - startPos.current.y;
+    setTranslate({ x: dx, y: dy });
   };
 
-  // Send all files with caption
+  const handleTouchEnd = () => {
+    setIsDragging(false);
+    const { x, y } = translate;
+
+    // Swipe down to close
+    if (y > 120) return onClose();
+
+    // Swipe left/right for navigation
+    if (x < -80 && index < previews.length - 1) handleNext();
+    else if (x > 80 && index > 0) handlePrev();
+
+    // reset translate
+    setTranslate({ x: 0, y: 0 });
+  };
+
+  // --- Send handler ---
   const handleSend = async () => {
     if (sending || disabled) return;
     setSending(true);
     try {
       await onSend(previews.map((p) => p.file), initialCaption);
-      setCaption(""); // reset caption
+      setCaption("");
       onClose();
     } catch (err) {
       console.error("Send failed", err);
       setSending(false);
     }
   };
+
+  // --- Revoke object URLs to prevent memory leaks ---
+  useEffect(() => {
+    return () => previews.forEach((p) => p.previewUrl && URL.revokeObjectURL(p.previewUrl));
+  }, [previews]);
 
   return (
     <div
@@ -64,7 +82,6 @@ export default function ImagePreviewModal({
         justifyContent: "center",
         alignItems: "center",
         zIndex: 9999,
-        transition: isDragging ? "none" : "background 0.2s ease",
       }}
     >
       {/* Close button */}
@@ -91,7 +108,7 @@ export default function ImagePreviewModal({
           alignItems: "center",
           maxWidth: "90%",
           maxHeight: "70%",
-          transform: `translateY(${translateY}px)`,
+          transform: `translate(${translate.x}px, ${translate.y}px)`,
           transition: isDragging ? "none" : "transform 0.25s ease",
           touchAction: "none",
         }}
@@ -99,51 +116,36 @@ export default function ImagePreviewModal({
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
       >
-        <button
-          onClick={handlePrev}
-          disabled={index === 0}
-          style={{
-            background: "transparent",
-            border: "none",
-            fontSize: 32,
-            color: isDark ? "#fff" : "#000",
-            cursor: index === 0 ? "not-allowed" : "pointer",
-            marginRight: 8,
-          }}
-        >
-          ‹
-        </button>
-
         {current.file.type.startsWith("video/") ? (
           <video
-            src={current.previewUrl}
+            src={current.previewUrl || URL.createObjectURL(current.file)}
             controls
             style={{ maxHeight: "60vh", maxWidth: "80vw", borderRadius: 8 }}
           />
         ) : (
           <img
-            src={current.previewUrl}
+            src={current.previewUrl || URL.createObjectURL(current.file)}
             alt="preview"
             style={{ maxHeight: "60vh", maxWidth: "80vw", borderRadius: 8 }}
             draggable={false}
           />
         )}
-
-        <button
-          onClick={handleNext}
-          disabled={index === previews.length - 1}
-          style={{
-            background: "transparent",
-            border: "none",
-            fontSize: 32,
-            color: isDark ? "#fff" : "#000",
-            cursor: index === previews.length - 1 ? "not-allowed" : "pointer",
-            marginLeft: 8,
-          }}
-        >
-          ›
-        </button>
       </div>
+
+      {/* Navigation buttons for non-touch users */}
+      {previews.length > 1 && (
+        <div style={{ display: "flex", marginTop: 12, gap: 16 }}>
+          <button onClick={handlePrev} disabled={index === 0}>
+            ‹ Prev
+          </button>
+          <span style={{ color: isDark ? "#fff" : "#000" }}>
+            {index + 1} / {previews.length}
+          </span>
+          <button onClick={handleNext} disabled={index === previews.length - 1}>
+            Next ›
+          </button>
+        </div>
+      )}
 
       {/* Caption Input */}
       <textarea
@@ -191,13 +193,6 @@ export default function ImagePreviewModal({
           {sending ? "Sending..." : "Send"}
         </button>
       </div>
-
-      {/* Index Indicator */}
-      {previews.length > 1 && (
-        <div style={{ marginTop: 12, color: isDark ? "#fff" : "#000", fontSize: 14 }}>
-          {index + 1} / {previews.length}
-        </div>
-      )}
     </div>
   );
 }
