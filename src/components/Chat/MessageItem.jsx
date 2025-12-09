@@ -1,16 +1,35 @@
 // src/components/Chat/MessageItem.jsx
 import React, { useRef, useEffect, useState } from "react";
-import { doc, updateDoc } from "firebase/firestore";
+import {
+  doc,
+  updateDoc,
+  getDoc,
+  arrayUnion,
+  arrayRemove,
+  serverTimestamp,
+} from "firebase/firestore";
 import { db } from "../../firebaseConfig";
 import LongPressMessageModal from "./LongPressMessageModal";
 import EmojiPicker from "./EmojiPicker";
 import { toast } from "react-toastify";
 
+/**
+ * MessageItem
+ *
+ * Props:
+ *  - message: { id, chatId, senderId, text, mediaUrls[], createdAt, reactions, status, editedAt, ... }
+ *  - myUid
+ *  - isDark
+ *  - setReplyTo (fn)
+ *  - setPinnedMessage (fn)  -- optional, used to update UI after pin
+ *  - onMediaClick (fn(message, index))
+ *  - registerRef (fn(el)) for scroll-to
+ */
 const READ_MORE_STEP = 450;
 const LONG_PRESS_DELAY = 700;
 const SWIPE_TRIGGER_DISTANCE = 60;
 
-const formatTime = (ts) => {
+const fmtTime = (ts) => {
   if (!ts) return "";
   const d = ts.toDate ? ts.toDate() : new Date(ts);
   return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -24,53 +43,188 @@ export default function MessageItem({
   setPinnedMessage,
   onMediaClick,
   registerRef,
-  onReact,
-  onDeleteForMe,
-  onDeleteForEveryone,
-  onOpenLongPress,
-  onOpenEmojiPicker,
-  isLongPressOpen,
-  isEmojiPickerOpen,
 }) {
   const isMine = message.senderId === myUid;
   const containerRef = useRef(null);
-  const longPressTimer = useRef(null);
 
+  // UI state
   const [visibleChars, setVisibleChars] = useState(READ_MORE_STEP);
-  const isLongText = Boolean(message.text && message.text.length > visibleChars);
-
-  const swipeStartX = useRef(0);
   const [swipeX, setSwipeX] = useState(0);
   const [swipeActive, setSwipeActive] = useState(false);
-
+  const [longPressOpen, setLongPressOpen] = useState(false);
+  const [emojiOpen, setEmojiOpen] = useState(false);
+  const [reactionAnim, setReactionAnim] = useState({ show: false, emoji: "" });
   const [localReactions, setLocalReactions] = useState(message.reactions || {});
-  const [reactionAnim, setReactionAnim] = useState({ show: false, emoji: "❤️" });
 
-  useEffect(() => setLocalReactions(message.reactions || {}), [message.reactions]);
+  // refs
+  const longPressTimer = useRef(null);
+  const touchStartX = useRef(0);
+
+  // keep local reactions in sync
   useEffect(() => {
-    if (containerRef.current) registerRef?.(containerRef.current);
-  }, []);
+    setLocalReactions(message.reactions || {});
+  }, [message.reactions]);
 
+  // register for scroll-to
+  useEffect(() => {
+    if (containerRef.current && registerRef) registerRef(containerRef.current);
+    // parent is responsible for removing refs
+  }, [registerRef]);
+
+  // --------- long press / swipe handling ----------
   const startLongPress = () => {
-    longPressTimer.current = setTimeout(() => onOpenLongPress(message), LONG_PRESS_DELAY);
+    // if either modal already open, don't start a new timer
+    if (longPressOpen || emojiOpen) return;
+    longPressTimer.current = setTimeout(() => {
+      setLongPressOpen(true);
+      setEmojiOpen(false);
+    }, LONG_PRESS_DELAY);
   };
+
   const cancelLongPress = () => {
-    if (longPressTimer.current) clearTimeout(longPressTimer.current);
-    longPressTimer.current = null;
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
   };
 
-  const handleReact = (emoji) => {
-    onReact?.(message.id, emoji);
-    setReactionAnim({ show: true, emoji });
-    setTimeout(() => setReactionAnim({ show: false, emoji }), 800);
+  const onTouchStart = (e) => {
+    touchStartX.current = e.touches[0].clientX;
+    setSwipeActive(true);
+    startLongPress();
   };
 
+  const onTouchMove = (e) => {
+    const diff = e.touches[0].clientX - touchStartX.current;
+    if (Math.abs(diff) > 10) cancelLongPress();
+    if (!swipeActive) return;
+    setSwipeX(Math.max(Math.min(diff, 140), -140));
+  };
+
+  const onTouchEnd = () => {
+    cancelLongPress();
+    if (swipeActive && Math.abs(swipeX) > SWIPE_TRIGGER_DISTANCE) {
+      // reply
+      setReplyTo?.(message);
+    }
+    setSwipeX(0);
+    setSwipeActive(false);
+  };
+
+  // --------- reactions (toggle) ----------
+  const toggleReaction = async (emoji) => {
+    if (!message?.id || !message?.chatId) return;
+    const msgRef = doc(db, "chats", message.chatId, "messages", message.id);
+    try {
+      const snap = await getDoc(msgRef);
+      const data = snap.data() || {};
+      const current = data.reactions || {};
+      const users = current[emoji] || [];
+      const reacted = users.includes(myUid);
+
+      if (reacted) {
+        await updateDoc(msgRef, { [`reactions.${emoji}`]: arrayRemove(myUid) });
+      } else {
+        await updateDoc(msgRef, { [`reactions.${emoji}`]: arrayUnion(myUid) });
+      }
+
+      // small visual animation
+      setReactionAnim({ show: true, emoji });
+      setTimeout(() => setReactionAnim({ show: false, emoji: "" }), 700);
+    } catch (err) {
+      console.error("toggleReaction", err);
+      toast.error("Failed to react");
+    }
+  };
+
+  // --------- pin, edit, delete, copy ----------
+  const pinMessage = async () => {
+    if (!message?.id || !message?.chatId) return;
+    try {
+      const msgRef = doc(db, "chats", message.chatId, "messages", message.id);
+      await updateDoc(msgRef, {
+        pinned: true,
+        pinnedAt: serverTimestamp(),
+        pinnedBy: myUid,
+      });
+      // also update chat doc pointer so UI (ChatHeader / pinned area) can read pinnedMessageId
+      try {
+        await updateDoc(doc(db, "chats", message.chatId), { pinnedMessageId: message.id });
+      } catch (e) {
+        // not fatal - message still has a pinned flag
+        console.warn("failed to update chat.pinnedMessageId", e);
+      }
+      setPinnedMessage?.(message);
+      toast.success("Pinned message");
+    } catch (err) {
+      console.error("pinMessage", err);
+      toast.error("Pin failed");
+    }
+  };
+
+  const editMessage = async () => {
+    if (!isMine) return toast.info("You can only edit your messages");
+    const newText = window.prompt("Edit message:", message.text || "");
+    if (newText == null) return; // cancelled
+    try {
+      await updateDoc(doc(db, "chats", message.chatId, "messages", message.id), {
+        text: newText,
+        editedAt: serverTimestamp(),
+        editedBy: myUid,
+      });
+      toast.success("Message edited");
+      setLongPressOpen(false);
+    } catch (err) {
+      console.error("editMessage", err);
+      toast.error("Edit failed");
+    }
+  };
+
+  const deleteForEveryone = async () => {
+    try {
+      await updateDoc(doc(db, "chats", message.chatId, "messages", message.id), {
+        deleted: true,
+        deletedAt: serverTimestamp(),
+        deletedBy: myUid,
+      });
+      toast.success("Deleted for everyone");
+      setLongPressOpen(false);
+    } catch (err) {
+      console.error("deleteForEveryone", err);
+      toast.error("Delete failed");
+    }
+  };
+
+  const deleteForMe = async () => {
+    try {
+      await updateDoc(doc(db, "chats", message.chatId, "messages", message.id), {
+        deletedFor: arrayUnion(myUid),
+      });
+      toast.info("Deleted for you");
+      setLongPressOpen(false);
+    } catch (err) {
+      console.error("deleteForMe", err);
+      toast.error("Failed");
+    }
+  };
+
+  const copyText = () => {
+    try {
+      navigator.clipboard.writeText(message.text || "");
+      toast.success("Copied");
+      setLongPressOpen(false);
+    } catch {
+      toast.error("Copy failed");
+    }
+  };
+
+  // --------- media rendering ----------
   const mediaArray = message.mediaUrls || (message.mediaUrl ? [message.mediaUrl] : []);
   const renderMediaGrid = () => {
-    if (!mediaArray.length) return null;
+    if (!mediaArray || mediaArray.length === 0) return null;
 
     const maxVisible = 4;
-    const extraCount = mediaArray.length - maxVisible;
+    const extra = Math.max(0, mediaArray.length - maxVisible);
 
     return (
       <div
@@ -82,82 +236,48 @@ export default function MessageItem({
               : mediaArray.length === 2
               ? "1fr 1fr"
               : "repeat(auto-fit, minmax(120px, 1fr))",
-          gap: 4,
-          marginBottom: 6,
+          gap: 6,
+          marginBottom: 8,
           position: "relative",
         }}
       >
-        {mediaArray.slice(0, maxVisible).map((url, idx) => (
-          <div key={idx} style={{ position: "relative" }}>
+        {mediaArray.slice(0, maxVisible).map((url, i) => (
+          <div key={i} style={{ position: "relative", borderRadius: 12, overflow: "hidden" }}>
             <img
               src={url}
               alt=""
-              style={{
-                width: "100%",
-                aspectRatio: "1/1",
-                objectFit: "cover",
-                borderRadius: 12,
-                cursor: "pointer",
-                opacity: message.status === "sending" ? 0.6 : 1,
-              }}
-              onClick={() => onMediaClick?.(message, idx)}
+              onClick={() => onMediaClick?.(message, i)}
+              style={{ display: "block", width: "100%", height: "100%", objectFit: "cover", cursor: "pointer" }}
             />
             {message.status === "sending" && message.uploadProgress != null && (
-              <div
-                style={{
-                  position: "absolute",
-                  inset: 0,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  backgroundColor: "rgba(0,0,0,0.3)",
-                  borderRadius: 12,
-                  fontSize: 16,
-                  color: "#fff",
-                  fontWeight: "bold",
-                }}
-              >
-                {message.uploadProgress}%
-              </div>
+              <div style={{
+                position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center",
+                backgroundColor: "rgba(0,0,0,0.28)", color: "#fff", fontWeight: 700
+              }}>{message.uploadProgress}%</div>
             )}
           </div>
         ))}
-        {extraCount > 0 && (
-          <div
-            style={{
-              position: "absolute",
-              inset: 0,
-              backgroundColor: "rgba(0,0,0,0.5)",
-              color: "#fff",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              fontSize: 24,
-              fontWeight: "bold",
-              borderRadius: 12,
-            }}
-          >
-            +{extraCount}
-          </div>
+
+        {extra > 0 && (
+          <div style={{
+            position: "absolute", right: 10, bottom: 10, backgroundColor: "rgba(0,0,0,0.5)",
+            color: "#fff", padding: "6px 8px", borderRadius: 10, fontWeight: 700
+          }}>{`+${extra}`}</div>
         )}
       </div>
     );
   };
 
-  if (message.deleted || (message.deletedForMe && isMine)) return null;
+  // --------- rendering ----------
+  if (message.deleted || (message.deletedFor && message.deletedFor.includes?.(myUid))) return null;
 
   return (
     <>
       <div
         ref={containerRef}
-        onTouchStart={(e) => { swipeStartX.current = e.touches[0].clientX; setSwipeActive(true); startLongPress(); }}
-        onTouchMove={(e) => {
-          const diff = e.touches[0].clientX - swipeStartX.current;
-          if (Math.abs(diff) > 10) cancelLongPress();
-          if (!swipeActive) return;
-          setSwipeX(Math.max(Math.min(diff, 120), -120));
-        }}
-        onTouchEnd={() => { cancelLongPress(); setSwipeX(0); setSwipeActive(false); }}
+        onTouchStart={onTouchStart}
+        onTouchMove={onTouchMove}
+        onTouchEnd={onTouchEnd}
         onMouseDown={startLongPress}
         onMouseUp={cancelLongPress}
         onMouseLeave={cancelLongPress}
@@ -174,95 +294,95 @@ export default function MessageItem({
           wordBreak: "break-word",
           position: "relative",
           userSelect: "none",
+          boxShadow: isMine ? "0 1px 0 rgba(0,0,0,0.12)" : "none",
         }}
       >
         {renderMediaGrid()}
 
-        {message.text && (
-          <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.4, marginTop: mediaArray.length ? 4 : 0 }}>
+        {message.text ? (
+          <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.4 }}>
             {message.text.slice(0, visibleChars)}
-            {isLongText && (
-              <span
-                onClick={() => setVisibleChars((v) => v + READ_MORE_STEP)}
-                style={{ color: "#888", cursor: "pointer" }}
-              >
+            {message.text.length > visibleChars && (
+              <span onClick={() => setVisibleChars((v) => v + READ_MORE_STEP)} style={{ color: "#888", cursor: "pointer", marginLeft: 6 }}>
                 ...more
               </span>
             )}
           </div>
-        )}
+        ) : null}
 
-        {Object.entries(localReactions || {}).length > 0 && (
-          <div style={{ marginTop: 6, display: "flex", gap: 6 }}>
+        {/* reactions summary */}
+        {localReactions && Object.keys(localReactions).length > 0 && (
+          <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
             {Object.entries(localReactions).map(([emoji, users]) => (
-              <div key={emoji}>{emoji} {users.length}</div>
+              <button
+                key={emoji}
+                onClick={() => toggleReaction(emoji)}
+                title={`${users.length} reaction${users.length > 1 ? "s" : ""}`}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 6,
+                  padding: "4px 6px",
+                  borderRadius: 14,
+                  background: isDark ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.04)",
+                  border: "none",
+                  cursor: "pointer",
+                  fontSize: 13,
+                }}
+              >
+                <span style={{ fontSize: 16 }}>{emoji}</span>
+                <span style={{ fontSize: 12, opacity: 0.85 }}>{users.length}</span>
+              </button>
             ))}
           </div>
         )}
 
-        <div style={{ fontSize: 10, opacity: 0.6, textAlign: "right", marginTop: 6 }}>
-          {formatTime(message.createdAt)}
+        <div style={{ fontSize: 10, opacity: 0.6, textAlign: "right", marginTop: 8 }}>
+          {fmtTime(message.createdAt)}{message.editedAt ? " • edited" : ""}
         </div>
 
         {reactionAnim.show && (
-          <div
-            style={{
-              position: "absolute",
-              top: -20,
-              right: 10,
-              fontSize: 20,
-              animation: "floatUp 0.8s ease-out forwards",
-            }}
-          >
+          <div style={{
+            position: "absolute", top: -20, right: 10, fontSize: 20,
+            animation: "floatUp 0.8s ease-out forwards", pointerEvents: "none"
+          }}>
             {reactionAnim.emoji}
           </div>
         )}
-
-        {/* Emoji button */}
-        <button
-          onClick={onOpenEmojiPicker}
-          style={{
-            position: "absolute",
-            top: -28,
-            right: -4,
-            background: "transparent",
-            border: "none",
-            fontSize: 18,
-            cursor: "pointer",
-          }}
-        >
-          😀
-        </button>
       </div>
 
-      {/* Long Press Modal */}
-      {isLongPressOpen && (
+      {/* Long press modal (open only for this message) */}
+      {longPressOpen && (
         <LongPressMessageModal
           isDark={isDark}
-          onClose={() => onOpenLongPress(null)}
-          onReply={() => { setReplyTo(message); onOpenLongPress(null); }}
-          onPin={() => { setPinnedMessage(message); onOpenLongPress(null); toast.success("Pinned!"); }}
-          onCopy={() => { navigator.clipboard.writeText(message.text || ""); toast.success("Copied!"); onOpenLongPress(null); }}
-          onReaction={handleReact}
-          onDeleteForMe={() => onDeleteForMe?.(message)}
-          onDeleteForEveryone={() => onDeleteForEveryone?.(message)}
+          onClose={() => setLongPressOpen(false)}
+          onReaction={(emoji) => { toggleReaction(emoji); setLongPressOpen(false); }}
+          onReply={() => { setReplyTo?.(message); setLongPressOpen(false); }}
+          onCopy={() => { copyText(); }}
+          onPin={async () => { await pinMessage(); setLongPressOpen(false); }}
+          onDeleteForMe={async () => { await deleteForMe(); setLongPressOpen(false); }}
+          onDeleteForEveryone={async () => { await deleteForEveryone(); setLongPressOpen(false); }}
           message={message}
-          onMediaClick={onMediaClick}
+          onMediaClick={(m, i) => { onMediaClick?.(m, i); setLongPressOpen(false); }}
         />
       )}
 
-      {/* Emoji Picker */}
-      {isEmojiPickerOpen && (
-        <EmojiPicker
-          onSelect={(emoji) => { handleReact(emoji); onOpenEmojiPicker(null); }}
-          onClose={() => onOpenEmojiPicker(null)}
-        />
+      {/* Emoji picker (only opened from long-press's ➕ inside modal) */}
+      {emojiOpen && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 4000, display: "flex", justifyContent: "center", alignItems: "flex-end", padding: 12 }}>
+          <div style={{ width: "100%", maxWidth: 500 }}>
+            <EmojiPicker
+              onSelect={(emoji) => { toggleReaction(emoji); setEmojiOpen(false); }}
+              onClose={() => setEmojiOpen(false)}
+            />
+          </div>
+        </div>
       )}
 
       <style>{`
         @keyframes floatUp {
           0% { opacity: 1; transform: translateY(0); }
-          100% { opacity: 0; transform: translateY(-24px); }
+          100% { opacity: 0; transform: translateY(-20px); }
         }
       `}</style>
     </>
