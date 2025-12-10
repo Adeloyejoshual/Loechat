@@ -15,22 +15,19 @@ import EmojiPicker from "./EmojiPicker";
 import { toast } from "react-toastify";
 
 /**
- * WhatsApp-style MessageItem
+ * MessageItem - rewritten
  *
  * Props:
- * - message: message object (may be optimistic temp message)
- * - myUid: current user id
- * - isDark: theme flag
- * - setReplyTo(message)
- * - setPinnedMessage(message)
- * - onMediaClick(message, index)
- * - registerRef(el)        -> used by parent to support scrollTo
- * - chatContainerRef       -> optional: reference to scrolling container for smart auto-scroll
+ *  - message
+ *  - myUid
+ *  - isDark
+ *  - setReplyTo(message)
+ *  - setPinnedMessage(message)
+ *  - onMediaClick(message, index)
+ *  - registerRef(el)      // parent uses this to store DOM refs (pass element or null)
+ *  - chatContainerRef     // optional container ref for smart autoscroll
  *
- * Notes:
- * - Message object expected fields:
- *   - id, chatId, senderId, text, mediaUrls (array), createdAt (Date or serverTimestamp placeholder),
- *     reactions (object), seenBy (array), deliveredTo (array), status (sending|sent|failed)
+ * Expects message.replyTo to be already set on the message when saving to Firestore.
  */
 
 const READ_MORE_STEP = 450;
@@ -43,12 +40,12 @@ const fmtTime = (ts) => {
   return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 };
 
+/* simple SVG ticks */
 const CheckSingle = ({ color = "gray", size = 14 }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" style={{ display: "inline-block", verticalAlign: "middle" }}>
     <path d="M20.285 6.708L9 18l-5.285-5.292 1.414-1.414L9 15.172 18.87 5.293z" fill={color} />
   </svg>
 );
-
 const CheckDouble = ({ color = "gray", size = 14 }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" style={{ display: "inline-block", verticalAlign: "middle" }}>
     <path
@@ -79,14 +76,15 @@ export default function MessageItem({
   const [emojiOpen, setEmojiOpen] = useState(false);
   const [reactionAnim, setReactionAnim] = useState({ show: false, emoji: "" });
   const [localReactions, setLocalReactions] = useState(message.reactions || {});
-  const [status, setStatus] = useState(message.status || (isMine ? "sending" : "sent")); // optimistic
+  const [status, setStatus] = useState(message.status || (isMine ? "sending" : "sent")); // sending|sent|delivered|seen|failed
+
   const longPressTimer = useRef(null);
   const touchStartX = useRef(0);
 
-  // keep local reactions in sync when prop changes
+  // keep local reactions synced when prop updates
   useEffect(() => setLocalReactions(message.reactions || {}), [message.reactions]);
 
-  // Real-time message watcher: update reactions & status (sent/delivered/seen) for my outgoing messages
+  // subscribe to the single message doc to get live reactions and status updates for outgoing messages
   useEffect(() => {
     if (!message?.id || !message?.chatId) return;
     const msgRef = doc(db, "chats", message.chatId, "messages", message.id);
@@ -96,32 +94,31 @@ export default function MessageItem({
       (snap) => {
         const data = snap.data();
         if (!data) return;
-        // keep reactions in sync
         setLocalReactions(data.reactions || {});
 
-        // update status only for messages I sent
         if (isMine) {
-          if (data.seenBy && data.seenBy.length > 0) setStatus("seen");
-          else if (data.deliveredTo && data.deliveredTo.length > 0) setStatus("delivered");
+          // prefer seen > delivered > sent
+          if (Array.isArray(data.seenBy) && data.seenBy.length > 0) setStatus("seen");
+          else if (Array.isArray(data.deliveredTo) && data.deliveredTo.length > 0) setStatus("delivered");
           else setStatus(data.status || "sent");
         } else {
-          // For incoming messages, if doc shows a status field change, we don't need to handle here
+          // incoming message: we don't update 'status' local state for incoming messages
         }
       },
       (err) => {
-        // silent
-        // console.error("msg onSnapshot", err);
+        // ignore snapshot errors silently
       }
     );
 
     return () => unsub();
   }, [message?.id, message?.chatId, isMine]);
 
-  // Mark incoming messages as delivered (optimistic — will update Firestore)
+  // For incoming messages: ensure we flag them delivered (optimistic)
   useEffect(() => {
     if (!message?.id || !message?.chatId || isMine) return;
     const msgRef = doc(db, "chats", message.chatId, "messages", message.id);
-    // check once and add deliveredTo
+
+    // one-time check then update
     getDoc(msgRef)
       .then((snap) => {
         const data = snap.data() || {};
@@ -132,7 +129,7 @@ export default function MessageItem({
       .catch(() => {});
   }, [message?.id, message?.chatId, isMine, myUid]);
 
-  // IntersectionObserver to mark seen when message is in viewport (for incoming messages)
+  // IntersectionObserver to mark seen when incoming message is in viewport (>=60%)
   useEffect(() => {
     if (!containerRef.current || isMine) return;
     const el = containerRef.current;
@@ -140,7 +137,6 @@ export default function MessageItem({
       (entries) => {
         entries.forEach((entry) => {
           if (entry.isIntersecting && entry.intersectionRatio >= 0.6) {
-            // mark seen
             if (message?.id && message?.chatId) {
               const msgRef = doc(db, "chats", message.chatId, "messages", message.id);
               updateDoc(msgRef, { seenBy: arrayUnion(myUid) }).catch(() => {});
@@ -155,17 +151,19 @@ export default function MessageItem({
     return () => observer.disconnect();
   }, [message, myUid, isMine]);
 
-  // register ref for parent (scroll to)
+  // register/unregister DOM ref with parent for scroll-to support
   useEffect(() => {
-    if (containerRef.current && registerRef) registerRef(containerRef.current);
+    if (registerRef && containerRef.current) registerRef(containerRef.current);
+    return () => {
+      if (registerRef) registerRef(null);
+    };
   }, [registerRef]);
 
-  // smart auto-scroll: if chat container is near bottom, keep auto-scrolling when new message arrives
+  // auto-scroll behavior if parent provided chatContainerRef
   useEffect(() => {
     if (!chatContainerRef?.current || !containerRef.current) return;
     const container = chatContainerRef.current;
-    const distanceFromBottom =
-      container.scrollHeight - container.scrollTop - container.clientHeight;
+    const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
     if (distanceFromBottom < 120) {
       containerRef.current.scrollIntoView({ behavior: "smooth", block: "end" });
     }
@@ -177,6 +175,7 @@ export default function MessageItem({
     longPressTimer.current = setTimeout(() => {
       setLongPressOpen(true);
       setEmojiOpen(false);
+      longPressTimer.current = null;
     }, LONG_PRESS_DELAY);
   };
   const cancelLongPress = () => {
@@ -187,11 +186,13 @@ export default function MessageItem({
   };
 
   const onTouchStart = (e) => {
+    if (!e.touches?.[0]) return;
     touchStartX.current = e.touches[0].clientX;
     setSwipeActive(true);
     startLongPress();
   };
   const onTouchMove = (e) => {
+    if (!e.touches?.[0]) return;
     const diff = e.touches[0].clientX - touchStartX.current;
     if (Math.abs(diff) > 10) cancelLongPress();
     if (!swipeActive) return;
@@ -206,7 +207,7 @@ export default function MessageItem({
     setSwipeActive(false);
   };
 
-  // toggle reaction (updates firestore)
+  // toggle reaction -> write to firestore
   const toggleReaction = async (emoji) => {
     if (!message?.id || !message?.chatId) return;
     const msgRef = doc(db, "chats", message.chatId, "messages", message.id);
@@ -218,6 +219,7 @@ export default function MessageItem({
       if (reacted) await updateDoc(msgRef, { [`reactions.${emoji}`]: arrayRemove(myUid) });
       else await updateDoc(msgRef, { [`reactions.${emoji}`]: arrayUnion(myUid) });
 
+      // local pop animation
       setReactionAnim({ show: true, emoji });
       setTimeout(() => setReactionAnim({ show: false, emoji: "" }), 700);
     } catch (err) {
@@ -226,7 +228,7 @@ export default function MessageItem({
     }
   };
 
-  // pin / delete / copy helpers (local UI + firestore)
+  // pin/delete/copy helpers
   const pinMessage = async () => {
     if (!message?.id || !message?.chatId) return;
     try {
@@ -284,53 +286,20 @@ export default function MessageItem({
     if (!mediaArray || mediaArray.length === 0) return null;
     const maxVisible = 4;
     const extra = Math.max(0, mediaArray.length - maxVisible);
-
-    const gridTemplate =
-      mediaArray.length === 1 ? "1fr" : mediaArray.length === 2 ? "1fr 1fr" : "repeat(auto-fit, minmax(120px,1fr))";
+    const gridTemplate = mediaArray.length === 1 ? "1fr" : mediaArray.length === 2 ? "1fr 1fr" : "repeat(auto-fit,minmax(120px,1fr))";
 
     return (
       <div style={{ display: "grid", gridTemplateColumns: gridTemplate, gap: 6, marginBottom: 8, position: "relative" }}>
         {mediaArray.slice(0, maxVisible).map((url, i) => (
           <div key={i} style={{ position: "relative", borderRadius: 12, overflow: "hidden" }}>
-            {/* img/video detection (simple) */}
             {/\.(mp4|webm|ogg)$/i.test(String(url)) ? (
-              <video
-                src={url}
-                controls
-                onClick={() => onMediaClick?.(message, i)}
-                style={{ width: "100%", height: "100%", objectFit: "cover", cursor: "pointer", display: "block" }}
-              />
+              <video src={url} controls onClick={() => onMediaClick?.(message, i)} style={{ width: "100%", height: "100%", objectFit: "cover", cursor: "pointer" }} />
             ) : (
-              <img
-                src={url}
-                alt=""
-                onClick={() => onMediaClick?.(message, i)}
-                style={{
-                  width: "100%",
-                  height: "100%",
-                  objectFit: "cover",
-                  cursor: "pointer",
-                  display: "block",
-                  filter: message.status === "sending" ? "brightness(0.6)" : "none",
-                }}
-                draggable={false}
-              />
+              <img src={url} alt="" onClick={() => onMediaClick?.(message, i)} style={{ width: "100%", height: "100%", objectFit: "cover", cursor: "pointer", filter: message.status === "sending" ? "brightness(0.6)" : "none" }} draggable={false} />
             )}
 
             {message.status === "sending" && typeof message.uploadProgress === "number" && (
-              <div
-                style={{
-                  position: "absolute",
-                  inset: 0,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  backgroundColor: "rgba(0,0,0,0.32)",
-                  color: "#fff",
-                  fontWeight: 700,
-                  fontSize: 16,
-                }}
-              >
+              <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", backgroundColor: "rgba(0,0,0,0.32)", color: "#fff", fontWeight: 700, fontSize: 16 }}>
                 {message.uploadProgress}%
               </div>
             )}
@@ -338,18 +307,7 @@ export default function MessageItem({
         ))}
 
         {extra > 0 && (
-          <div
-            style={{
-              position: "absolute",
-              right: 10,
-              bottom: 10,
-              backgroundColor: "rgba(0,0,0,0.55)",
-              color: "#fff",
-              padding: "6px 8px",
-              borderRadius: 10,
-              fontWeight: 700,
-            }}
-          >
+          <div style={{ position: "absolute", right: 10, bottom: 10, backgroundColor: "rgba(0,0,0,0.55)", color: "#fff", padding: "6px 8px", borderRadius: 10, fontWeight: 700 }}>
             +{extra}
           </div>
         )}
@@ -359,7 +317,7 @@ export default function MessageItem({
 
   if (message.deleted || (message.deletedFor && message.deletedFor.includes?.(myUid))) return null;
 
-  // tick helpers
+  // tick UI
   const tickElement = () => {
     if (!isMine) return null;
     switch (status) {
@@ -406,6 +364,34 @@ export default function MessageItem({
     );
   };
 
+  // render reply preview (if message.replyTo exists)
+  const renderReplyPreview = () => {
+    if (!message.replyTo) return null;
+    const previewText = message.replyTo.text || (message.replyTo.mediaUrls ? "Media" : "");
+    const senderBlink = message.replyTo.senderId === myUid ? "You" : "Contact";
+    return (
+      <div
+        onClick={() => {
+          // clicking the reply preview should try to scroll to original if parent stored refs
+          // parent stores refs via registerRef(keyed by message id) — we cannot access that here
+          // but we still pass the reply object up if caller wants to handle scroll (via setReplyTo)
+          // Do nothing here by default to avoid unexpected navigation.
+        }}
+        style={{
+          marginBottom: 8,
+          padding: "6px 8px",
+          borderRadius: 10,
+          background: isMine ? "rgba(255,255,255,0.06)" : isDark ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.03)",
+          color: isMine ? "#fff" : isDark ? "#fff" : "#111",
+          fontSize: 13,
+        }}
+      >
+        <div style={{ fontWeight: 700, marginBottom: 4 }}>{senderBlink}</div>
+        <div style={{ fontSize: 13, opacity: 0.95, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{previewText}</div>
+      </div>
+    );
+  };
+
   return (
     <>
       <div
@@ -433,6 +419,9 @@ export default function MessageItem({
           userSelect: "none",
         }}
       >
+        {/* reply preview */}
+        {renderReplyPreview()}
+
         {/* media */}
         {renderMediaGrid()}
 
@@ -458,7 +447,7 @@ export default function MessageItem({
           {message.editedAt ? <div style={{ marginLeft: 6, fontSize: 10 }}>edited</div> : null}
         </div>
 
-        {/* reaction pop animation */}
+        {/* reaction pop */}
         {reactionAnim.show && (
           <div style={{ position: "absolute", top: -18, right: 10, fontSize: 20, animation: "floatUp 0.7s ease-out forwards", pointerEvents: "none" }}>
             {reactionAnim.emoji}
@@ -507,7 +496,7 @@ export default function MessageItem({
         />
       )}
 
-      {/* full emoji picker */}
+      {/* emoji picker */}
       {emojiOpen && (
         <div style={{ position: "fixed", inset: 0, zIndex: 4000, display: "flex", justifyContent: "center", alignItems: "flex-end", padding: 12 }}>
           <div style={{ width: "100%", maxWidth: 520 }}>
