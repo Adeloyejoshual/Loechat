@@ -12,32 +12,39 @@ export default function LongPressMessageModal({
   onDeleteForEveryone,
   message,
   onMediaClick,
-  openFullEmojiPicker, // callback to open full emoji picker
+  openFullEmojiPicker,
   quickReactions = ["😜", "💗", "😎", "😍", "☻️", "💖"],
   isDark = false,
 }) {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const modalRef = useRef(null);
 
-  // Lock scroll & handle outside clicks / Escape
-  useEffect(() => {
-    const handleClickOutside = (e) => {
-      if (modalRef.current && !modalRef.current.contains(e.target)) onClose();
-    };
-    const handleKeyDown = (e) => {
-      if (e.key === "Escape") onClose();
-    };
+  // Prevent modal from closing too early
+  const safeClose = () => {
+    setTimeout(() => {
+      onClose?.();
+    }, 120);
+  };
 
-    document.addEventListener("mousedown", handleClickOutside);
-    document.addEventListener("keydown", handleKeyDown);
+  // Lock scroll + close on click outside
+  useEffect(() => {
+    const handleOutside = (e) => {
+      if (modalRef.current && !modalRef.current.contains(e.target)) {
+        onClose?.();
+      }
+    };
+    const handleEsc = (e) => e.key === "Escape" && onClose?.();
+
+    document.addEventListener("mousedown", handleOutside);
+    document.addEventListener("keydown", handleEsc);
     document.body.style.overflow = "hidden";
 
     return () => {
-      document.removeEventListener("mousedown", handleClickOutside);
-      document.removeEventListener("keydown", handleKeyDown);
+      document.removeEventListener("mousedown", handleOutside);
+      document.removeEventListener("keydown", handleEsc);
       document.body.style.overflow = "";
     };
-  }, [onClose]);
+  }, []);
 
   const buttonStyle = {
     padding: 10,
@@ -45,28 +52,46 @@ export default function LongPressMessageModal({
     border: "none",
     borderRadius: 8,
     fontSize: 14,
-    textAlign: "left",
     width: "100%",
-    display: "flex",
-    alignItems: "center",
-    gap: 8,
-    transition: "background 0.2s, transform 0.15s",
     background: isDark ? "#2a2a2a" : "#f7f7f7",
     color: isDark ? "#fff" : "#000",
+    display: "flex",
+    alignItems: "center",
+    gap: 10,
   };
 
-  const safeClose = (delay = 50) => setTimeout(onClose, delay);
+  // ACTION HANDLERS ------------------------
 
-  const handlePin = () => { onPin(); toast.success("Message pinned/unpinned"); safeClose(); };
-  const handleCopy = () => { onCopy(); toast.success("Message copied"); safeClose(); };
-  const handleReaction = (emoji) => { onReaction(emoji); };
-  const handleDelete = async (option) => {
+  const handleCopy = () => {
+    onCopy?.(message);
+    toast.success("Message copied");
+    safeClose();
+  };
+
+  const handlePin = () => {
+    onPin?.(message);
+    toast.success("Message pinned");
+    safeClose();
+  };
+
+  const handleReply = () => {
+    onReply?.(message);
+    safeClose();
+  };
+
+  const handleReaction = (emoji) => {
+    onReaction?.(message, emoji); // ensure messageId & emoji are passed
+    safeClose();
+  };
+
+  const handleDelete = async (opt) => {
     try {
-      if (option === "me" && onDeleteForMe) await onDeleteForMe();
-      if (option === "everyone" && onDeleteForEveryone) await onDeleteForEveryone();
+      if (opt === "me") await onDeleteForMe?.(message);
+      if (opt === "everyone") await onDeleteForEveryone?.(message);
     } catch {
-      toast.error("Failed to delete message");
-    } finally { safeClose(); }
+      toast.error("Delete failed");
+    }
+    safeClose();
   };
 
   return (
@@ -75,98 +100,130 @@ export default function LongPressMessageModal({
         position: "fixed",
         inset: 0,
         zIndex: 3000,
+        background: "rgba(0,0,0,0.28)",
         display: "flex",
         justifyContent: "center",
         alignItems: "flex-end",
-        padding: "0 12px 24px",
-        backgroundColor: "rgba(0,0,0,0.25)",
-        animation: "fadeIn 180ms ease",
+        padding: "0 16px 28px",
       }}
     >
       <div
         ref={modalRef}
         style={{
-          background: isDark ? "#1b1b1b" : "#fff",
-          borderRadius: 16,
           width: "100%",
-          maxWidth: 360,
+          maxWidth: 380,
+          background: isDark ? "#1b1b1b" : "#ffffff",
+          borderRadius: 18,
           padding: 16,
-          boxShadow: "0 8px 24px rgba(0,0,0,0.35)",
-          animation: "slideUp 180ms ease",
           display: "flex",
           flexDirection: "column",
           gap: 12,
         }}
       >
-        {/* Quick Reactions */}
-        <div style={{ display: "flex", gap: 8, overflowX: "auto", paddingBottom: 8 }}>
+        {/* QUICK REACTIONS */}
+        <div style={{ display: "flex", gap: 10, overflowX: "auto" }}>
           {quickReactions.map((emoji) => (
             <button
               key={emoji}
-              onClick={() => { handleReaction(emoji); safeClose(); }}
-              style={{ fontSize: 22, background: "transparent", border: "none", cursor: "pointer" }}
+              style={{
+                background: "transparent",
+                border: "none",
+                fontSize: 22,
+                cursor: "pointer",
+              }}
+              onClick={() => handleReaction(emoji)}
             >
               {emoji}
             </button>
           ))}
+
           <button
+            style={{ fontSize: 22, background: "transparent", border: "none" }}
             onClick={() => {
               safeClose();
               openFullEmojiPicker?.(message);
             }}
-            style={{ fontSize: 22, background: "transparent", border: "none", cursor: "pointer" }}
           >
             ➕
           </button>
         </div>
 
+        {/* MAIN ACTIONS */}
         {!confirmDelete ? (
           <>
-            {/* Action Buttons */}
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              <button style={buttonStyle} onClick={() => { onReply(); safeClose(); }}>↩️ Reply</button>
-              <button style={buttonStyle} onClick={handleCopy}>📋 Copy</button>
-              <button style={buttonStyle} onClick={handlePin}>📌 Pin</button>
-              {message?.mediaUrls?.length > 0 && (
-                <button style={buttonStyle} onClick={() => { onMediaClick(message, 0); safeClose(); }}>🖼️ View Media</button>
-              )}
-              <button style={{ ...buttonStyle, color: "red" }} onClick={() => setConfirmDelete(true)}>🗑️ Delete</button>
-              <button style={buttonStyle} onClick={onClose}>Close</button>
-            </div>
+            <button style={buttonStyle} onClick={handleReply}>↩️ Reply</button>
+            <button style={buttonStyle} onClick={handleCopy}>📋 Copy</button>
+            <button style={buttonStyle} onClick={handlePin}>📌 Pin</button>
+
+            {message?.mediaUrls?.length > 0 && (
+              <button
+                style={buttonStyle}
+                onClick={() => {
+                  onMediaClick?.(message, 0);
+                  safeClose();
+                }}
+              >
+                🖼️ View Media
+              </button>
+            )}
+
+            <button
+              style={{ ...buttonStyle, color: "red" }}
+              onClick={() => setConfirmDelete(true)}
+            >
+              🗑️ Delete
+            </button>
+
+            <button style={buttonStyle} onClick={onClose}>
+              Close
+            </button>
           </>
         ) : (
-          // Confirm delete
-          <div style={{ display: "flex", flexDirection: "column", gap: 12, textAlign: "center" }}>
-            <div style={{ fontSize: 14 }}>Delete this message?</div>
-            <div style={{ fontSize: 12, color: "#888" }}>For you</div>
-            <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8 }}>
+          <>
+            <div style={{ textAlign: "center", fontSize: 15 }}>
+              Delete this message?
+            </div>
+
+            <div style={{ display: "flex", gap: 10 }}>
               <button
+                style={{
+                  flex: 1,
+                  padding: 10,
+                  borderRadius: 8,
+                  border: "1px solid #ccc",
+                }}
                 onClick={() => handleDelete("me")}
-                style={{ padding: 10, borderRadius: 8, border: "1px solid #ccc", cursor: "pointer", flex: 1, marginRight: 4 }}
               >
                 Delete for Me
               </button>
               <button
+                style={{
+                  flex: 1,
+                  padding: 10,
+                  borderRadius: 8,
+                  background: "red",
+                  color: "white",
+                }}
                 onClick={() => handleDelete("everyone")}
-                style={{ padding: 10, borderRadius: 8, backgroundColor: "red", color: "#fff", cursor: "pointer", flex: 1, marginLeft: 4 }}
               >
                 Delete for Everyone
               </button>
             </div>
+
             <button
+              style={{
+                marginTop: 8,
+                padding: 8,
+                borderRadius: 8,
+                border: "1px solid #ccc",
+              }}
               onClick={() => setConfirmDelete(false)}
-              style={{ marginTop: 8, padding: 8, borderRadius: 8, border: "1px solid #ccc", cursor: "pointer" }}
             >
               Cancel
             </button>
-          </div>
+          </>
         )}
       </div>
-
-      <style>{`
-        @keyframes slideUp {0% {opacity:0;transform:translateY(24px);}100% {opacity:1;transform:translateY(0);}}
-        @keyframes fadeIn {0% {opacity:0;}100% {opacity:1;}}
-      `}</style>
     </div>
   );
 }
