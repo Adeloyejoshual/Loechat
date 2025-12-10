@@ -1,12 +1,5 @@
 // src/components/ChatConversationPage.jsx
-import React, {
-  useEffect,
-  useState,
-  useRef,
-  useContext,
-  useCallback,
-  useMemo,
-} from "react";
+import React, { useEffect, useState, useRef, useContext, useCallback, useMemo } from "react";
 import { useParams } from "react-router-dom";
 import {
   collection,
@@ -89,6 +82,7 @@ export default function ChatConversationPage() {
       setIsBlocked(Boolean(data.blocked));
       setIsMuted(Boolean(data.mutedUntil && data.mutedUntil > Date.now()));
 
+      // Friend info
       const friendId = (data.participants || []).find((p) => p !== myUid);
       if (friendId) {
         const userRef = doc(db, "users", friendId);
@@ -134,11 +128,9 @@ export default function ChatConversationPage() {
       // mark delivered
       docs
         .filter((m) => m.senderId !== myUid && !(m.deliveredTo || []).includes(myUid))
-        .forEach((m) => {
-          updateDoc(doc(db, "chats", chatId, "messages", m.id), {
-            deliveredTo: arrayUnion(myUid),
-          }).catch(() => {});
-        });
+        .forEach((m) =>
+          updateDoc(doc(db, "chats", chatId, "messages", m.id), { deliveredTo: arrayUnion(myUid) }).catch(() => {})
+        );
 
       // auto-scroll if at bottom or first load
       if (isAtBottom || !initialScrollDone.current) {
@@ -157,9 +149,7 @@ export default function ChatConversationPage() {
     messages
       .filter((m) => m.senderId !== myUid && !(m.seenBy || []).includes(myUid))
       .forEach((m) =>
-        updateDoc(doc(db, "chats", chatId, "messages", m.id), {
-          seenBy: arrayUnion(myUid),
-        }).catch(() => {})
+        updateDoc(doc(db, "chats", chatId, "messages", m.id), { seenBy: arrayUnion(myUid) }).catch(() => {})
       );
 
     updateDoc(doc(db, "chats", chatId), { [`lastSeen.${myUid}`]: serverTimestamp() }).catch(() => {});
@@ -199,15 +189,12 @@ export default function ChatConversationPage() {
   }, [messages, stickyDate]);
 
   // -------------------- TYPING --------------------
-  const setTypingFlag = useCallback(
-    async (typing) => {
-      if (!chatId || !myUid) return;
-      try {
-        await updateDoc(doc(db, "chats", chatId), { [`typing.${myUid}`]: typing });
-      } catch {}
-    },
-    [chatId, myUid]
-  );
+  const setTypingFlag = useCallback(async (typing) => {
+    if (!chatId || !myUid) return;
+    try {
+      await updateDoc(doc(db, "chats", chatId), { [`typing.${myUid}`]: typing });
+    } catch {}
+  }, [chatId, myUid]);
 
   const handleUserTyping = useCallback(
     (isTyping) => {
@@ -267,9 +254,7 @@ export default function ChatConversationPage() {
         reactions: {},
         seenBy: [],
         deliveredTo: [],
-        replyTo: replyTo
-          ? { id: replyTo.id, text: replyTo.text, senderId: replyTo.senderId }
-          : null,
+        replyTo: replyTo ? { id: replyTo.id, text: replyTo.text, senderId: replyTo.senderId } : null,
         status: "sending",
         uploadProgress: 0,
       };
@@ -441,9 +426,7 @@ export default function ChatConversationPage() {
           const msgsRef = collection(db, "chats", chatId, "messages");
           const snap = await getDocs(msgsRef);
           await Promise.all(
-            snap.docs.map((m) =>
-              updateDoc(doc(db, "chats", chatId, "messages", m.id), { deleted: true })
-            )
+            snap.docs.map((m) => updateDoc(doc(db, "chats", chatId, "messages", m.id), { deleted: true }))
           );
           setMessages([]);
           toast.success("Chat cleared");
@@ -473,26 +456,12 @@ export default function ChatConversationPage() {
       {/* Messages List */}
       <div
         ref={messagesRefEl}
-        style={{
-          flex: 1,
-          overflowY: "auto",
-          padding: 8,
-          display: "flex",
-          flexDirection: "column",
-        }}
+        style={{ flex: 1, overflowY: "auto", padding: 8, display: "flex", flexDirection: "column" }}
       >
         {messagesWithDateSeparators.map((item, idx) => {
           if (item.type === "date-separator") {
             return (
-              <div
-                key={`date-${idx}`}
-                style={{
-                  textAlign: "center",
-                  margin: "8px 0",
-                  color: isDark ? "#888" : "#555",
-                  fontSize: 12,
-                }}
-              >
+              <div key={`date-${idx}`} style={{ textAlign: "center", margin: "8px 0", color: isDark ? "#888" : "#555", fontSize: 12 }}>
                 {formatDateLabel(item.date)}
               </div>
             );
