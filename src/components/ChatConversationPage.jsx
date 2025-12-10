@@ -82,7 +82,6 @@ export default function ChatConversationPage() {
       setIsBlocked(Boolean(data.blocked));
       setIsMuted(Boolean(data.mutedUntil && data.mutedUntil > Date.now()));
 
-      // Friend info
       const friendId = (data.participants || []).find((p) => p !== myUid);
       if (friendId) {
         const userRef = doc(db, "users", friendId);
@@ -101,9 +100,9 @@ export default function ChatConversationPage() {
         unsubList.push(unsubPinned);
       } else setPinnedMessage(null);
 
-      // typing indicator
-      const friendIdForTyping = (data.participants || []).find((p) => p !== myUid);
-      setFriendTyping(Boolean(data.typing?.[friendIdForTyping]));
+      // typing indicator: only show if last update < 3s
+      const friendTypingTimestamp = data.typing?.[friendId]?.toDate?.() || Date.now();
+      setFriendTyping(Date.now() - friendTypingTimestamp < 3000);
     });
 
     unsubList.push(unsubChat);
@@ -192,7 +191,7 @@ export default function ChatConversationPage() {
   const setTypingFlag = useCallback(async (typing) => {
     if (!chatId || !myUid) return;
     try {
-      await updateDoc(doc(db, "chats", chatId), { [`typing.${myUid}`]: typing });
+      await updateDoc(doc(db, "chats", chatId), { [`typing.${myUid}`]: typing ? serverTimestamp() : null });
     } catch {}
   }, [chatId, myUid]);
 
@@ -474,23 +473,11 @@ export default function ChatConversationPage() {
                 myUid={myUid}
                 isDark={isDark}
                 setReplyTo={setReplyTo}
-                setPinnedMessage={(m) => {
-                  if (!m?.id) return;
-                  updateDoc(doc(db, "chats", chatId), { pinnedMessageId: m.id }).catch(console.error);
-                  setPinnedMessage(m);
-                }}
-                onMediaClick={openMediaViewerAtMessage}
-                registerRef={(el) => {
-                  if (el) messageRefs.current[msg.id] = el;
-                  else delete messageRefs.current[msg.id];
-                }}
-                onReact={handleReact}
-                onDeleteForMe={() => handleDeleteForMe(msg)}
-                onDeleteForEveryone={() => handleDeleteForEveryone(msg)}
-                onOpenLongPress={(m) => setLongPressMessage(m)}
-                isLongPressOpen={longPressMessage?.id === msg.id}
-                data-date={new Date(msg.createdAt).toDateString()}
-                data-type="message"
+                scrollToMessage={scrollToMessage}
+                openMediaViewer={openMediaViewerAtMessage}
+                setLongPressMessage={setLongPressMessage}
+                friendTyping={friendTyping}
+                ref={(el) => (messageRefs.current[msg.id] = el)}
               />
             );
           }
@@ -501,8 +488,8 @@ export default function ChatConversationPage() {
 
       {/* Typing Indicator */}
       {friendTyping && (
-        <div style={{ padding: "0 12px 6px 12px", fontSize: 12, color: isDark ? "#ccc" : "#555" }}>
-          {friendInfo?.name || "Contact"} is typing...
+        <div style={{ padding: 4, textAlign: "left", color: isDark ? "#aaa" : "#555", fontSize: 12 }}>
+          {friendInfo.displayName || "Friend"} is typing...
         </div>
       )}
 
@@ -510,34 +497,24 @@ export default function ChatConversationPage() {
       <ChatInput
         text={text}
         setText={setText}
-        selectedFiles={selectedFiles}
-        setSelectedFiles={setSelectedFiles}
-        setShowPreview={setShowPreview}
-        isDark={isDark}
+        onSend={sendTextHandler}
+        onTyping={handleUserTyping}
+        onMediaSelect={(files) => {
+          setSelectedFiles(files);
+          setShowPreview(true);
+        }}
         replyTo={replyTo}
-        setReplyTo={setReplyTo}
-        sendTextMessage={sendTextHandler}
-        sendMediaMessage={sendMediaHandler}
-        disabled={isBlocked}
-        friendTyping={friendTyping}
-        setTyping={handleUserTyping}
+        onCancelReply={() => setReplyTo(null)}
       />
 
-      {/* Image Preview Modal */}
+      {/* Image Preview */}
       {showPreview && selectedFiles.length > 0 && (
         <ImagePreviewModal
-          previews={selectedFiles.map((f) => ({ file: f, url: URL.createObjectURL(f) }))}
+          files={selectedFiles}
           caption={caption}
           setCaption={setCaption}
-          onRemove={(i) => setSelectedFiles((prev) => prev.filter((_, idx) => idx !== i))}
-          onSend={async () => {
-            await sendMessage(caption, selectedFiles);
-            setShowPreview(false);
-            setCaption("");
-            setSelectedFiles([]);
-          }}
+          onSend={sendMediaHandler}
           onClose={() => setShowPreview(false)}
-          isDark={isDark}
         />
       )}
 
@@ -550,35 +527,36 @@ export default function ChatConversationPage() {
         />
       )}
 
-      {/* Long Press Message Modal */}
+      {/* Long Press Modal */}
       {longPressMessage && (
         <LongPressMessageModal
+          message={longPressMessage}
           onClose={() => setLongPressMessage(null)}
-          onReaction={(emoji) => handleReact(longPressMessage.id, emoji)}
-          onReply={() => {
-            setReplyTo(longPressMessage);
-            setLongPressMessage(null);
-            setTimeout(() => scrollToMessage(longPressMessage.id), 200);
-          }}
           onCopy={() => {
             navigator.clipboard.writeText(longPressMessage.text || "");
-            toast.success("Copied!");
+            toast.success("Copied to clipboard");
+            setLongPressMessage(null);
+          }}
+          onDelete={async () => {
+            if (!window.confirm("Delete this message?")) return;
+            await updateDoc(doc(db, "chats", chatId, "messages", longPressMessage.id), { deleted: true });
+            setMessages((prev) => prev.filter((m) => m.id !== longPressMessage.id));
+            toast.success("Message deleted");
             setLongPressMessage(null);
           }}
           onPin={async () => {
             await updateDoc(doc(db, "chats", chatId), { pinnedMessageId: longPressMessage.id });
-            setPinnedMessage(longPressMessage);
-            toast.success("Pinned!");
+            toast.success("Message pinned");
             setLongPressMessage(null);
           }}
-          onDeleteForMe={() => handleDeleteForMe(longPressMessage)}
-          onDeleteForEveryone={() => handleDeleteForEveryone(longPressMessage)}
-          isDark={isDark}
-          messageSenderName={longPressMessage.senderId === myUid ? "You" : friendInfo?.name}
+          onReply={() => {
+            setReplyTo(longPressMessage);
+            setLongPressMessage(null);
+          }}
         />
       )}
 
-      <ToastContainer position="top-center" autoClose={1500} hideProgressBar />
+      <ToastContainer position="bottom-right" />
     </div>
   );
 }
