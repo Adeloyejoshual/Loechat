@@ -100,7 +100,7 @@ export default function ChatConversationPage() {
         unsubList.push(unsubPinned);
       } else setPinnedMessage(null);
 
-      // typing indicator: only show if last update < 3s
+      // typing indicator (last 3s)
       const friendTypingTimestamp = data.typing?.[friendId]?.toDate?.() || Date.now();
       setFriendTyping(Date.now() - friendTypingTimestamp < 3000);
     });
@@ -188,12 +188,15 @@ export default function ChatConversationPage() {
   }, [messages, stickyDate]);
 
   // -------------------- TYPING --------------------
-  const setTypingFlag = useCallback(async (typing) => {
-    if (!chatId || !myUid) return;
-    try {
-      await updateDoc(doc(db, "chats", chatId), { [`typing.${myUid}`]: typing ? serverTimestamp() : null });
-    } catch {}
-  }, [chatId, myUid]);
+  const setTypingFlag = useCallback(
+    async (typing) => {
+      if (!chatId || !myUid) return;
+      try {
+        await updateDoc(doc(db, "chats", chatId), { [`typing.${myUid}`]: typing ? serverTimestamp() : null });
+      } catch {}
+    },
+    [chatId, myUid]
+  );
 
   const handleUserTyping = useCallback(
     (isTyping) => {
@@ -278,27 +281,18 @@ export default function ChatConversationPage() {
             {
               onUploadProgress: (ev) => {
                 const pct = Math.round((ev.loaded * 100) / ev.total);
-                setMessages((prev) =>
-                  prev.map((m) => (m.id === tempId ? { ...m, uploadProgress: pct } : m))
-                );
+                setMessages((prev) => prev.map((m) => (m.id === tempId ? { ...m, uploadProgress: pct } : m)));
               },
             }
           );
           uploadedUrls.push(res.data.secure_url);
         }
 
-        const payload = {
-          ...tempMessage,
-          mediaUrls: uploadedUrls,
-          createdAt: serverTimestamp(),
-          status: "sent",
-        };
+        const payload = { ...tempMessage, mediaUrls: uploadedUrls, createdAt: serverTimestamp(), status: "sent" };
         const docRef = await addDoc(messagesCol, payload);
 
         setMessages((prev) =>
-          prev.map((m) =>
-            m.id === tempId ? { ...payload, id: docRef.id, createdAt: new Date() } : m
-          )
+          prev.map((m) => (m.id === tempId ? { ...payload, id: docRef.id, createdAt: new Date() } : m))
         );
 
         await updateDoc(doc(db, "chats", chatId), {
@@ -308,9 +302,7 @@ export default function ChatConversationPage() {
           lastMessageStatus: "delivered",
         });
       } catch {
-        setMessages((prev) =>
-          prev.map((m) => (m.id === tempId ? { ...m, status: "failed" } : m))
-        );
+        setMessages((prev) => prev.map((m) => (m.id === tempId ? { ...m, status: "failed" } : m)));
         toast.error("Failed to send message");
       } finally {
         setShowPreview(false);
@@ -336,6 +328,7 @@ export default function ChatConversationPage() {
     [mediaItems]
   );
 
+  // -------------------- SCROLL TO MESSAGE --------------------
   const scrollToMessage = useCallback((id) => {
     const el = messageRefs.current[id];
     if (el) {
@@ -378,7 +371,7 @@ export default function ChatConversationPage() {
     setTimeout(() => endRef.current?.scrollIntoView({ behavior: "auto" }), 80);
   }, [chatId]);
 
-  // -------------------- HANDLERS --------------------
+  // -------------------- SEND HANDLERS --------------------
   const sendTextHandler = (givenText) => {
     const t = typeof givenText === "string" ? givenText : text;
     if (!t || !t.trim()) return;
@@ -460,7 +453,10 @@ export default function ChatConversationPage() {
         {messagesWithDateSeparators.map((item, idx) => {
           if (item.type === "date-separator") {
             return (
-              <div key={`date-${idx}`} style={{ textAlign: "center", margin: "8px 0", color: isDark ? "#888" : "#555", fontSize: 12 }}>
+              <div
+                key={`date-${idx}`}
+                style={{ textAlign: "center", margin: "8px 0", color: isDark ? "#888" : "#555", fontSize: 12 }}
+              >
                 {formatDateLabel(item.date)}
               </div>
             );
@@ -507,7 +503,7 @@ export default function ChatConversationPage() {
         onCancelReply={() => setReplyTo(null)}
       />
 
-      {/* Image Preview */}
+      {/* Image Preview Modal */}
       {showPreview && selectedFiles.length > 0 && (
         <ImagePreviewModal
           files={selectedFiles}
@@ -527,7 +523,7 @@ export default function ChatConversationPage() {
         />
       )}
 
-      {/* Long Press Modal */}
+      {/* Long Press Message Modal */}
       {longPressMessage && (
         <LongPressMessageModal
           message={longPressMessage}
@@ -537,11 +533,8 @@ export default function ChatConversationPage() {
             toast.success("Copied to clipboard");
             setLongPressMessage(null);
           }}
-          onDelete={async () => {
-            if (!window.confirm("Delete this message?")) return;
-            await updateDoc(doc(db, "chats", chatId, "messages", longPressMessage.id), { deleted: true });
-            setMessages((prev) => prev.filter((m) => m.id !== longPressMessage.id));
-            toast.success("Message deleted");
+          onReply={() => {
+            setReplyTo(longPressMessage);
             setLongPressMessage(null);
           }}
           onPin={async () => {
@@ -549,10 +542,25 @@ export default function ChatConversationPage() {
             toast.success("Message pinned");
             setLongPressMessage(null);
           }}
-          onReply={() => {
-            setReplyTo(longPressMessage);
+          onDeleteForMe={async (msg) => {
+            await updateDoc(doc(db, "chats", chatId, "messages", msg.id), { deleted: true });
+            setMessages((prev) => prev.filter((m) => m.id !== msg.id));
+            toast.success("Message deleted");
             setLongPressMessage(null);
           }}
+          onDeleteForEveryone={async (msg) => {
+            await updateDoc(doc(db, "chats", chatId, "messages", msg.id), { deleted: true, deletedForEveryone: true });
+            setMessages((prev) => prev.filter((m) => m.id !== msg.id));
+            toast.success("Message deleted for everyone");
+            setLongPressMessage(null);
+          }}
+          onReaction={handleReact}
+          openFullEmojiPicker={(msg) => {
+            toast.info("Open full emoji picker");
+            setLongPressMessage(msg);
+          }}
+          quickReactions={["😜", "💗", "😎", "😍", "☻️", "💖"]}
+          isDark={isDark}
         />
       )}
 
