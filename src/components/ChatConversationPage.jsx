@@ -1,6 +1,6 @@
 // src/components/ChatConversationPage.jsx
 import React, { useEffect, useState, useRef, useContext, useCallback, useMemo } from "react";
-import { useParams } from "react-router-dom";
+import { useParams, useNavigate } from "react-router-dom";
 import {
   collection,
   addDoc,
@@ -10,10 +10,9 @@ import {
   arrayRemove,
   serverTimestamp,
   onSnapshot,
-  getDocs,
-  orderBy,
   query,
-  getDoc,
+  orderBy,
+  getDocs,
 } from "firebase/firestore";
 import { db, auth } from "../firebaseConfig";
 import { ThemeContext } from "../context/ThemeContext";
@@ -37,8 +36,9 @@ const FLASH_HIGHLIGHT_STYLE = `
 }
 `;
 
-export default function ChatConversationPage() {
-  const { chatId } = useParams();
+export default function ChatConversationPage({ initialFriend }) {
+  const { chatId: paramChatId } = useParams();
+  const navigate = useNavigate();
   const { theme, wallpaper } = useContext(ThemeContext);
   const { currentUser } = useContext(UserContext);
   const isDark = theme === "dark";
@@ -50,8 +50,9 @@ export default function ChatConversationPage() {
   const typingTimer = useRef(null);
   const initialScrollDone = useRef(false);
 
-  const [chatInfo, setChatInfo] = useState(null);
-  const [friendInfo, setFriendInfo] = useState(null);
+  const [chatId, setChatId] = useState(paramChatId || null);
+  const [chatInfo, setChatInfo] = useState({ participants: [myUid, initialFriend?.uid] });
+  const [friendInfo, setFriendInfo] = useState(initialFriend || {});
   const [messages, setMessages] = useState([]);
   const [text, setText] = useState("");
   const [selectedFiles, setSelectedFiles] = useState([]);
@@ -67,17 +68,17 @@ export default function ChatConversationPage() {
   const [longPressMessage, setLongPressMessage] = useState(null);
   const [stickyDate, setStickyDate] = useState(null);
 
-  // -------------------- CHAT & FRIEND INFO --------------------
+  // -------------------- LOAD CHAT & FRIEND --------------------
   useEffect(() => {
     if (!chatId) return;
 
     const chatRef = doc(db, "chats", chatId);
-    const unsubList = [];
+    let unsubChat, unsubFriend, unsubPinned;
 
-    const unsubChat = onSnapshot(chatRef, (snap) => {
+    unsubChat = onSnapshot(chatRef, (snap) => {
       if (!snap.exists()) return;
-      const data = snap.data();
 
+      const data = snap.data();
       setChatInfo({ id: snap.id, ...data });
       setIsBlocked(Boolean(data.blocked));
       setIsMuted(Boolean(data.mutedUntil && data.mutedUntil > Date.now()));
@@ -85,29 +86,52 @@ export default function ChatConversationPage() {
       const friendId = (data.participants || []).find((p) => p !== myUid);
       if (friendId) {
         const userRef = doc(db, "users", friendId);
-        const unsubFriend = onSnapshot(userRef, (s) => {
+        unsubFriend = onSnapshot(userRef, (s) => {
           if (s.exists()) setFriendInfo({ id: s.id, ...s.data() });
         });
-        unsubList.push(unsubFriend);
-      } else setFriendInfo(null);
+      }
 
-      // pinned message
       if (data.pinnedMessageId) {
         const pinnedRef = doc(db, "chats", chatId, "messages", data.pinnedMessageId);
-        const unsubPinned = onSnapshot(pinnedRef, (s) => {
+        unsubPinned = onSnapshot(pinnedRef, (s) => {
           if (s.exists()) setPinnedMessage({ id: s.id, ...s.data() });
         });
-        unsubList.push(unsubPinned);
-      } else setPinnedMessage(null);
+      }
 
-      // typing indicator (last 3s)
       const friendTypingTimestamp = data.typing?.[friendId]?.toDate?.() || Date.now();
       setFriendTyping(Date.now() - friendTypingTimestamp < 3000);
     });
 
-    unsubList.push(unsubChat);
-    return () => unsubList.forEach((u) => u());
+    return () => {
+      unsubChat && unsubChat();
+      unsubFriend && unsubFriend();
+      unsubPinned && unsubPinned();
+    };
   }, [chatId, myUid]);
+
+  // -------------------- AUTO CREATE 1:1 CHAT --------------------
+  useEffect(() => {
+    if (paramChatId) return;
+    if (!currentUser || !currentUser.selectedUserId) return;
+
+    const participants = [myUid, currentUser.selectedUserId].sort();
+
+    getDocs(query(collection(db, "chats"), orderBy("lastMessageAt", "desc"))).then((snap) => {
+      const existing = snap.docs.find((d) => {
+        const p = d.data().participants || [];
+        return p.length === 2 && p.sort().join() === participants.join();
+      });
+      if (existing) {
+        setChatId(existing.id);
+        navigate(`/chat/${existing.id}`);
+      } else {
+        addDoc(collection(db, "chats"), { participants, createdAt: serverTimestamp() }).then((docRef) => {
+          setChatId(docRef.id);
+          navigate(`/chat/${docRef.id}`);
+        });
+      }
+    });
+  }, [paramChatId, currentUser, myUid, navigate]);
 
   // -------------------- MESSAGES SUB --------------------
   useEffect(() => {
@@ -124,14 +148,12 @@ export default function ChatConversationPage() {
       }));
       setMessages(docs);
 
-      // mark delivered
       docs
         .filter((m) => m.senderId !== myUid && !(m.deliveredTo || []).includes(myUid))
         .forEach((m) =>
           updateDoc(doc(db, "chats", chatId, "messages", m.id), { deliveredTo: arrayUnion(myUid) }).catch(() => {})
         );
 
-      // auto-scroll if at bottom or first load
       if (isAtBottom || !initialScrollDone.current) {
         setTimeout(() => endRef.current?.scrollIntoView({ behavior: "auto" }), 50);
         initialScrollDone.current = true;
@@ -207,35 +229,57 @@ export default function ChatConversationPage() {
     [setTypingFlag]
   );
 
-  // -------------------- REACTIONS --------------------
-  const handleReact = useCallback(
-    async (messageId, emoji) => {
-      setMessages((prev) =>
-        prev.map((m) => {
-          if (m.id !== messageId) return m;
-          const hasReacted = m.reactions?.[emoji]?.includes(myUid);
-          const newReactions = { ...m.reactions };
-          if (!newReactions[emoji]) newReactions[emoji] = [];
-          newReactions[emoji] = hasReacted
-            ? newReactions[emoji].filter((uid) => uid !== myUid)
-            : [...newReactions[emoji], myUid];
-          return { ...m, reactions: newReactions };
-        })
-      );
+  // -------------------- SCROLL TO MESSAGE --------------------
+  const scrollToMessage = useCallback((id) => {
+    const el = messageRefs.current[id];
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+      el.classList.add("flash-highlight");
+      setTimeout(() => el.classList.remove("flash-highlight"), 1200);
+    }
+  }, []);
 
-      try {
-        const msgRef = doc(db, "chats", chatId, "messages", messageId);
-        const snap = await getDoc(msgRef);
-        const data = snap.data();
-        const userReacted = data?.reactions?.[emoji]?.includes(myUid);
-        await updateDoc(msgRef, {
-          [`reactions.${emoji}`]: userReacted ? arrayRemove(myUid) : arrayUnion(myUid),
-        });
-      } catch {
-        toast.error("Failed to react");
+  // -------------------- DATE HELPERS --------------------
+  const formatDateLabel = (dateStr) => {
+    const date = new Date(dateStr);
+    const today = new Date();
+    const yesterday = new Date(today);
+    yesterday.setDate(today.getDate() - 1);
+
+    if (date.toDateString() === today.toDateString()) return "Today";
+    if (date.toDateString() === yesterday.toDateString()) return "Yesterday";
+    return date.toLocaleDateString();
+  };
+
+  const messagesWithDateSeparators = useMemo(() => {
+    const res = [];
+    let lastDate = null;
+    messages.forEach((m) => {
+      const msgDate = new Date(m.createdAt).toDateString();
+      if (msgDate !== lastDate) {
+        res.push({ type: "date-separator", date: msgDate });
+        lastDate = msgDate;
       }
+      res.push({ type: "message", data: m });
+    });
+    return res;
+  }, [messages]);
+
+  // -------------------- MEDIA VIEWER --------------------
+  const mediaItems = useMemo(
+    () =>
+      messages
+        .filter((m) => m.mediaUrls?.length)
+        .flatMap((m) => m.mediaUrls.map((url) => ({ url, id: m.id }))),
+    [messages]
+  );
+
+  const openMediaViewerAtMessage = useCallback(
+    (message) => {
+      const index = mediaItems.findIndex((m) => m.id === message.id);
+      setMediaViewer({ open: true, startIndex: index >= 0 ? index : 0 });
     },
-    [chatId, myUid]
+    [mediaItems]
   );
 
   // -------------------- SEND MESSAGE --------------------
@@ -311,67 +355,6 @@ export default function ChatConversationPage() {
     [chatId, myUid, isBlocked, isAtBottom, replyTo, isMuted]
   );
 
-  // -------------------- MEDIA VIEWER --------------------
-  const mediaItems = useMemo(
-    () =>
-      messages
-        .filter((m) => m.mediaUrls?.length)
-        .flatMap((m) => m.mediaUrls.map((url) => ({ url, id: m.id }))),
-    [messages]
-  );
-
-  const openMediaViewerAtMessage = useCallback(
-    (message) => {
-      const index = mediaItems.findIndex((m) => m.id === message.id);
-      setMediaViewer({ open: true, startIndex: index >= 0 ? index : 0 });
-    },
-    [mediaItems]
-  );
-
-  // -------------------- SCROLL TO MESSAGE --------------------
-  const scrollToMessage = useCallback((id) => {
-    const el = messageRefs.current[id];
-    if (el) {
-      el.scrollIntoView({ behavior: "smooth", block: "center" });
-      el.classList.add("flash-highlight");
-      setTimeout(() => el.classList.remove("flash-highlight"), 1200);
-    }
-  }, []);
-
-  // -------------------- DATE HELPERS --------------------
-  const formatDateLabel = (dateStr) => {
-    const date = new Date(dateStr);
-    const today = new Date();
-    const yesterday = new Date(today);
-    yesterday.setDate(today.getDate() - 1);
-
-    if (date.toDateString() === today.toDateString()) return "Today";
-    if (date.toDateString() === yesterday.toDateString()) return "Yesterday";
-    return date.toLocaleDateString();
-  };
-
-  const messagesWithDateSeparators = useMemo(() => {
-    const res = [];
-    let lastDate = null;
-    messages.forEach((m) => {
-      const msgDate = new Date(m.createdAt).toDateString();
-      if (msgDate !== lastDate) {
-        res.push({ type: "date-separator", date: msgDate });
-        lastDate = msgDate;
-      }
-      res.push({ type: "message", data: m });
-    });
-    return res;
-  }, [messages]);
-
-  // -------------------- INITIAL SCROLL --------------------
-  useEffect(() => {
-    if (!chatId) return;
-    initialScrollDone.current = false;
-    setTimeout(() => endRef.current?.scrollIntoView({ behavior: "auto" }), 80);
-  }, [chatId]);
-
-  // -------------------- SEND HANDLERS --------------------
   const sendTextHandler = (givenText) => {
     const t = typeof givenText === "string" ? givenText : text;
     if (!t || !t.trim()) return;
@@ -390,8 +373,6 @@ export default function ChatConversationPage() {
   };
 
   // -------------------- RENDER --------------------
-  if (!chatInfo || !friendInfo) return <div style={{ padding: 20 }}>Loading chat...</div>;
-
   return (
     <div
       style={{
@@ -407,24 +388,11 @@ export default function ChatConversationPage() {
 
       {/* Header */}
       <ChatHeader
-        friendId={friendInfo.id}
+        friendId={friendInfo?.id}
         chatId={chatId}
         pinnedMessage={pinnedMessage}
         setBlockedStatus={setIsBlocked}
         onGoToPinned={() => pinnedMessage && scrollToMessage(pinnedMessage.id)}
-        onSearch={() => toast.info("Search triggered")}
-        onClearChat={async () => {
-          if (!window.confirm("Clear all messages?")) return;
-          const msgsRef = collection(db, "chats", chatId, "messages");
-          const snap = await getDocs(msgsRef);
-          await Promise.all(
-            snap.docs.map((m) => updateDoc(doc(db, "chats", chatId, "messages", m.id), { deleted: true }))
-          );
-          setMessages([]);
-          toast.success("Chat cleared");
-        }}
-        onVoiceCall={() => toast.info("Voice call started")}
-        onVideoCall={() => toast.info("Video call started")}
       />
 
       {/* Sticky Date */}
@@ -472,7 +440,6 @@ export default function ChatConversationPage() {
                 scrollToMessage={scrollToMessage}
                 openMediaViewer={openMediaViewerAtMessage}
                 setLongPressMessage={setLongPressMessage}
-                friendTyping={friendTyping}
                 ref={(el) => (messageRefs.current[msg.id] = el)}
               />
             );
@@ -485,7 +452,7 @@ export default function ChatConversationPage() {
       {/* Typing Indicator */}
       {friendTyping && (
         <div style={{ padding: 4, textAlign: "left", color: isDark ? "#aaa" : "#555", fontSize: 12 }}>
-          {friendInfo.displayName || "Friend"} is typing...
+          {friendInfo?.displayName || "Friend"} is typing...
         </div>
       )}
 
@@ -554,10 +521,27 @@ export default function ChatConversationPage() {
             toast.success("Message deleted for everyone");
             setLongPressMessage(null);
           }}
-          onReaction={handleReact}
-          openFullEmojiPicker={(msg) => {
-            toast.info("Open full emoji picker");
-            setLongPressMessage(msg);
+          onReaction={async (emoji) => {
+            const messageId = longPressMessage.id;
+            const hasReacted = longPressMessage.reactions?.[emoji]?.includes(myUid);
+            const newReactions = { ...longPressMessage.reactions };
+            if (!newReactions[emoji]) newReactions[emoji] = [];
+            newReactions[emoji] = hasReacted
+              ? newReactions[emoji].filter((uid) => uid !== myUid)
+              : [...newReactions[emoji], myUid];
+
+            setMessages((prev) =>
+              prev.map((m) => (m.id === messageId ? { ...m, reactions: newReactions } : m))
+            );
+
+            try {
+              const msgRef = doc(db, "chats", chatId, "messages", messageId);
+              await updateDoc(msgRef, {
+                [`reactions.${emoji}`]: hasReacted ? arrayRemove(myUid) : arrayUnion(myUid),
+              });
+            } catch {
+              toast.error("Failed to react");
+            }
           }}
           quickReactions={["😜", "💗", "😎", "😍", "☻️", "💖"]}
           isDark={isDark}
