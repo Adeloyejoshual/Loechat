@@ -1,118 +1,128 @@
 // src/components/Chat/LongPressMessageModal.jsx
 import React from "react";
-import { FaRegSmile, FaReply, FaTrash, FaThumbtack, FaCopy } from "react-icons/fa";
+import { doc, updateDoc, arrayUnion, arrayRemove, deleteDoc } from "firebase/firestore";
+import { db } from "../../firebaseConfig";
+import { toast } from "react-toastify";
 
-export default function LongPressMessageModal({
-  message,
-  onClose,
-  onReaction,
-  onReply,
-  onCopy,
-  onPin,
-  onDeleteForMe,
-  onDeleteForEveryone,
-  isDark,
+export default function LongPressMessageModal({ 
+  message, 
+  myUid, 
+  onClose, 
+  setReplyTo, 
+  setPinnedMessage, 
+  chatContainerRef 
 }) {
   if (!message) return null;
 
-  const bgColor = isDark ? "#1c1c1c" : "#fff";
-  const textColor = isDark ? "#fff" : "#000";
-  const borderColor = isDark ? "#333" : "#ccc";
+  const isMine = message.senderId === myUid;
 
-  const reactions = ["👍", "❤️", "😂", "😮", "😢", "👏"];
+  const handleReply = () => {
+    setReplyTo?.(message);
+    onClose?.();
+  };
+
+  const handlePin = async () => {
+    if (!message?.chatId || !message?.id) return;
+    const msgRef = doc(db, "chats", message.chatId, "messages", message.id);
+    try {
+      await updateDoc(msgRef, { pinned: true });
+      setPinnedMessage?.(message);
+      toast.success("Message pinned");
+    } catch {
+      toast.error("Failed to pin");
+    }
+    onClose?.();
+  };
+
+  const handleCopy = () => {
+    try {
+      navigator.clipboard.writeText(message.text || "");
+      toast.success("Copied");
+    } catch {
+      toast.error("Failed to copy");
+    }
+    onClose?.();
+  };
+
+  const handleDelete = async () => {
+    if (!message?.chatId || !message?.id) return;
+    const msgRef = doc(db, "chats", message.chatId, "messages", message.id);
+    try {
+      if (isMine) {
+        await updateDoc(msgRef, { deleted: true });
+      } else {
+        await updateDoc(msgRef, { deletedFor: arrayUnion(myUid) });
+      }
+      toast.success("Message deleted");
+    } catch {
+      toast.error("Failed to delete");
+    }
+    onClose?.();
+  };
+
+  const handleReact = async (emoji) => {
+    if (!message?.chatId || !message?.id) return;
+    const msgRef = doc(db, "chats", message.chatId, "messages", message.id);
+    try {
+      const users = message.reactions?.[emoji] || [];
+      if (users.includes(myUid)) {
+        await updateDoc(msgRef, { [`reactions.${emoji}`]: arrayRemove(myUid) });
+      } else {
+        await updateDoc(msgRef, { [`reactions.${emoji}`]: arrayUnion(myUid) });
+      }
+    } catch {
+      toast.error("Failed to react");
+    }
+  };
+
+  // Example emoji reactions
+  const emojis = ["👍","❤️","😂","😮","😢","🙏"];
 
   return (
-    <div
-      onClick={onClose}
+    <div 
+      onClick={onClose} 
       style={{
-        position: "fixed",
-        inset: 0,
-        backgroundColor: "rgba(0,0,0,0.4)",
-        zIndex: 1000,
-        display: "flex",
-        justifyContent: "center",
-        alignItems: "center",
-        padding: 12,
+        position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", display: "flex", justifyContent: "center", alignItems: "center", zIndex: 5000
       }}
     >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        style={{
-          backgroundColor: bgColor,
-          color: textColor,
-          borderRadius: 12,
-          minWidth: 280,
-          padding: 16,
-          display: "flex",
-          flexDirection: "column",
-          boxShadow: "0 4px 16px rgba(0,0,0,0.3)",
-        }}
-      >
+      <div onClick={(e)=>e.stopPropagation()} style={{
+        background: "#fff", borderRadius: 12, padding: 16, width: "90%", maxWidth: 360, display: "flex", flexDirection: "column", gap: 12
+      }}>
+        {/* Reply */}
+        <button onClick={handleReply} style={buttonStyle}>Reply</button>
+
+        {/* Pin */}
+        <button onClick={handlePin} style={buttonStyle}>Pin</button>
+
+        {/* Copy */}
+        {message.text && <button onClick={handleCopy} style={buttonStyle}>Copy</button>}
+
+        {/* Delete */}
+        <button onClick={handleDelete} style={{...buttonStyle, color:"red"}}>{isMine ? "Delete for everyone" : "Delete for me"}</button>
+
         {/* Reactions */}
-        <div style={{ display: "flex", justifyContent: "space-around", marginBottom: 12 }}>
-          {reactions.map((r) => (
-            <button
-              key={r}
-              onClick={() => onReaction(r)}
-              style={{
-                fontSize: 20,
-                background: "transparent",
-                border: "none",
-                cursor: "pointer",
-              }}
-            >
-              {r}
+        <div style={{ display:"flex", gap:8, marginTop:4, flexWrap:"wrap" }}>
+          {emojis.map((e)=>(
+            <button key={e} onClick={()=>handleReact(e)} style={{ fontSize:20, padding:4, borderRadius:8, border:"1px solid #ddd", cursor:"pointer" }}>
+              {e}
             </button>
           ))}
         </div>
 
-        {/* Actions */}
-        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          <ActionButton icon={<FaReply />} label="Reply" onClick={onReply} textColor={textColor} borderColor={borderColor} />
-          <ActionButton icon={<FaCopy />} label="Copy" onClick={onCopy} textColor={textColor} borderColor={borderColor} />
-          <ActionButton icon={<FaThumbtack />} label="Pin" onClick={onPin} textColor={textColor} borderColor={borderColor} />
-          <ActionButton icon={<FaTrash />} label="Delete for me" onClick={onDeleteForMe} textColor={textColor} borderColor={borderColor} />
-          <ActionButton icon={<FaTrash />} label="Delete for everyone" onClick={onDeleteForEveryone} textColor={textColor} borderColor={borderColor} />
-        </div>
-
-        <button
-          onClick={onClose}
-          style={{
-            marginTop: 12,
-            padding: 8,
-            borderRadius: 8,
-            border: `1px solid ${borderColor}`,
-            backgroundColor: bgColor,
-            color: textColor,
-            cursor: "pointer",
-          }}
-        >
-          Close
-        </button>
+        {/* Close */}
+        <button onClick={onClose} style={{ ...buttonStyle, marginTop: 8, color: "#555" }}>Cancel</button>
       </div>
     </div>
   );
 }
 
-function ActionButton({ icon, label, onClick, textColor, borderColor }) {
-  return (
-    <button
-      onClick={onClick}
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 8,
-        padding: "8px 12px",
-        borderRadius: 8,
-        border: `1px solid ${borderColor}`,
-        backgroundColor: "transparent",
-        color: textColor,
-        cursor: "pointer",
-        fontSize: 14,
-        width: "100%",
-      }}
-    >
-      {icon} {label}
-    </button>
-  );
-}
+const buttonStyle = {
+  padding: "10px 12px",
+  borderRadius: 8,
+  border: "none",
+  background: "#f0f0f0",
+  cursor: "pointer",
+  textAlign: "left",
+  fontSize: 14,
+  fontWeight: 500
+};
