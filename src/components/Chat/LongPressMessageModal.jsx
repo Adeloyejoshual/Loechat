@@ -1,226 +1,125 @@
-import React, { useEffect, useRef, useState } from "react";
-import { toast } from "react-toastify";
+import React, { useEffect, useMemo, useRef, useState } from "react"; import { createPortal } from "react-dom";
 
-export default function LongPressMessageModal({
-  message,
-  onClose,
-  onCopy,
-  onReply,
-  onReaction,
-  onPin,
-  onDeleteForMe,
-  onDeleteForEveryone,
-  onMediaClick,
-  openFullEmojiPicker,
-  isDark = false,
-  quickReactions = ["😜", "💗", "😎", "😍", "☻️", "💖"],
-}) {
-  const modalRef = useRef(null);
-  const [confirmDelete, setConfirmDelete] = useState(false);
+// Emoji categories (trimmed but expandable) const CATEGORIES = [ { id: "smileys", title: "Smileys", emojis: [ "😀","😁","😂","🤣","😃","😄","😅","😆","😉","😊","🙂","🙃","😍","😘","😗","😙","😚","😋","😜","🤪","😝","🤩","🥳","🤔","🤨","🤯","🤗","🤥" ], }, { id: "people", title: "People", emojis: ["🧑","👩","👨","🧒","👶","🧓","👴","👵","🧑‍💻","👮‍♀️","👷‍♂️","💂‍♀️","🕵️"] }, { id: "heart", title: "Hearts", emojis: ["❤️","💛","💚","💙","💜","🖤","🤍","🤎","💔","💕","💞","💓","💗"] }, { id: "gestures", title: "Gestures", emojis: ["👍","👎","👏","🙌","🙏","🤝","🤟","👌","✌️","🤘","🫶"] }, { id: "animals", title: "Animals", emojis: ["🐶","🐱","🦊","🐻","🐼","🐨","🐯","🦁","🐮","🐷","🐸","🐵","🐔"] }, { id: "food", title: "Food", emojis: ["🍏","🍎","🍐","🍊","🍋","🍌","🍉","🍇","🍓","🍔","🍟","🍕","🍿","🍩"] }, { id: "activities", title: "Activities", emojis: ["⚽","🏀","🏈","⚾","🎾","🏐","🏆","🎮","🎲"] }, { id: "symbols", title: "Symbols", emojis: ["⭐","🌟","🔥","⚡","✨","💥","💫","❄️","☀️","🌈"] } ];
 
-  if (!message) return null; // ← prevents BLANK PAGE crash
+export default function EmojiBottomSheet({ isOpen, onClose, onSelect, initialCategory = "smileys", isDark = false, height = "72vh", }) { const [query, setQuery] = useState(""); const [activeCat, setActiveCat] = useState(initialCategory); const sheetRef = useRef(null); const containerRef = useRef(null); const catRefs = useRef({});
 
-  // Smooth safe close to avoid blank UI
-  const safeClose = () => {
-    setTimeout(() => {
-      if (typeof onClose === "function") onClose();
-    }, 150);
-  };
+useEffect(() => { if (isOpen) { document.body.style.overflow = "hidden"; // small delay to animate in requestAnimationFrame(() => { sheetRef.current?.classList.remove("translate-y-full"); }); } else { document.body.style.overflow = ""; } return () => (document.body.style.overflow = ""); }, [isOpen]);
 
-  // Close on ESC + outside click
-  useEffect(() => {
-    const handleOutside = (e) => {
-      if (!modalRef.current) return;
-      if (!modalRef.current.contains(e.target)) safeClose();
-    };
+useEffect(() => { const onKey = (e) => { if (e.key === "Escape") onClose?.(); }; document.addEventListener("keydown", onKey); return () => document.removeEventListener("keydown", onKey); }, [onClose]);
 
-    const handleEsc = (e) => {
-      if (e.key === "Escape") safeClose();
-    };
+const flatEmojis = useMemo(() => { if (!query?.trim()) return null; const q = query.toLowerCase(); // search by emoji character or category title return CATEGORIES.flatMap((c) => c.emojis).filter((e) => e.includes(q) || (e && false)); }, [query]);
 
-    document.addEventListener("mousedown", handleOutside);
-    document.addEventListener("keydown", handleEsc);
-    document.body.style.overflow = "hidden";
+const displayed = useMemo(() => { if (flatEmojis) return { search: flatEmojis }; const map = {}; for (const cat of CATEGORIES) map[cat.id] = cat.emojis; return map; }, [flatEmojis]);
 
-    return () => {
-      document.removeEventListener("mousedown", handleOutside);
-      document.removeEventListener("keydown", handleEsc);
-      document.body.style.overflow = "";
-    };
-  }, []);
+const scrollToCategory = (id) => { setActiveCat(id); const node = catRefs.current[id]; if (node && containerRef.current) { node.scrollIntoView({ behavior: "smooth", block: "start" }); } };
 
-  // Button styling
-  const btn = {
-    padding: "10px",
-    width: "100%",
-    borderRadius: 8,
-    fontSize: 15,
-    border: "none",
-    display: "flex",
-    alignItems: "center",
-    gap: 10,
-    cursor: "pointer",
-    background: isDark ? "#292929" : "#f3f3f3",
-    color: isDark ? "#fff" : "#000",
-  };
+// update active category while scrolling large list useEffect(() => { if (!containerRef.current || flatEmojis) return; const container = containerRef.current; let ticking = false; const handle = () => { if (ticking) return; ticking = true; requestAnimationFrame(() => { let found = activeCat; for (const cat of CATEGORIES) { const el = catRefs.current[cat.id]; if (!el) continue; const rect = el.getBoundingClientRect(); const contRect = container.getBoundingClientRect(); if (rect.top - contRect.top <= 48) { found = cat.id; } else break; } if (found !== activeCat) setActiveCat(found); ticking = false; }); }; container.addEventListener("scroll", handle, { passive: true }); return () => container.removeEventListener("scroll", handle); }, [activeCat, flatEmojis]);
 
-  // Actions
-  const handleCopy = () => {
-    if (onCopy) onCopy(message);
-    toast.success("Copied");
-    safeClose();
-  };
+if (!isOpen) return null;
 
-  const handleReply = () => {
-    if (onReply) onReply(message);
-    safeClose();
-  };
+return createPortal( <div className={fixed inset-0 z-50 flex items-end justify-center}> {/* backdrop */} <div
+onClick={onClose}
+className="absolute inset-0 bg-black/40"
+aria-hidden
+/>
 
-  const handleReaction = (emoji) => {
-    if (onReaction) onReaction(message, emoji);
-    safeClose();
-  };
+{/* sheet */}
+  <div
+    ref={sheetRef}
+    className={`relative w-full max-w-2xl mx-auto rounded-t-2xl bg-white dark:bg-[#0b0b0b] translate-y-full transition-transform duration-220 ease-out`} 
+    style={{ height, boxShadow: "0 -20px 40px rgba(0,0,0,0.18)" }}
+    onClick={(e) => e.stopPropagation()}
+  >
+    {/* drag handle */}
+    <div className="w-full flex justify-center p-3">
+      <div className="w-12 h-1.5 rounded-full bg-slate-300 dark:bg-slate-700" />
+    </div>
 
-  const handlePin = () => {
-    if (onPin) onPin(message);
-    toast.success("Pinned");
-    safeClose();
-  };
-
-  const handleDelete = async (type) => {
-    try {
-      if (type === "me" && onDeleteForMe) await onDeleteForMe(message);
-      if (type === "everyone" && onDeleteForEveryone) await onDeleteForEveryone(message);
-    } catch {
-      toast.error("Delete failed");
-    }
-    safeClose();
-  };
-
-  return (
-    <div
-      style={{
-        position: "fixed",
-        inset: 0,
-        background: "rgba(0,0,0,0.28)",
-        zIndex: 9999,
-        display: "flex",
-        justifyContent: "center",
-        alignItems: "flex-end",
-        padding: "0 15px 25px",
-      }}
-    >
-      <div
-        ref={modalRef}
-        style={{
-          width: "100%",
-          maxWidth: 380,
-          background: isDark ? "#1a1a1a" : "#fff",
-          borderRadius: 16,
-          padding: 16,
-          display: "flex",
-          flexDirection: "column",
-          gap: 12,
-        }}
-      >
-        {/* quick reactions */}
-        <div style={{ display: "flex", gap: 10, overflowX: "auto" }}>
-          {quickReactions.map((emoji) => (
-            <button
-              key={emoji}
-              onClick={() => handleReaction(emoji)}
-              style={{
-                background: "transparent",
-                border: "none",
-                fontSize: 24,
-                cursor: "pointer",
-              }}
-            >
-              {emoji}
-            </button>
-          ))}
-
-          <button
-            style={{
-              background: "transparent",
-              border: "none",
-              fontSize: 22,
-            }}
-            onClick={() => {
-              safeClose();
-              if (openFullEmojiPicker) openFullEmojiPicker(message);
-            }}
-          >
-            ➕
-          </button>
+    {/* header: search + close */}
+    <div className="px-4 pb-2">
+      <div className="flex items-center gap-3">
+        <div className="flex-1">
+          <div className="text-sm font-semibold text-slate-700 dark:text-slate-200">Emoji</div>
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search emojis or paste any emoji"
+            className="mt-2 w-full rounded-lg px-3 py-2 border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-[#111] focus:outline-none focus:ring-2 focus:ring-slate-300 text-slate-800 dark:text-slate-200"
+          />
         </div>
+        <button
+          onClick={onClose}
+          className="ml-2 p-2 rounded-md hover:bg-slate-100 dark:hover:bg-slate-800"
+          aria-label="Close emoji picker"
+        >
+          ✕
+        </button>
+      </div>
+    </div>
 
-        {/* main options */}
-        {!confirmDelete && (
-          <>
-            <button style={btn} onClick={handleReply}>↩️ Reply</button>
-            <button style={btn} onClick={handleCopy}>📋 Copy</button>
-            <button style={btn} onClick={handlePin}>📌 Pin</button>
-
-            {message?.mediaUrls?.length > 0 && (
-              <button
-                style={btn}
-                onClick={() => {
-                  if (onMediaClick) onMediaClick(message, 0);
-                  safeClose();
-                }}
-              >
-                🖼️ View Media
-              </button>
-            )}
-
+    {/* categories row (sticky) */}
+    <div className="px-3">
+      <div className="flex gap-2 overflow-x-auto py-2 scrollbar-hide">
+        {flatEmojis ? (
+          <div className="px-2 py-1 text-sm rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200">Search results</div>
+        ) : (
+          CATEGORIES.map((c) => (
             <button
-              style={{ ...btn, color: "red" }}
-              onClick={() => setConfirmDelete(true)}
+              key={c.id}
+              onClick={() => scrollToCategory(c.id)}
+              className={`px-3 py-1 rounded-lg whitespace-nowrap text-sm ${activeCat === c.id ? 'bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white' : 'text-slate-600 dark:text-slate-300'}`}
             >
-              🗑️ Delete
+              {c.title}
             </button>
-
-            <button style={btn} onClick={safeClose}>
-              Close
-            </button>
-          </>
-        )}
-
-        {/* delete confirmation */}
-        {confirmDelete && (
-          <>
-            <div style={{ textAlign: "center", fontSize: 16 }}>
-              Delete this message?
-            </div>
-
-            <div style={{ display: "flex", gap: 10 }}>
-              <button
-                style={{ ...btn, flex: 1, background: "#ddd" }}
-                onClick={() => handleDelete("me")}
-              >
-                Delete for me
-              </button>
-
-              <button
-                style={{
-                  ...btn,
-                  flex: 1,
-                  background: "red",
-                  color: "#fff",
-                }}
-                onClick={() => handleDelete("everyone")}
-              >
-                Delete for everyone
-              </button>
-            </div>
-
-            <button style={btn} onClick={() => setConfirmDelete(false)}>
-              Cancel
-            </button>
-          </>
+          ))
         )}
       </div>
     </div>
-  );
-}
+
+    {/* emoji grid container */}
+    <div
+      ref={containerRef}
+      className="px-3 pb-6 overflow-y-auto h-[calc(100%-160px)] touch-pan-y"
+    >
+      {/* search results */}
+      {flatEmojis ? (
+        <div className="grid grid-cols-8 gap-2 p-1">
+          {flatEmojis.map((e, i) => (
+            <button
+              key={`${e}-${i}`}
+              onClick={() => onSelect?.(e)}
+              className="text-2xl p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800"
+            >
+              {e}
+            </button>
+          ))}
+        </div>
+      ) : (
+        // full categories
+        CATEGORIES.map((cat) => (
+          <div key={cat.id} ref={(el) => (catRefs.current[cat.id] = el)} className="mb-4">
+            <div className="text-sm font-medium text-slate-600 dark:text-slate-300 px-1 py-2">{cat.title}</div>
+            <div className="grid grid-cols-8 gap-2 p-1">
+              {cat.emojis.map((e) => (
+                <button
+                  key={e}
+                  onClick={() => onSelect?.(e)}
+                  className="text-2xl p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800"
+                >
+                  {e}
+                </button>
+              ))}
+            </div>
+          </div>
+        ))
+      )}
+
+      {/* spacer so bottom isn't cut off */}
+      <div style={{ height: 18 }} />
+    </div>
+  </div>
+</div>,
+document.body
+
+); }
