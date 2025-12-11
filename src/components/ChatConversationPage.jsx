@@ -7,7 +7,6 @@ import {
   doc,
   updateDoc,
   arrayUnion,
-  arrayRemove,
   serverTimestamp,
   onSnapshot,
   getDocs,
@@ -43,14 +42,14 @@ export default function ChatConversationPage() {
   const isDark = theme === "dark";
   const myUid = auth.currentUser?.uid || currentUser?.uid;
 
-  // refs
+  // -------------------- REFS --------------------
   const messagesRefEl = useRef(null);
   const endRef = useRef(null);
   const messageRefs = useRef({});
   const typingTimer = useRef(null);
   const initialScrollDone = useRef(false);
 
-  // state
+  // -------------------- STATE --------------------
   const [chatInfo, setChatInfo] = useState(null);
   const [friendInfo, setFriendInfo] = useState(null);
   const [messages, setMessages] = useState([]);
@@ -90,6 +89,7 @@ export default function ChatConversationPage() {
       setIsBlocked(Boolean(data.blocked));
       setIsMuted(Boolean(data.mutedUntil && data.mutedUntil > Date.now()));
 
+      // friend info
       const friendId = (data.participants || []).find((p) => p !== myUid);
       if (friendId) {
         const userRef = doc(db, "users", friendId);
@@ -97,9 +97,7 @@ export default function ChatConversationPage() {
           setFriendInfo(s.exists() ? { id: s.id, ...s.data() } : null);
         });
         unsubList.push(unsubFriend);
-      } else {
-        setFriendInfo(null);
-      }
+      } else setFriendInfo(null);
 
       // pinned message
       if (data.pinnedMessageId) {
@@ -108,29 +106,20 @@ export default function ChatConversationPage() {
           setPinnedMessage(s.exists() ? { id: s.id, ...s.data() } : null);
         });
         unsubList.push(unsubPinned);
-      } else {
-        setPinnedMessage(null);
-      }
+      } else setPinnedMessage(null);
 
-      // typing indicator (boolean)
-      try {
-        const friendTypingFlag = Boolean(data.typing?.[friendId]);
-        setFriendTyping(friendTypingFlag);
-      } catch {
-        setFriendTyping(false);
-      }
+      // typing flag
+      const friendTypingFlag = Boolean(data.typing?.[friendId]);
+      setFriendTyping(friendTypingFlag);
     });
 
     unsubList.push(unsubChat);
     return () => unsubList.forEach((u) => u());
   }, [chatId, myUid]);
 
-  // -------------------- MESSAGES SUB --------------------
+  // -------------------- MESSAGES SUBSCRIPTION --------------------
   useEffect(() => {
-    if (!chatId) {
-      setMessages([]);
-      return;
-    }
+    if (!chatId) return setMessages([]);
 
     const messagesRef = collection(db, "chats", chatId, "messages");
     const q = query(messagesRef, orderBy("createdAt", "asc"));
@@ -143,18 +132,16 @@ export default function ChatConversationPage() {
       }));
       setMessages(docs);
 
-      // mark delivered (optimistic)
+      // mark delivered optimistically
       docs
         .filter((m) => m.senderId !== myUid && !(m.deliveredTo || []).includes(myUid))
         .forEach((m) =>
           updateDoc(doc(db, "chats", chatId, "messages", m.id), { deliveredTo: arrayUnion(myUid) }).catch(() => {})
         );
 
-      // auto-scroll on first load or when at bottom
+      // auto-scroll first load or if at bottom
       if (isAtBottom || !initialScrollDone.current) {
-        setTimeout(() => {
-          endRef.current?.scrollIntoView({ behavior: "auto" });
-        }, 50);
+        setTimeout(() => endRef.current?.scrollIntoView({ behavior: "auto" }), 50);
         initialScrollDone.current = true;
       }
     });
@@ -231,7 +218,6 @@ export default function ChatConversationPage() {
   // -------------------- REACTIONS --------------------
   const handleReact = useCallback(
     async (messageId, emoji) => {
-      // optimistic local update
       setMessages((prev) =>
         prev.map((m) => {
           if (m.id !== messageId) return m;
@@ -246,7 +232,6 @@ export default function ChatConversationPage() {
       try {
         const msgRef = doc(db, "chats", chatId, "messages", messageId);
         const snap = await msgRef.get?.() ?? null;
-        // write ideally toggles; simplified to add
         await updateDoc(msgRef, { [`reactions.${emoji}`]: arrayUnion(myUid) });
       } catch {
         toast.error("Failed to react");
@@ -309,7 +294,9 @@ export default function ChatConversationPage() {
         const payload = { ...tempMessage, mediaUrls: uploadedUrls, createdAt: serverTimestamp(), status: "sent" };
         const docRef = await addDoc(messagesCol, payload);
 
-        setMessages((prev) => prev.map((m) => (m.id === tempId ? { ...payload, id: docRef.id, createdAt: new Date() } : m)));
+        setMessages((prev) =>
+          prev.map((m) => (m.id === tempId ? { ...payload, id: docRef.id, createdAt: new Date() } : m))
+        );
 
         await updateDoc(doc(db, "chats", chatId), {
           lastMessage: textMsg || (files[0]?.name || "Media"),
@@ -324,6 +311,7 @@ export default function ChatConversationPage() {
         setShowPreview(false);
         setCaption("");
         setSelectedFiles([]);
+        setReplyTo(null);
       }
     },
     [chatId, myUid, isBlocked, isAtBottom, replyTo, isMuted]
@@ -356,7 +344,7 @@ export default function ChatConversationPage() {
     }
   }, []);
 
-  // -------------------- HELPERS --------------------
+  // -------------------- DATE LABELS --------------------
   const formatDateLabel = (dateStr) => {
     if (!dateStr) return "";
     const date = new Date(dateStr);
@@ -382,7 +370,20 @@ export default function ChatConversationPage() {
     return res;
   }, [messages]);
 
-  // -------------------- HANDLERS --------------------
+  // -------------------- DELETE --------------------
+  const handleDeleteForMe = async (msg) => {
+    await updateDoc(doc(db, "chats", chatId, "messages", msg.id), { deleted: true });
+    setMessages((prev) => prev.filter((m) => m.id !== msg.id));
+    toast.success("Deleted");
+  };
+
+  const handleDeleteForEveryone = async (msg) => {
+    await updateDoc(doc(db, "chats", chatId, "messages", msg.id), { deleted: true, deletedForEveryone: true });
+    setMessages((prev) => prev.filter((m) => m.id !== msg.id));
+    toast.success("Deleted for everyone");
+  };
+
+  // -------------------- SEND HANDLERS --------------------
   const sendTextHandler = (givenText) => {
     const t = typeof givenText === "string" ? givenText : text;
     if (!t?.trim()) return;
@@ -396,20 +397,7 @@ export default function ChatConversationPage() {
     sendMessage(caption, files);
   };
 
-  const handleDeleteForMe = async (msg) => {
-    await updateDoc(doc(db, "chats", chatId, "messages", msg.id), { deleted: true });
-    setMessages((prev) => prev.filter((m) => m.id !== msg.id));
-    toast.success("Deleted");
-  };
-
-  const handleDeleteForEveryone = async (msg) => {
-    await updateDoc(doc(db, "chats", chatId, "messages", msg.id), { deleted: true, deletedForEveryone: true });
-    setMessages((prev) => prev.filter((m) => m.id !== msg.id));
-    toast.success("Deleted for everyone");
-  };
-
   // -------------------- RENDER --------------------
-  // Note: we don't block rendering — show UI even if chatInfo/friendInfo are not yet loaded
   return (
     <div
       style={{
@@ -433,27 +421,44 @@ export default function ChatConversationPage() {
           if (!chatId) return;
           const msgsRef = collection(db, "chats", chatId, "messages");
           const snap = await getDocs(msgsRef);
-          await Promise.all(snap.docs.map((m) => updateDoc(doc(db, "chats", chatId, "messages", m.id), { deleted: true })));
+          await Promise.all(
+            snap.docs.map((m) => updateDoc(doc(db, "chats", chatId, "messages", m.id), { deleted: true }))
+          );
           setMessages([]);
           toast.success("Chat cleared");
         }}
       />
 
       {stickyDate && (
-        <div style={{ position: "sticky", top: 0, zIndex: 5, textAlign: "center", padding: 4, fontSize: 12, color: isDark ? "#888" : "#555" }}>
+        <div
+          style={{
+            position: "sticky",
+            top: 0,
+            zIndex: 5,
+            textAlign: "center",
+            padding: 4,
+            fontSize: 12,
+            color: isDark ? "#888" : "#555",
+          }}
+        >
           {formatDateLabel(stickyDate)}
         </div>
       )}
 
-      <div ref={messagesRefEl} style={{ flex: 1, overflowY: "auto", padding: 8, display: "flex", flexDirection: "column" }}>
+      <div
+        ref={messagesRefEl}
+        style={{ flex: 1, overflowY: "auto", padding: 8, display: "flex", flexDirection: "column" }}
+      >
         {messagesWithDateSeparators.map((item, idx) => {
-          if (item.type === "date-separator") {
+          if (item.type === "date-separator")
             return (
-              <div key={`date-${idx}`} style={{ textAlign: "center", margin: "8px 0", color: isDark ? "#888" : "#555", fontSize: 12 }}>
+              <div
+                key={`date-${idx}`}
+                style={{ textAlign: "center", margin: "8px 0", color: isDark ? "#888" : "#555", fontSize: 12 }}
+              >
                 {formatDateLabel(item.date)}
               </div>
             );
-          }
 
           const msg = item.data;
           return (
@@ -510,7 +515,7 @@ export default function ChatConversationPage() {
         setTyping={handleUserTyping}
       />
 
-      {/* Image preview */}
+      {/* Image preview modal */}
       {showPreview && selectedFiles.length > 0 && (
         <ImagePreviewModal
           previews={selectedFiles.map((f) => ({ file: f, url: URL.createObjectURL(f) }))}
@@ -530,10 +535,14 @@ export default function ChatConversationPage() {
 
       {/* Media viewer */}
       {mediaViewer.open && (
-        <MediaViewer items={mediaItems} startIndex={mediaViewer.startIndex} onClose={() => setMediaViewer({ open: false, startIndex: 0 })} />
+        <MediaViewer
+          items={mediaItems}
+          startIndex={mediaViewer.startIndex}
+          onClose={() => setMediaViewer({ open: false, startIndex: 0 })}
+        />
       )}
 
-      {/* Long-press modal (guarded) */}
+      {/* Long-press message modal */}
       {longPressMessage && (
         <LongPressMessageModal
           message={longPressMessage}
