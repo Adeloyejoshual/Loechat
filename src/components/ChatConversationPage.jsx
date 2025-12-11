@@ -7,7 +7,6 @@ import {
   doc,
   updateDoc,
   arrayUnion,
-  arrayRemove,
   serverTimestamp,
   onSnapshot,
   getDocs,
@@ -79,7 +78,7 @@ export default function ChatConversationPage() {
 
       setChatInfo({ id: snap.id, ...data });
       setIsBlocked(Boolean(data.blocked));
-      setIsMuted(Boolean(data.mutedUntil && data.mutedUntil > Date.now()));
+      setIsMuted(Boolean(data.mutedUntil && data.mutedUntil.toMillis() > Date.now()));
 
       // Friend info
       const friendId = (data.participants || []).find((p) => p !== myUid);
@@ -89,6 +88,9 @@ export default function ChatConversationPage() {
           if (s.exists()) setFriendInfo({ id: s.id, ...s.data() });
         });
         unsubList.push(unsubFriend);
+
+        // Real-time typing indicator
+        setFriendTyping(Boolean(data.typing?.[friendId]));
       }
 
       // pinned message
@@ -99,9 +101,6 @@ export default function ChatConversationPage() {
         });
         unsubList.push(unsubPinned);
       } else setPinnedMessage(null);
-
-      // typing indicator
-      setFriendTyping(Boolean(data.typing?.[friendId]));
     });
 
     unsubList.push(unsubChat);
@@ -192,7 +191,9 @@ export default function ChatConversationPage() {
       if (!chatId || !myUid) return;
       try {
         await updateDoc(doc(db, "chats", chatId), { [`typing.${myUid}`]: typing ? serverTimestamp() : null });
-      } catch {}
+      } catch (err) {
+        console.error("Typing flag error:", err);
+      }
     },
     [chatId, myUid]
   );
@@ -224,9 +225,7 @@ export default function ChatConversationPage() {
 
       try {
         const msgRef = doc(db, "chats", chatId, "messages", messageId);
-        await updateDoc(msgRef, {
-          [`reactions.${emoji}`]: arrayUnion(myUid),
-        });
+        await updateDoc(msgRef, { [`reactions.${emoji}`]: arrayUnion(myUid) });
       } catch {
         toast.error("Failed to react");
       }
@@ -286,18 +285,11 @@ export default function ChatConversationPage() {
           uploadedUrls.push(res.data.secure_url);
         }
 
-        const payload = {
-          ...tempMessage,
-          mediaUrls: uploadedUrls,
-          createdAt: serverTimestamp(),
-          status: "sent",
-        };
+        const payload = { ...tempMessage, mediaUrls: uploadedUrls, createdAt: serverTimestamp(), status: "sent" };
         const docRef = await addDoc(messagesCol, payload);
 
         setMessages((prev) =>
-          prev.map((m) =>
-            m.id === tempId ? { ...payload, id: docRef.id, createdAt: new Date() } : m
-          )
+          prev.map((m) => (m.id === tempId ? { ...payload, id: docRef.id, createdAt: new Date() } : m))
         );
 
         await updateDoc(doc(db, "chats", chatId), {
@@ -307,9 +299,7 @@ export default function ChatConversationPage() {
           lastMessageStatus: "delivered",
         });
       } catch {
-        setMessages((prev) =>
-          prev.map((m) => (m.id === tempId ? { ...m, status: "failed" } : m))
-        );
+        setMessages((prev) => prev.map((m) => (m.id === tempId ? { ...m, status: "failed" } : m)));
         toast.error("Failed to send message");
       } finally {
         setShowPreview(false);
@@ -322,10 +312,7 @@ export default function ChatConversationPage() {
 
   // -------------------- MEDIA --------------------
   const mediaItems = useMemo(
-    () =>
-      messages
-        .filter((m) => m.mediaUrls?.length)
-        .flatMap((m) => m.mediaUrls.map((url) => ({ url, id: m.id }))),
+    () => messages.filter((m) => m.mediaUrls?.length).flatMap((m) => m.mediaUrls.map((url) => ({ url, id: m.id }))),
     [messages]
   );
 
@@ -351,7 +338,6 @@ export default function ChatConversationPage() {
     const today = new Date();
     const yesterday = new Date(today);
     yesterday.setDate(today.getDate() - 1);
-
     if (date.toDateString() === today.toDateString()) return "Today";
     if (date.toDateString() === yesterday.toDateString()) return "Yesterday";
     return date.toLocaleDateString();
@@ -385,7 +371,6 @@ export default function ChatConversationPage() {
     sendMessage(caption, files);
   };
 
-  // -------------------- DELETE --------------------
   const handleDeleteForMe = async (msg) => {
     await updateDoc(doc(db, "chats", chatId, "messages", msg.id), { deleted: true });
     setMessages((prev) => prev.filter((m) => m.id !== msg.id));
@@ -434,37 +419,31 @@ export default function ChatConversationPage() {
       )}
 
       <div ref={messagesRefEl} style={{ flex: 1, overflowY: "auto", padding: 8, display: "flex", flexDirection: "column" }}>
-        {messagesWithDateSeparators.map((item, idx) => {
-          if (item.type === "date-separator") {
-            return (
-              <div key={`date-${idx}`} style={{ textAlign: "center", margin: "8px 0", color: isDark ? "#888" : "#555", fontSize: 12 }}>
-                {formatDateLabel(item.date)}
-              </div>
-            );
-          } else if (item.type === "message") {
-            const msg = item.data;
-            return (
-              <MessageItem
-                key={msg.id}
-                message={msg}
-                myUid={myUid}
-                isDark={isDark}
-                setReplyTo={setReplyTo}
-                setPinnedMessage={(m) => { if (m?.id) { updateDoc(doc(db, "chats", chatId), { pinnedMessageId: m.id }); setPinnedMessage(m); } }}
-                onMediaClick={openMediaViewerAtMessage}
-                registerRef={(el) => { if (el) messageRefs.current[msg.id] = el; else delete messageRefs.current[msg.id]; }}
-                onReact={handleReact}
-                onDeleteForMe={() => handleDeleteForMe(msg)}
-                onDeleteForEveryone={() => handleDeleteForEveryone(msg)}
-                onOpenLongPress={(m) => setLongPressMessage(m)}
-                isLongPressOpen={longPressMessage?.id === msg.id}
-                data-date={new Date(msg.createdAt).toDateString()}
-                data-type="message"
-              />
-            );
-          }
-          return null;
-        })}
+        {messagesWithDateSeparators.map((item, idx) =>
+          item.type === "date-separator" ? (
+            <div key={`date-${idx}`} style={{ textAlign: "center", margin: "8px 0", color: isDark ? "#888" : "#555", fontSize: 12 }}>
+              {formatDateLabel(item.date)}
+            </div>
+          ) : (
+            <MessageItem
+              key={item.data.id}
+              message={item.data}
+              myUid={myUid}
+              isDark={isDark}
+              setReplyTo={setReplyTo}
+              setPinnedMessage={(m) => { if (m?.id) { updateDoc(doc(db, "chats", chatId), { pinnedMessageId: m.id }); setPinnedMessage(m); } }}
+              onMediaClick={openMediaViewerAtMessage}
+              registerRef={(el) => { if (el) messageRefs.current[item.data.id] = el; else delete messageRefs.current[item.data.id]; }}
+              onReact={handleReact}
+              onDeleteForMe={() => handleDeleteForMe(item.data)}
+              onDeleteForEveryone={() => handleDeleteForEveryone(item.data)}
+              onOpenLongPress={(m) => setLongPressMessage(m)}
+              isLongPressOpen={longPressMessage?.id === item.data.id}
+              data-date={new Date(item.data.createdAt).toDateString()}
+              data-type="message"
+            />
+          )
+        )}
         <div ref={endRef} />
       </div>
 
