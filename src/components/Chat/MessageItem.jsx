@@ -1,10 +1,19 @@
 // src/components/Chat/MessageItem.jsx
 import React, { useRef, useEffect, useState } from "react";
-import { doc, updateDoc, arrayUnion, arrayRemove, serverTimestamp, onSnapshot, getDoc } from "firebase/firestore";
+import {
+  doc,
+  updateDoc,
+  arrayUnion,
+  arrayRemove,
+  serverTimestamp,
+  onSnapshot,
+  getDoc,
+} from "firebase/firestore";
 import { db } from "../../firebaseConfig";
 import LongPressMessageModal from "./LongPressMessageModal";
 import { toast } from "react-toastify";
 
+// Helpers
 const READ_MORE_STEP = 450;
 const LONG_PRESS_DELAY = 700;
 const SWIPE_TRIGGER_DISTANCE = 60;
@@ -16,13 +25,13 @@ const fmtTime = (ts) => {
 };
 
 const CheckSingle = ({ color = "gray", size = 14 }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24">
+  <svg width={size} height={size} viewBox="0 0 24 24" style={{ display: "inline-block", verticalAlign: "middle" }}>
     <path d="M20.285 6.708L9 18l-5.285-5.292 1.414-1.414L9 15.172 18.87 5.293z" fill={color} />
   </svg>
 );
 
 const CheckDouble = ({ color = "gray", size = 14 }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24">
+  <svg width={size} height={size} viewBox="0 0 24 24" style={{ display: "inline-block", verticalAlign: "middle" }}>
     <path
       d="M16.97 6.58L15.56 5.17 9 11.73 6.44 9.17 5.03 10.58 9 14.55zM21.03 6.58L19.62 5.17 13.06 11.73 10.5 9.17 9.09 10.58 13.06 14.55z"
       fill={color}
@@ -42,9 +51,8 @@ export default function MessageItem({
 }) {
   const isMine = message.senderId === myUid;
   const containerRef = useRef(null);
-  const longPressTimer = useRef(null);
-  const touchStartX = useRef(0);
 
+  // UI state
   const [visibleChars, setVisibleChars] = useState(READ_MORE_STEP);
   const [swipeX, setSwipeX] = useState(0);
   const [swipeActive, setSwipeActive] = useState(false);
@@ -53,11 +61,13 @@ export default function MessageItem({
   const [reactionAnim, setReactionAnim] = useState({ show: false, emoji: "" });
   const [localReactions, setLocalReactions] = useState(message.reactions || {});
   const [status, setStatus] = useState(message.status || (isMine ? "sending" : "sent"));
+  const longPressTimer = useRef(null);
+  const touchStartX = useRef(0);
 
-  // Sync reactions when prop changes
+  // keep reactions synced
   useEffect(() => setLocalReactions(message.reactions || {}), [message.reactions]);
 
-  // Subscribe to message changes
+  // Realtime message watcher
   useEffect(() => {
     if (!message?.id || !message?.chatId) return;
     const msgRef = doc(db, "chats", message.chatId, "messages", message.id);
@@ -66,58 +76,66 @@ export default function MessageItem({
       if (!data) return;
       setLocalReactions(data.reactions || {});
       if (isMine) {
-        if (data.seenBy?.length > 0) setStatus("seen");
-        else if (data.deliveredTo?.length > 0) setStatus("delivered");
+        if (data.seenBy && data.seenBy.length > 0) setStatus("seen");
+        else if (data.deliveredTo && data.deliveredTo.length > 0) setStatus("delivered");
         else setStatus(data.status || "sent");
       }
     });
     return () => unsub();
   }, [message?.id, message?.chatId, isMine]);
 
-  // Mark incoming messages delivered
+  // mark delivered for incoming
   useEffect(() => {
     if (!message?.id || !message?.chatId || isMine) return;
     const msgRef = doc(db, "chats", message.chatId, "messages", message.id);
-    getDoc(msgRef).then((snap) => {
-      const data = snap.data() || {};
-      if (!Array.isArray(data.deliveredTo) || !data.deliveredTo.includes(myUid)) {
-        updateDoc(msgRef, { deliveredTo: arrayUnion(myUid) }).catch(() => {});
-      }
-    });
+    getDoc(msgRef)
+      .then((snap) => {
+        const data = snap.data() || {};
+        if (!Array.isArray(data.deliveredTo) || !data.deliveredTo.includes(myUid)) {
+          updateDoc(msgRef, { deliveredTo: arrayUnion(myUid) }).catch(() => {});
+        }
+      })
+      .catch(() => {});
   }, [message?.id, message?.chatId, isMine, myUid]);
 
-  // Mark seen when in viewport
+  // IntersectionObserver to mark seen
   useEffect(() => {
     if (!containerRef.current || isMine) return;
+    const el = containerRef.current;
     const observer = new IntersectionObserver(
       (entries) => {
         entries.forEach((entry) => {
-          if (entry.isIntersecting && entry.intersectionRatio >= 0.6 && message?.id && message?.chatId) {
-            const msgRef = doc(db, "chats", message.chatId, "messages", message.id);
-            updateDoc(msgRef, { seenBy: arrayUnion(myUid) }).catch(() => {});
+          if (entry.isIntersecting && entry.intersectionRatio >= 0.6) {
+            if (message?.id && message?.chatId) {
+              const msgRef = doc(db, "chats", message.chatId, "messages", message.id);
+              updateDoc(msgRef, { seenBy: arrayUnion(myUid) }).catch(() => {});
+            }
           }
         });
       },
       { threshold: [0.6] }
     );
-    observer.observe(containerRef.current);
+    observer.observe(el);
     return () => observer.disconnect();
   }, [message, myUid, isMine]);
 
-  // Register ref for parent scroll
+  // register ref
   useEffect(() => {
     if (containerRef.current && registerRef) registerRef(containerRef.current);
   }, [registerRef]);
 
-  // Smart auto-scroll
+  // smart auto-scroll
   useEffect(() => {
     if (!chatContainerRef?.current || !containerRef.current) return;
     const container = chatContainerRef.current;
-    const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
-    if (distanceFromBottom < 120) containerRef.current.scrollIntoView({ behavior: "smooth", block: "end" });
+    const distanceFromBottom =
+      container.scrollHeight - container.scrollTop - container.clientHeight;
+    if (distanceFromBottom < 120) {
+      containerRef.current.scrollIntoView({ behavior: "smooth", block: "end" });
+    }
   }, [message.createdAt, chatContainerRef]);
 
-  // --- Long press & swipe ---
+  // --- long press & swipe ---
   const startLongPress = () => {
     if (longPressTimer.current) return;
     longPressTimer.current = setTimeout(() => {
@@ -126,10 +144,11 @@ export default function MessageItem({
     }, LONG_PRESS_DELAY);
   };
   const cancelLongPress = () => {
-    if (longPressTimer.current) clearTimeout(longPressTimer.current);
-    longPressTimer.current = null;
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
   };
-
   const onTouchStart = (e) => {
     touchStartX.current = e.touches[0].clientX;
     setSwipeActive(true);
@@ -143,12 +162,14 @@ export default function MessageItem({
   };
   const onTouchEnd = () => {
     cancelLongPress();
-    if (swipeActive && Math.abs(swipeX) > SWIPE_TRIGGER_DISTANCE) setReplyTo?.(message);
+    if (swipeActive && Math.abs(swipeX) > SWIPE_TRIGGER_DISTANCE) {
+      setReplyTo?.(message);
+    }
     setSwipeX(0);
     setSwipeActive(false);
   };
 
-  // Toggle reaction
+  // toggle reaction
   const toggleReaction = async (emoji) => {
     if (!message?.id || !message?.chatId) return;
     const msgRef = doc(db, "chats", message.chatId, "messages", message.id);
@@ -161,34 +182,29 @@ export default function MessageItem({
       else await updateDoc(msgRef, { [`reactions.${emoji}`]: arrayUnion(myUid) });
       setReactionAnim({ show: true, emoji });
       setTimeout(() => setReactionAnim({ show: false, emoji: "" }), 700);
-    } catch {
+    } catch (err) {
+      console.error("toggleReaction", err);
       toast.error("Failed to react");
     }
   };
 
-  // Pin / Unpin
+  // Pin / Delete / Copy
   const pinMessage = async () => {
     if (!message?.id || !message?.chatId) return;
-    const msgRef = doc(db, "chats", message.chatId, "messages", message.id);
-    const chatRef = doc(db, "chats", message.chatId);
     try {
-      if (message.pinned) {
-        await updateDoc(msgRef, { pinned: false, pinnedAt: null, pinnedBy: null });
-        await updateDoc(chatRef, { pinnedMessageId: null }).catch(() => {});
-        setPinnedMessage?.(null);
-        toast.info("Unpinned");
-      } else {
-        await updateDoc(msgRef, { pinned: true, pinnedAt: serverTimestamp(), pinnedBy: myUid });
-        await updateDoc(chatRef, { pinnedMessageId: message.id }).catch(() => {});
-        setPinnedMessage?.(message);
-        toast.success("Pinned");
-      }
+      await updateDoc(doc(db, "chats", message.chatId, "messages", message.id), {
+        pinned: !message.pinned,
+        pinnedAt: serverTimestamp(),
+        pinnedBy: myUid,
+      });
+      await updateDoc(doc(db, "chats", message.chatId), { pinnedMessageId: message.id }).catch(() => {});
+      setPinnedMessage?.(message);
+      toast.success(message.pinned ? "Unpinned" : "Pinned");
     } catch {
       toast.error("Pin failed");
     }
   };
-
-  const deleteMessage = async () => {
+  const deleteForEveryone = async () => {
     if (!message?.id || !message?.chatId) return;
     try {
       await updateDoc(doc(db, "chats", message.chatId, "messages", message.id), {
@@ -196,13 +212,24 @@ export default function MessageItem({
         deletedAt: serverTimestamp(),
         deletedBy: myUid,
       });
-      toast.success("Deleted");
+      toast.success("Deleted for everyone");
       setLongPressOpen(false);
     } catch {
       toast.error("Delete failed");
     }
   };
-
+  const deleteForMe = async () => {
+    if (!message?.id || !message?.chatId) return;
+    try {
+      await updateDoc(doc(db, "chats", message.chatId, "messages", message.id), {
+        deletedFor: arrayUnion(myUid),
+      });
+      toast.info("Deleted for you");
+      setLongPressOpen(false);
+    } catch {
+      toast.error("Failed");
+    }
+  };
   const copyText = () => {
     try {
       navigator.clipboard.writeText(message.text || "");
@@ -213,45 +240,100 @@ export default function MessageItem({
     }
   };
 
-  // Media grid
+  if (message.deleted || (message.deletedFor && message.deletedFor.includes?.(myUid))) return null;
+
+  // media grid
   const mediaArray = message.mediaUrls || (message.mediaUrl ? [message.mediaUrl] : []);
   const renderMediaGrid = () => {
-    if (!mediaArray.length) return null;
+    if (!mediaArray || mediaArray.length === 0) return null;
     const maxVisible = 4;
     const extra = Math.max(0, mediaArray.length - maxVisible);
-    const gridTemplate = mediaArray.length === 1 ? "1fr" : mediaArray.length === 2 ? "1fr 1fr" : "repeat(auto-fit, minmax(120px,1fr))";
-
+    const gridTemplate =
+      mediaArray.length === 1
+        ? "1fr"
+        : mediaArray.length === 2
+        ? "1fr 1fr"
+        : "repeat(auto-fit, minmax(120px,1fr))";
     return (
       <div style={{ display: "grid", gridTemplateColumns: gridTemplate, gap: 6, marginBottom: 8, position: "relative" }}>
         {mediaArray.slice(0, maxVisible).map((url, i) => (
           <div key={i} style={{ position: "relative", borderRadius: 12, overflow: "hidden" }}>
             {/\.(mp4|webm|ogg)$/i.test(String(url)) ? (
-              <video src={url} controls onClick={() => onMediaClick?.(message, i)} style={{ width: "100%", height: "100%", objectFit: "cover", cursor: "pointer" }} />
+              <video
+                src={url}
+                controls
+                onClick={() => onMediaClick?.(message, i)}
+                style={{ width: "100%", height: "100%", objectFit: "cover", cursor: "pointer", display: "block" }}
+              />
             ) : (
-              <img src={url} alt="" onClick={() => onMediaClick?.(message, i)} style={{ width: "100%", height: "100%", objectFit: "cover", cursor: "pointer", filter: message.status === "sending" ? "brightness(0.6)" : "none" }} draggable={false} />
+              <img
+                src={url}
+                alt=""
+                onClick={() => onMediaClick?.(message, i)}
+                style={{
+                  width: "100%",
+                  height: "100%",
+                  objectFit: "cover",
+                  cursor: "pointer",
+                  display: "block",
+                  filter: message.status === "sending" ? "brightness(0.6)" : "none",
+                }}
+                draggable={false}
+              />
             )}
             {message.status === "sending" && typeof message.uploadProgress === "number" && (
-              <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", backgroundColor: "rgba(0,0,0,0.32)", color: "#fff", fontWeight: 700, fontSize: 16 }}>
+              <div
+                style={{
+                  position: "absolute",
+                  inset: 0,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  backgroundColor: "rgba(0,0,0,0.32)",
+                  color: "#fff",
+                  fontWeight: 700,
+                  fontSize: 16,
+                }}
+              >
                 {message.uploadProgress}%
               </div>
             )}
           </div>
         ))}
-        {extra > 0 && <div style={{ position: "absolute", right: 10, bottom: 10, backgroundColor: "rgba(0,0,0,0.55)", color: "#fff", padding: "6px 8px", borderRadius: 10, fontWeight: 700 }}>+{extra}</div>}
+        {extra > 0 && (
+          <div
+            style={{
+              position: "absolute",
+              right: 10,
+              bottom: 10,
+              backgroundColor: "rgba(0,0,0,0.55)",
+              color: "#fff",
+              padding: "6px 8px",
+              borderRadius: 10,
+              fontWeight: 700,
+            }}
+          >
+            +{extra}
+          </div>
+        )}
       </div>
     );
   };
 
-  if (message.deleted || (message.deletedFor && message.deletedFor.includes?.(myUid))) return null;
-
+  // ticks
   const tickElement = () => {
     if (!isMine) return null;
     switch (status) {
-      case "sending": return <span style={{ marginLeft: 8, color: "gray" }}>⏳</span>;
-      case "sent": return <CheckSingle color="gray" />;
-      case "delivered": return <CheckDouble color="gray" />;
-      case "seen": return <CheckDouble color="#22c55e" />;
-      default: return null;
+      case "sending":
+        return <span style={{ marginLeft: 8, color: "gray" }}>⏳</span>;
+      case "sent":
+        return <CheckSingle color="gray" />;
+      case "delivered":
+        return <CheckDouble color="gray" />;
+      case "seen":
+        return <CheckDouble color="#22c55e" />;
+      default:
+        return null;
     }
   };
 
@@ -260,7 +342,22 @@ export default function MessageItem({
     return (
       <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
         {Object.entries(localReactions).map(([emoji, users]) => (
-          <button key={emoji} onClick={() => toggleReaction(emoji)} title={`${users.length} reaction${users.length > 1 ? "s" : ""}`} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "4px 8px", borderRadius: 16, background: isDark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.06)", border: "none", cursor: "pointer", fontSize: 13 }}>
+          <button
+            key={emoji}
+            onClick={() => toggleReaction(emoji)}
+            title={`${users.length} reaction${users.length > 1 ? "s" : ""}`}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+              padding: "4px 8px",
+              borderRadius: 16,
+              background: isDark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.06)",
+              border: "none",
+              cursor: "pointer",
+              fontSize: 13,
+            }}
+          >
             <span style={{ fontSize: 16 }}>{emoji}</span>
             <span style={{ fontSize: 12, opacity: 0.85 }}>{users.length}</span>
           </button>
@@ -271,86 +368,191 @@ export default function MessageItem({
 
   return (
     <>
-      <div
-        ref={containerRef}
-        data-id={message.id}
-        onTouchStart={onTouchStart}
-        onTouchMove={onTouchMove}
-        onTouchEnd={onTouchEnd}
-        onMouseDown={startLongPress}
-        onMouseUp={cancelLongPress}
-        onMouseLeave={cancelLongPress}
-        style={{
-          alignSelf: isMine ? "flex-end" : "flex-start",
-          maxWidth: "78%",
-          margin: "6px 0",
-          padding: 12,
-          borderRadius: 16,
-          backgroundColor: isMine ? (isDark ? "#0b6cff" : "#007bff") : isDark ? "#1f1f1f" : "#fff",
-          color: isMine ? "#fff" : isDark ? "#fff" : "#111",
-          transform: `translateX(${swipeX}px)`,
-          transition: swipeX ? "none" : "transform 0.18s ease",
-          wordBreak: "break-word",
-          position: "relative",
-          boxShadow: isMine ? "0 6px 18px rgba(0,0,0,0.06)" : "0 1px 0 rgba(0,0,0,0.03)",
-          userSelect: "none",
-        }}
-      >
-        {renderMediaGrid()}
-        {message.text && (
-          <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.4, fontSize: 15 }}>
-            {message.text.slice(0, visibleChars)}
-            {message.text.length > visibleChars && (
-              <span onClick={() => setVisibleChars((v) => v + READ_MORE_STEP)} style={{ color: "#c4c4c4", cursor: "pointer", marginLeft: 6 }}>
-                ...more
-              </span>
-            )}
+      <div style={{ display: "flex", flexDirection: "column", alignItems: isMine ? "flex-end" : "flex-start" }}>
+        {/* Pinned badge */}
+        {message.pinned && (
+          <div
+            style={{
+              fontSize: 12,
+              fontWeight: 600,
+              color: "#f59e0b",
+              backgroundColor: isDark ? "rgba(255, 159, 10, 0.15)" : "rgba(255, 159, 10, 0.2)",
+              padding: "2px 6px",
+              borderRadius: 8,
+              marginBottom: 4,
+              letterSpacing: 0.5,
+              textTransform: "uppercase",
+              boxShadow: "0 1px 3px rgba(0,0,0,0.12)",
+            }}
+          >
+            📌 Pinned
           </div>
         )}
-        {reactionPills()}
-        <div style={{ fontSize: 11, opacity: 0.75, textAlign: "right", marginTop: 8, display: "flex", justifyContent: "flex-end", gap: 8, alignItems: "center" }}>
-          <div style={{ color: isDark ? "rgba(255,255,255,0.75)" : "rgba(0,0,0,0.6)" }}>{fmtTime(message.createdAt)}</div>
-          {tickElement()}
-          {message.editedAt && <div style={{ marginLeft: 6, fontSize: 10 }}>edited</div>}
-        </div>
-        {reactionAnim.show && <div style={{ position: "absolute", top: -18, right: 10, fontSize: 20, animation: "floatUp 0.7s ease-out forwards", pointerEvents: "none" }}>{reactionAnim.emoji}</div>}
-      </div>
 
-      {/* Long Press Modal */}
-      {longPressOpen && (
-        <LongPressMessageModal
-          isDark={isDark}
-          isPinned={!!message.pinned}
-          onClose={() => setLongPressOpen(false)}
-          onReaction={(emoji) => toggleReaction(emoji)}
-          onReply={() => setReplyTo?.(message)}
-          onCopy={copyText}
-          onPin={pinMessage}
-          onDelete={deleteMessage}
-        />
-      )}
-
-      {/* Emoji Picker */}
-      {emojiOpen && (
-        <div style={{ position: "fixed", inset: 0, zIndex: 4000, display: "flex", justifyContent: "center", alignItems: "flex-end", padding: 12 }}>
-          <div style={{ width: "100%", maxWidth: 520 }}>
-            <LongPressMessageModal.EmojiPicker
-              onSelect={(emoji) => {
-                toggleReaction(emoji);
-                setEmojiOpen(false);
-              }}
-              onClose={() => setEmojiOpen(false)}
-            />
+        {/* Message bubble */}
+        <div
+          ref={containerRef}
+          data-id={message.id}
+          onTouchStart={onTouchStart}
+          onTouchMove={onTouchMove}
+          onTouchEnd={onTouchEnd}
+          onMouseDown={startLongPress}
+          onMouseUp={cancelLongPress}
+          onMouseLeave={cancelLongPress}
+          style={{
+            alignSelf: isMine ? "flex-end" : "flex-start",
+            maxWidth: "78%",
+            margin: "6px 0",
+            padding: 12,
+            borderRadius: 16,
+            backgroundColor: message.pinned
+              ? isDark
+                ? "#3c3c3c"
+                : "#fff9e6"
+              : isMine
+              ? isDark
+                ? "#0b6cff"
+                : "#007bff"
+              : isDark
+              ? "#1f1f1f"
+              : "#fff",
+            color: isMine ? "#fff" : isDark ? "#fff" : "#111",
+            transform: `translateX(${swipeX}px)`,
+            transition: swipeX ? "none" : "transform 0.18s ease",
+            wordBreak: "break-word",
+            position: "relative",
+            boxShadow: message.pinned
+              ? "0 4px 12px rgba(245,158,11,0.25)"
+              : isMine
+              ? "0 6px 18px rgba(0,0,0,0.06)"
+              : "0 1px 0 rgba(0,0,0,0.03)",
+            userSelect: "none",
+          }}
+        >
+          {renderMediaGrid()}
+          {message.text && (
+            <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.4, fontSize: 15 }}>
+              {message.text.slice(0, visibleChars)}
+              {message.text.length > visibleChars && (
+                <span
+                  onClick={() => setVisibleChars((v) => v + READ_MORE_STEP)}
+                  style={{ color: "#c4c4c4", cursor: "pointer", marginLeft: 6 }}
+                >
+                  ...more
+                </span>
+              )}
+            </div>
+          )}
+          {reactionPills()}
+          <div
+            style={{
+              fontSize: 11,
+              opacity: 0.75,
+              textAlign: "right",
+              marginTop: 8,
+              display: "flex",
+              justifyContent: "flex-end",
+              gap: 8,
+              alignItems: "center",
+            }}
+          >
+            <div style={{ color: isDark ? "rgba(255,255,255,0.75)" : "rgba(0,0,0,0.6)" }}>
+              {fmtTime(message.createdAt)}
+            </div>
+            {tickElement()}
+            {message.editedAt ? <div style={{ marginLeft: 6, fontSize: 10 }}>edited</div> : null}
           </div>
-        </div>
-      )}
 
-      <style>{`
-        @keyframes floatUp {
-          0% { opacity: 1; transform: translateY(0); }
-          100% { opacity: 0; transform: translateY(-24px); }
-        }
-      `}</style>
+          {/* reaction pop animation */}
+          {reactionAnim.show && (
+            <div
+              style={{
+                position: "absolute",
+                top: -18,
+                right: 10,
+                fontSize: 20,
+                animation: "floatUp 0.7s ease-out forwards",
+                pointerEvents: "none",
+              }}
+            >
+              {reactionAnim.emoji}
+            </div>
+          )}
+        </div>
+
+        {/* long press modal */}
+        {longPressOpen && (
+          <LongPressMessageModal
+            isDark={isDark}
+            onClose={() => setLongPressOpen(false)}
+            onReaction={(emoji) => {
+              toggleReaction(emoji);
+              setLongPressOpen(false);
+            }}
+            onReply={() => {
+              setReplyTo?.(message);
+              setLongPressOpen(false);
+            }}
+            onCopy={() => {
+              copyText();
+              setLongPressOpen(false);
+            }}
+            onPin={async () => {
+              await pinMessage();
+              setLongPressOpen(false);
+            }}
+            onDeleteForMe={async () => {
+              await deleteForMe();
+              setLongPressOpen(false);
+            }}
+            onDeleteForEveryone={async () => {
+              await deleteForEveryone();
+              setLongPressOpen(false);
+            }}
+            message={message}
+            onMediaClick={(m, i) => {
+              onMediaClick?.(m, i);
+              setLongPressOpen(false);
+            }}
+            openFullEmojiPicker={() => {
+              setLongPressOpen(false);
+              setEmojiOpen(true);
+            }}
+          />
+        )}
+
+        {/* full emoji picker */}
+        {emojiOpen && (
+          <div
+            style={{
+              position: "fixed",
+              inset: 0,
+              zIndex: 4000,
+              display: "flex",
+              justifyContent: "center",
+              alignItems: "flex-end",
+              padding: 12,
+            }}
+          >
+            <div style={{ width: "100%", maxWidth: 520 }}>
+              <EmojiPicker
+                onSelect={(emoji) => {
+                  toggleReaction(emoji);
+                  setEmojiOpen(false);
+                }}
+                onClose={() => setEmojiOpen(false)}
+              />
+            </div>
+          </div>
+        )}
+
+        <style>{`
+          @keyframes floatUp {
+            0% { opacity: 1; transform: translateY(0); }
+            100% { opacity: 0; transform: translateY(-24px); }
+          }
+        `}</style>
+      </div>
     </>
   );
 }
