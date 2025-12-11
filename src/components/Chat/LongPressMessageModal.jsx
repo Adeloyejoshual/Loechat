@@ -1,7 +1,9 @@
-import React, { useState, useEffect, useRef } from "react";
-import { toast } from "react-toastify";
+// src/components/Chat/LongPressMessageModal.jsx
+import React from "react";
+import { FaRegSmile, FaReply, FaTrash, FaThumbtack, FaCopy } from "react-icons/fa";
 
 export default function LongPressMessageModal({
+  message,
   onClose,
   onReaction,
   onReply,
@@ -9,218 +11,108 @@ export default function LongPressMessageModal({
   onPin,
   onDeleteForMe,
   onDeleteForEveryone,
-  message,
-  onMediaClick,
-  openFullEmojiPicker,
-  quickReactions = ["😜", "💗", "😎", "😍", "☻️", "💖"],
-  isDark = false,
+  isDark,
 }) {
-  const [confirmDelete, setConfirmDelete] = useState(false);
-  const modalRef = useRef(null);
+  if (!message) return null;
 
-  /* -------------------- EFFECTS -------------------- */
-  useEffect(() => {
-    const handleOutside = (e) => {
-      if (modalRef.current && !modalRef.current.contains(e.target)) onClose?.();
-    };
-    const handleEsc = (e) => e.key === "Escape" && onClose?.();
+  const bgColor = isDark ? "#1c1c1c" : "#fff";
+  const textColor = isDark ? "#fff" : "#000";
+  const borderColor = isDark ? "#333" : "#ccc";
 
-    document.addEventListener("mousedown", handleOutside);
-    document.addEventListener("keydown", handleEsc);
+  const reactions = ["👍", "❤️", "😂", "😮", "😢", "👏"];
 
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.removeEventListener("mousedown", handleOutside);
-      document.removeEventListener("keydown", handleEsc);
-      document.body.style.overflow = "";
-    };
-  }, []);
-
-  /* -------------------- STYLES -------------------- */
-  const buttonStyle = {
-    padding: 10,
-    cursor: "pointer",
-    border: "none",
-    borderRadius: 8,
-    fontSize: 14,
-    width: "100%",
-    background: isDark ? "#2a2a2a" : "#f7f7f7",
-    color: isDark ? "#fff" : "#000",
-    display: "flex",
-    alignItems: "center",
-    gap: 10,
-  };
-
-  /* -------------------- ACTIONS -------------------- */
-
-  const handleCopy = () => {
-    onCopy?.(message);
-    toast.success("Message copied");
-    onClose?.(); // FIXED
-  };
-
-  const handlePin = () => {
-    onPin?.(message);
-    toast.success("Message pinned");
-    onClose?.(); // FIXED
-  };
-
-  const handleReply = () => {
-    onReply?.(message);
-    onClose?.(); // FIXED
-  };
-
-  const handleReaction = (emoji) => {
-    onReaction?.(message, emoji);
-    onClose?.(); // FIXED
-  };
-
-  const handleOpenEmojiPicker = () => {
-    openFullEmojiPicker?.(message);
-    onClose?.(); // FIXED — no blank screen
-  };
-
-  const handleDelete = async (opt) => {
-    try {
-      if (opt === "me") await onDeleteForMe?.(message);
-      if (opt === "everyone") await onDeleteForEveryone?.(message);
-    } catch {
-      toast.error("Delete failed");
-    }
-    onClose?.(); // FIXED
-  };
-
-  /* -------------------- UI -------------------- */
   return (
     <div
+      onClick={onClose}
       style={{
         position: "fixed",
         inset: 0,
-        zIndex: 3000,
-        background: "rgba(0,0,0,0.28)",
+        backgroundColor: "rgba(0,0,0,0.4)",
+        zIndex: 1000,
         display: "flex",
         justifyContent: "center",
-        alignItems: "flex-end",
-        padding: "0 16px 28px",
+        alignItems: "center",
+        padding: 12,
       }}
     >
       <div
-        ref={modalRef}
+        onClick={(e) => e.stopPropagation()}
         style={{
-          width: "100%",
-          maxWidth: 380,
-          background: isDark ? "#1b1b1b" : "#ffffff",
-          borderRadius: 18,
+          backgroundColor: bgColor,
+          color: textColor,
+          borderRadius: 12,
+          minWidth: 280,
           padding: 16,
           display: "flex",
           flexDirection: "column",
-          gap: 12,
+          boxShadow: "0 4px 16px rgba(0,0,0,0.3)",
         }}
       >
-        {/* QUICK REACTIONS */}
-        <div style={{ display: "flex", gap: 10, overflowX: "auto" }}>
-          {quickReactions.map((emoji) => (
+        {/* Reactions */}
+        <div style={{ display: "flex", justifyContent: "space-around", marginBottom: 12 }}>
+          {reactions.map((r) => (
             <button
-              key={emoji}
+              key={r}
+              onClick={() => onReaction(r)}
               style={{
+                fontSize: 20,
                 background: "transparent",
                 border: "none",
-                fontSize: 22,
                 cursor: "pointer",
               }}
-              onClick={() => handleReaction(emoji)}
             >
-              {emoji}
+              {r}
             </button>
           ))}
-
-          <button
-            style={{ fontSize: 22, background: "transparent", border: "none" }}
-            onClick={handleOpenEmojiPicker}
-          >
-            ➕
-          </button>
         </div>
 
-        {/* ACTION LIST */}
-        {!confirmDelete ? (
-          <>
-            <button style={buttonStyle} onClick={handleReply}>↩️ Reply</button>
+        {/* Actions */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <ActionButton icon={<FaReply />} label="Reply" onClick={onReply} textColor={textColor} borderColor={borderColor} />
+          <ActionButton icon={<FaCopy />} label="Copy" onClick={onCopy} textColor={textColor} borderColor={borderColor} />
+          <ActionButton icon={<FaThumbtack />} label="Pin" onClick={onPin} textColor={textColor} borderColor={borderColor} />
+          <ActionButton icon={<FaTrash />} label="Delete for me" onClick={onDeleteForMe} textColor={textColor} borderColor={borderColor} />
+          <ActionButton icon={<FaTrash />} label="Delete for everyone" onClick={onDeleteForEveryone} textColor={textColor} borderColor={borderColor} />
+        </div>
 
-            <button style={buttonStyle} onClick={handleCopy}>📋 Copy</button>
-
-            <button style={buttonStyle} onClick={handlePin}>📌 Pin</button>
-
-            {message?.mediaUrls?.length > 0 && (
-              <button
-                style={buttonStyle}
-                onClick={() => {
-                  onMediaClick?.(message, 0);
-                  onClose?.();
-                }}
-              >
-                🖼️ View Media
-              </button>
-            )}
-
-            <button
-              style={{ ...buttonStyle, color: "red" }}
-              onClick={() => setConfirmDelete(true)}
-            >
-              🗑️ Delete
-            </button>
-
-            <button style={buttonStyle} onClick={onClose}>
-              Close
-            </button>
-          </>
-        ) : (
-          <>
-            <div style={{ textAlign: "center", fontSize: 15 }}>
-              Delete this message?
-            </div>
-
-            <div style={{ display: "flex", gap: 10 }}>
-              <button
-                style={{
-                  flex: 1,
-                  padding: 10,
-                  borderRadius: 8,
-                  border: "1px solid #ccc",
-                }}
-                onClick={() => handleDelete("me")}
-              >
-                Delete for Me
-              </button>
-
-              <button
-                style={{
-                  flex: 1,
-                  padding: 10,
-                  borderRadius: 8,
-                  background: "red",
-                  color: "white",
-                }}
-                onClick={() => handleDelete("everyone")}
-              >
-                Delete for Everyone
-              </button>
-            </div>
-
-            <button
-              style={{
-                marginTop: 8,
-                padding: 8,
-                borderRadius: 8,
-                border: "1px solid #ccc",
-              }}
-              onClick={() => setConfirmDelete(false)}
-            >
-              Cancel
-            </button>
-          </>
-        )}
+        <button
+          onClick={onClose}
+          style={{
+            marginTop: 12,
+            padding: 8,
+            borderRadius: 8,
+            border: `1px solid ${borderColor}`,
+            backgroundColor: bgColor,
+            color: textColor,
+            cursor: "pointer",
+          }}
+        >
+          Close
+        </button>
       </div>
     </div>
+  );
+}
+
+function ActionButton({ icon, label, onClick, textColor, borderColor }) {
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 8,
+        padding: "8px 12px",
+        borderRadius: 8,
+        border: `1px solid ${borderColor}`,
+        backgroundColor: "transparent",
+        color: textColor,
+        cursor: "pointer",
+        fontSize: 14,
+        width: "100%",
+      }}
+    >
+      {icon} {label}
+    </button>
   );
 }
