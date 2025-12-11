@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useRef } from "react";
-import EmojiPicker from "./EmojiPicker";
 import { toast } from "react-toastify";
 
 export default function LongPressMessageModal({
@@ -10,39 +9,41 @@ export default function LongPressMessageModal({
   onPin,
   onDeleteForMe,
   onDeleteForEveryone,
-  message,
   onMediaClick,
   openFullEmojiPicker,
+  message = {},
   quickReactions = ["😜", "💗", "😎", "😍", "☻️", "💖"],
   isDark = false,
 }) {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const modalRef = useRef(null);
 
-  // Prevent modal from closing too early
+  /** SAFEST CLOSE FUNCTION */
   const safeClose = () => {
     setTimeout(() => {
-      onClose?.();
-    }, 120);
+      try {
+        onClose?.();
+      } catch {}
+    }, 80);
   };
 
-  // Lock scroll + close on click outside
+  /** Close on outside tap or esc */
   useEffect(() => {
     const handleOutside = (e) => {
       if (modalRef.current && !modalRef.current.contains(e.target)) {
-        onClose?.();
+        safeClose();
       }
     };
-    const handleEsc = (e) => e.key === "Escape" && onClose?.();
+    const handleEsc = (e) => {
+      if (e.key === "Escape") safeClose();
+    };
 
     document.addEventListener("mousedown", handleOutside);
     document.addEventListener("keydown", handleEsc);
-    document.body.style.overflow = "hidden";
 
     return () => {
       document.removeEventListener("mousedown", handleOutside);
       document.removeEventListener("keydown", handleEsc);
-      document.body.style.overflow = "";
     };
   }, []);
 
@@ -53,24 +54,19 @@ export default function LongPressMessageModal({
     borderRadius: 8,
     fontSize: 14,
     width: "100%",
-    background: isDark ? "#2a2a2a" : "#f7f7f7",
+    background: isDark ? "#2a2a2a" : "#f1f1f1",
     color: isDark ? "#fff" : "#000",
     display: "flex",
     alignItems: "center",
     gap: 10,
   };
 
-  // ACTION HANDLERS ------------------------
+  // ===================== ACTIONS =====================
 
   const handleCopy = () => {
-    onCopy?.(message);
-    toast.success("Message copied");
-    safeClose();
-  };
-
-  const handlePin = () => {
-    onPin?.(message);
-    toast.success("Message pinned");
+    const text = message?.text || "";
+    navigator.clipboard.writeText(text);
+    toast.success("Copied");
     safeClose();
   };
 
@@ -79,28 +75,36 @@ export default function LongPressMessageModal({
     safeClose();
   };
 
-  const handleReaction = (emoji) => {
-    onReaction?.(message, emoji); // ensure messageId & emoji are passed
+  const handlePin = () => {
+    onPin?.(message);
+    toast.success("Pinned");
     safeClose();
   };
 
-  const handleDelete = async (opt) => {
+  const handleReaction = (emoji) => {
+    onReaction?.(message, emoji);
+    safeClose();
+  };
+
+  const handleDelete = async (type) => {
     try {
-      if (opt === "me") await onDeleteForMe?.(message);
-      if (opt === "everyone") await onDeleteForEveryone?.(message);
-    } catch {
+      if (type === "me") await onDeleteForMe?.(message);
+      if (type === "everyone") await onDeleteForEveryone?.(message);
+    } catch (e) {
       toast.error("Delete failed");
     }
     safeClose();
   };
+
+  // ===================== UI =====================
 
   return (
     <div
       style={{
         position: "fixed",
         inset: 0,
-        zIndex: 3000,
-        background: "rgba(0,0,0,0.28)",
+        zIndex: 5000,
+        background: "rgba(0,0,0,0.32)",
         display: "flex",
         justifyContent: "center",
         alignItems: "flex-end",
@@ -112,7 +116,7 @@ export default function LongPressMessageModal({
         style={{
           width: "100%",
           maxWidth: 380,
-          background: isDark ? "#1b1b1b" : "#ffffff",
+          background: isDark ? "#1a1a1a" : "#fff",
           borderRadius: 18,
           padding: 16,
           display: "flex",
@@ -138,7 +142,12 @@ export default function LongPressMessageModal({
           ))}
 
           <button
-            style={{ fontSize: 22, background: "transparent", border: "none" }}
+            style={{
+              fontSize: 22,
+              background: "transparent",
+              border: "none",
+              cursor: "pointer",
+            }}
             onClick={() => {
               safeClose();
               openFullEmojiPicker?.(message);
@@ -148,7 +157,7 @@ export default function LongPressMessageModal({
           </button>
         </div>
 
-        {/* MAIN ACTIONS */}
+        {/* MAIN OPTIONS */}
         {!confirmDelete ? (
           <>
             <button style={buttonStyle} onClick={handleReply}>↩️ Reply</button>
@@ -174,7 +183,10 @@ export default function LongPressMessageModal({
               🗑️ Delete
             </button>
 
-            <button style={buttonStyle} onClick={onClose}>
+            <button
+              style={buttonStyle}
+              onClick={safeClose}
+            >
               Close
             </button>
           </>
@@ -194,8 +206,9 @@ export default function LongPressMessageModal({
                 }}
                 onClick={() => handleDelete("me")}
               >
-                Delete for Me
+                For Me
               </button>
+
               <button
                 style={{
                   flex: 1,
@@ -206,7 +219,7 @@ export default function LongPressMessageModal({
                 }}
                 onClick={() => handleDelete("everyone")}
               >
-                Delete for Everyone
+                For Everyone
               </button>
             </div>
 
