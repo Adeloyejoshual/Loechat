@@ -1,114 +1,113 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { toast } from "react-toastify";
 
 export default function LongPressMessageModal({
+  message,
   onClose,
-  onReaction,
-  onReply,
   onCopy,
+  onReply,
+  onReaction,
   onPin,
   onDeleteForMe,
   onDeleteForEveryone,
   onMediaClick,
   openFullEmojiPicker,
-  message = {},
-  quickReactions = ["😜", "💗", "😎", "😍", "☻️", "💖"],
   isDark = false,
+  quickReactions = ["😜", "💗", "😎", "😍", "☻️", "💖"],
 }) {
-  const [confirmDelete, setConfirmDelete] = useState(false);
   const modalRef = useRef(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
-  /** SAFEST CLOSE FUNCTION */
+  if (!message) return null; // ← prevents BLANK PAGE crash
+
+  // Smooth safe close to avoid blank UI
   const safeClose = () => {
     setTimeout(() => {
-      try {
-        onClose?.();
-      } catch {}
-    }, 80);
+      if (typeof onClose === "function") onClose();
+    }, 150);
   };
 
-  /** Close on outside tap or esc */
+  // Close on ESC + outside click
   useEffect(() => {
     const handleOutside = (e) => {
-      if (modalRef.current && !modalRef.current.contains(e.target)) {
-        safeClose();
-      }
+      if (!modalRef.current) return;
+      if (!modalRef.current.contains(e.target)) safeClose();
     };
+
     const handleEsc = (e) => {
       if (e.key === "Escape") safeClose();
     };
 
     document.addEventListener("mousedown", handleOutside);
     document.addEventListener("keydown", handleEsc);
+    document.body.style.overflow = "hidden";
 
     return () => {
       document.removeEventListener("mousedown", handleOutside);
       document.removeEventListener("keydown", handleEsc);
+      document.body.style.overflow = "";
     };
   }, []);
 
-  const buttonStyle = {
-    padding: 10,
-    cursor: "pointer",
-    border: "none",
-    borderRadius: 8,
-    fontSize: 14,
+  // Button styling
+  const btn = {
+    padding: "10px",
     width: "100%",
-    background: isDark ? "#2a2a2a" : "#f1f1f1",
-    color: isDark ? "#fff" : "#000",
+    borderRadius: 8,
+    fontSize: 15,
+    border: "none",
     display: "flex",
     alignItems: "center",
     gap: 10,
+    cursor: "pointer",
+    background: isDark ? "#292929" : "#f3f3f3",
+    color: isDark ? "#fff" : "#000",
   };
 
-  // ===================== ACTIONS =====================
-
+  // Actions
   const handleCopy = () => {
-    const text = message?.text || "";
-    navigator.clipboard.writeText(text);
+    if (onCopy) onCopy(message);
     toast.success("Copied");
     safeClose();
   };
 
   const handleReply = () => {
-    onReply?.(message);
-    safeClose();
-  };
-
-  const handlePin = () => {
-    onPin?.(message);
-    toast.success("Pinned");
+    if (onReply) onReply(message);
     safeClose();
   };
 
   const handleReaction = (emoji) => {
-    onReaction?.(message, emoji);
+    if (onReaction) onReaction(message, emoji);
+    safeClose();
+  };
+
+  const handlePin = () => {
+    if (onPin) onPin(message);
+    toast.success("Pinned");
     safeClose();
   };
 
   const handleDelete = async (type) => {
     try {
-      if (type === "me") await onDeleteForMe?.(message);
-      if (type === "everyone") await onDeleteForEveryone?.(message);
-    } catch (e) {
+      if (type === "me" && onDeleteForMe) await onDeleteForMe(message);
+      if (type === "everyone" && onDeleteForEveryone) await onDeleteForEveryone(message);
+    } catch {
       toast.error("Delete failed");
     }
     safeClose();
   };
-
-  // ===================== UI =====================
 
   return (
     <div
       style={{
         position: "fixed",
         inset: 0,
-        zIndex: 5000,
-        background: "rgba(0,0,0,0.32)",
+        background: "rgba(0,0,0,0.28)",
+        zIndex: 9999,
         display: "flex",
         justifyContent: "center",
         alignItems: "flex-end",
-        padding: "0 16px 28px",
+        padding: "0 15px 25px",
       }}
     >
       <div
@@ -117,25 +116,25 @@ export default function LongPressMessageModal({
           width: "100%",
           maxWidth: 380,
           background: isDark ? "#1a1a1a" : "#fff",
-          borderRadius: 18,
+          borderRadius: 16,
           padding: 16,
           display: "flex",
           flexDirection: "column",
           gap: 12,
         }}
       >
-        {/* QUICK REACTIONS */}
+        {/* quick reactions */}
         <div style={{ display: "flex", gap: 10, overflowX: "auto" }}>
           {quickReactions.map((emoji) => (
             <button
               key={emoji}
+              onClick={() => handleReaction(emoji)}
               style={{
                 background: "transparent",
                 border: "none",
-                fontSize: 22,
+                fontSize: 24,
                 cursor: "pointer",
               }}
-              onClick={() => handleReaction(emoji)}
             >
               {emoji}
             </button>
@@ -143,32 +142,31 @@ export default function LongPressMessageModal({
 
           <button
             style={{
-              fontSize: 22,
               background: "transparent",
               border: "none",
-              cursor: "pointer",
+              fontSize: 22,
             }}
             onClick={() => {
               safeClose();
-              openFullEmojiPicker?.(message);
+              if (openFullEmojiPicker) openFullEmojiPicker(message);
             }}
           >
             ➕
           </button>
         </div>
 
-        {/* MAIN OPTIONS */}
-        {!confirmDelete ? (
+        {/* main options */}
+        {!confirmDelete && (
           <>
-            <button style={buttonStyle} onClick={handleReply}>↩️ Reply</button>
-            <button style={buttonStyle} onClick={handleCopy}>📋 Copy</button>
-            <button style={buttonStyle} onClick={handlePin}>📌 Pin</button>
+            <button style={btn} onClick={handleReply}>↩️ Reply</button>
+            <button style={btn} onClick={handleCopy}>📋 Copy</button>
+            <button style={btn} onClick={handlePin}>📌 Pin</button>
 
             {message?.mediaUrls?.length > 0 && (
               <button
-                style={buttonStyle}
+                style={btn}
                 onClick={() => {
-                  onMediaClick?.(message, 0);
+                  if (onMediaClick) onMediaClick(message, 0);
                   safeClose();
                 }}
               >
@@ -177,61 +175,47 @@ export default function LongPressMessageModal({
             )}
 
             <button
-              style={{ ...buttonStyle, color: "red" }}
+              style={{ ...btn, color: "red" }}
               onClick={() => setConfirmDelete(true)}
             >
               🗑️ Delete
             </button>
 
-            <button
-              style={buttonStyle}
-              onClick={safeClose}
-            >
+            <button style={btn} onClick={safeClose}>
               Close
             </button>
           </>
-        ) : (
+        )}
+
+        {/* delete confirmation */}
+        {confirmDelete && (
           <>
-            <div style={{ textAlign: "center", fontSize: 15 }}>
+            <div style={{ textAlign: "center", fontSize: 16 }}>
               Delete this message?
             </div>
 
             <div style={{ display: "flex", gap: 10 }}>
               <button
-                style={{
-                  flex: 1,
-                  padding: 10,
-                  borderRadius: 8,
-                  border: "1px solid #ccc",
-                }}
+                style={{ ...btn, flex: 1, background: "#ddd" }}
                 onClick={() => handleDelete("me")}
               >
-                For Me
+                Delete for me
               </button>
 
               <button
                 style={{
+                  ...btn,
                   flex: 1,
-                  padding: 10,
-                  borderRadius: 8,
                   background: "red",
-                  color: "white",
+                  color: "#fff",
                 }}
                 onClick={() => handleDelete("everyone")}
               >
-                For Everyone
+                Delete for everyone
               </button>
             </div>
 
-            <button
-              style={{
-                marginTop: 8,
-                padding: 8,
-                borderRadius: 8,
-                border: "1px solid #ccc",
-              }}
-              onClick={() => setConfirmDelete(false)}
-            >
+            <button style={btn} onClick={() => setConfirmDelete(false)}>
               Cancel
             </button>
           </>
