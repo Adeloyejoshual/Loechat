@@ -5,29 +5,11 @@ import {
   updateDoc,
   arrayUnion,
   arrayRemove,
-  serverTimestamp,
   onSnapshot,
   getDoc,
 } from "firebase/firestore";
 import { db } from "../../firebaseConfig";
-import EmojiPicker from "./EmojiPicker";
 import { toast } from "react-toastify";
-
-/**
- * MessageItem
- *
- * Important props:
- * - message
- * - myUid
- * - isDark
- * - setReplyTo(message)
- * - setPinnedMessage(message)
- * - onMediaClick(message, index)
- * - registerRef(el)            // parent stores element refs for scroll-to
- * - chatContainerRef           // optional: container ref for auto-scroll
- * - onOpenLongPress(message)   // <-- IMPORTANT: parent should open the shared LongPress modal
- * - onOpenEmojiPicker(message) // optional: parent handles a global emoji picker
- */
 
 const READ_MORE_STEP = 450;
 const LONG_PRESS_DELAY = 700;
@@ -62,185 +44,136 @@ export default function MessageItem({
   onMediaClick,
   registerRef,
   chatContainerRef,
-  onOpenLongPress, // parent opens modal
-  onOpenEmojiPicker, // optional parent emoji handler
+  onOpenLongPress,
+  scrollToMessage,
 }) {
   const isMine = message.senderId === myUid;
   const containerRef = useRef(null);
 
-  // UI state
   const [visibleChars, setVisibleChars] = useState(READ_MORE_STEP);
   const [swipeX, setSwipeX] = useState(0);
   const [swipeActive, setSwipeActive] = useState(false);
-  const [emojiOpen, setEmojiOpen] = useState(false);
   const [reactionAnim, setReactionAnim] = useState({ show: false, emoji: "" });
   const [localReactions, setLocalReactions] = useState(message.reactions || {});
-  const [status, setStatus] = useState(message.status || (isMine ? "sending" : "sent")); // sending|sent|delivered|seen|failed
+  const [status, setStatus] = useState(message.status || (isMine ? "sending" : "sent"));
 
   const longPressTimer = useRef(null);
   const touchStartX = useRef(0);
 
-  // keep local reactions in sync when prop changes
+  // keep reactions in sync
   useEffect(() => setLocalReactions(message.reactions || {}), [message.reactions]);
 
-  // subscribe to single-message doc to get live reactions & status updates for outgoing messages
+  // subscribe to single-message doc
   useEffect(() => {
     if (!message?.id || !message?.chatId) return;
     const msgRef = doc(db, "chats", message.chatId, "messages", message.id);
 
-    const unsub = onSnapshot(
-      msgRef,
-      (snap) => {
-        const data = snap.data();
-        if (!data) return;
-        setLocalReactions(data.reactions || {});
-
-        if (isMine) {
-          if (Array.isArray(data.seenBy) && data.seenBy.length > 0) setStatus("seen");
-          else if (Array.isArray(data.deliveredTo) && data.deliveredTo.length > 0) setStatus("delivered");
-          else setStatus(data.status || "sent");
-        }
-      },
-      (err) => {
-        // ignore
+    const unsub = onSnapshot(msgRef, (snap) => {
+      const data = snap.data();
+      if (!data) return;
+      setLocalReactions(data.reactions || {});
+      if (isMine) {
+        if (Array.isArray(data.seenBy) && data.seenBy.length > 0) setStatus("seen");
+        else if (Array.isArray(data.deliveredTo) && data.deliveredTo.length > 0) setStatus("delivered");
+        else setStatus(data.status || "sent");
       }
-    );
+    });
 
     return () => unsub();
   }, [message?.id, message?.chatId, isMine]);
 
-  // Incoming messages: mark delivered once when component mounts
+  // mark incoming messages delivered
   useEffect(() => {
     if (!message?.id || !message?.chatId || isMine) return;
     const msgRef = doc(db, "chats", message.chatId, "messages", message.id);
-    getDoc(msgRef)
-      .then((snap) => {
-        const data = snap.data() || {};
-        if (!Array.isArray(data.deliveredTo) || !data.deliveredTo.includes(myUid)) {
-          updateDoc(msgRef, { deliveredTo: arrayUnion(myUid) }).catch(() => {});
-        }
-      })
-      .catch(() => {});
+    getDoc(msgRef).then((snap) => {
+      const data = snap.data() || {};
+      if (!Array.isArray(data.deliveredTo) || !data.deliveredTo.includes(myUid)) {
+        updateDoc(msgRef, { deliveredTo: arrayUnion(myUid) }).catch(() => {});
+      }
+    });
   }, [message?.id, message?.chatId, isMine, myUid]);
 
-  // IntersectionObserver to mark seen when incoming message is visible >=60%
+  // mark seen via IntersectionObserver
   useEffect(() => {
     if (!containerRef.current || isMine) return;
-    const el = containerRef.current;
     const observer = new IntersectionObserver(
       (entries) => {
         entries.forEach((entry) => {
           if (entry.isIntersecting && entry.intersectionRatio >= 0.6) {
             if (message?.id && message?.chatId) {
-              const msgRef = doc(db, "chats", message.chatId, "messages", message.id);
-              updateDoc(msgRef, { seenBy: arrayUnion(myUid) }).catch(() => {});
+              updateDoc(doc(db, "chats", message.chatId, "messages", message.id), { seenBy: arrayUnion(myUid) }).catch(() => {});
             }
           }
         });
       },
       { threshold: [0.6] }
     );
-    observer.observe(el);
+    observer.observe(containerRef.current);
     return () => observer.disconnect();
   }, [message, myUid, isMine]);
 
-  // register/unregister DOM ref with parent for scroll-to support
+  // register ref for scroll-to
   useEffect(() => {
     if (registerRef && containerRef.current) registerRef(containerRef.current);
-    return () => {
-      if (registerRef) registerRef(null);
-    };
+    return () => { if (registerRef) registerRef(null); };
   }, [registerRef]);
 
-  // smart auto-scroll: if parent container near bottom, scroll to new message
+  // auto-scroll if parent container near bottom
   useEffect(() => {
     if (!chatContainerRef?.current || !containerRef.current) return;
     const container = chatContainerRef.current;
     const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
-    if (distanceFromBottom < 120) {
-      containerRef.current.scrollIntoView({ behavior: "smooth", block: "end" });
-    }
+    if (distanceFromBottom < 120) containerRef.current.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [message.createdAt, chatContainerRef]);
 
-  // LONG PRESS & SWIPE logic (long press only triggers parent modal via onOpenLongPress)
+  // long press & swipe logic
   const startLongPress = () => {
     if (longPressTimer.current) return;
     longPressTimer.current = setTimeout(() => {
       longPressTimer.current = null;
-      // delegate to parent to open a single modal (prevents many modals in DOM)
       onOpenLongPress?.(message);
     }, LONG_PRESS_DELAY);
   };
   const cancelLongPress = () => {
-    if (longPressTimer.current) {
-      clearTimeout(longPressTimer.current);
-      longPressTimer.current = null;
-    }
+    if (longPressTimer.current) { clearTimeout(longPressTimer.current); longPressTimer.current = null; }
   };
-
-  const onTouchStart = (e) => {
-    if (!e.touches?.[0]) return;
-    touchStartX.current = e.touches[0].clientX;
-    setSwipeActive(true);
-    startLongPress();
-  };
+  const onTouchStart = (e) => { if (!e.touches?.[0]) return; touchStartX.current = e.touches[0].clientX; setSwipeActive(true); startLongPress(); };
   const onTouchMove = (e) => {
     if (!e.touches?.[0]) return;
     const diff = e.touches[0].clientX - touchStartX.current;
-    if (Math.abs(diff) > 10) cancelLongPress(); // cancel long press once user moves finger
+    if (Math.abs(diff) > 10) cancelLongPress();
     if (!swipeActive) return;
     setSwipeX(Math.max(Math.min(diff, 140), -140));
   };
   const onTouchEnd = () => {
     cancelLongPress();
-    if (swipeActive && Math.abs(swipeX) > SWIPE_TRIGGER_DISTANCE) {
-      // swipe to reply
-      setReplyTo?.(message);
-      // try to bring original into view if possible (parent holds refs)
-      // parent should expose scrollToMessage via higher-level props; if not, messageRefs pattern handles it
-    }
-    setSwipeX(0);
-    setSwipeActive(false);
+    if (swipeActive && Math.abs(swipeX) > SWIPE_TRIGGER_DISTANCE) setReplyTo?.(message);
+    setSwipeX(0); setSwipeActive(false);
   };
 
-  // reaction write
+  // toggle reaction
   const toggleReaction = async (emoji) => {
     if (!message?.id || !message?.chatId) return;
     const msgRef = doc(db, "chats", message.chatId, "messages", message.id);
     try {
       const snap = await getDoc(msgRef);
-      const data = snap.data() || {};
-      const users = data.reactions?.[emoji] || [];
+      const users = snap.data()?.reactions?.[emoji] || [];
       const reacted = users.includes(myUid);
       if (reacted) await updateDoc(msgRef, { [`reactions.${emoji}`]: arrayRemove(myUid) });
       else await updateDoc(msgRef, { [`reactions.${emoji}`]: arrayUnion(myUid) });
-
       setReactionAnim({ show: true, emoji });
       setTimeout(() => setReactionAnim({ show: false, emoji: "" }), 700);
-    } catch (err) {
-      console.error("toggleReaction", err);
-      toast.error("Failed to react");
-    }
+    } catch { toast.error("Failed to react"); }
   };
 
-  // pin / delete / copy helpers (local UI only — parent long-press modal will call server actions)
-  const copyText = () => {
-    try {
-      navigator.clipboard.writeText(message.text || "");
-      toast.success("Copied");
-    } catch {
-      toast.error("Copy failed");
-    }
-  };
-
-  // media grid
+  // media
   const mediaArray = message.mediaUrls || (message.mediaUrl ? [message.mediaUrl] : []);
   const renderMediaGrid = () => {
-    if (!mediaArray || mediaArray.length === 0) return null;
+    if (!mediaArray.length) return null;
     const maxVisible = 4;
     const extra = Math.max(0, mediaArray.length - maxVisible);
     const gridTemplate = mediaArray.length === 1 ? "1fr" : mediaArray.length === 2 ? "1fr 1fr" : "repeat(auto-fit,minmax(120px,1fr))";
-
     return (
       <div style={{ display: "grid", gridTemplateColumns: gridTemplate, gap: 6, marginBottom: 8, position: "relative" }}>
         {mediaArray.slice(0, maxVisible).map((url, i) => (
@@ -257,7 +190,6 @@ export default function MessageItem({
             )}
           </div>
         ))}
-
         {extra > 0 && (
           <div style={{ position: "absolute", right: 10, bottom: 10, backgroundColor: "rgba(0,0,0,0.55)", color: "#fff", padding: "6px 8px", borderRadius: 10, fontWeight: 700 }}>
             +{extra}
@@ -267,47 +199,28 @@ export default function MessageItem({
     );
   };
 
-  if (message.deleted || (message.deletedFor && message.deletedFor.includes?.(myUid))) return null;
-
-  // tick UI
+  // tick
   const tickElement = () => {
     if (!isMine) return null;
     switch (status) {
-      case "sending":
-        return <span style={{ marginLeft: 8, color: "gray" }}>⏳</span>;
-      case "sent":
-        return <CheckSingle color="gray" />;
-      case "delivered":
-        return <CheckDouble color="gray" />;
-      case "seen":
-        return <CheckDouble color="#22c55e" />;
-      default:
-        return null;
+      case "sending": return <span style={{ marginLeft: 8, color: "gray" }}>⏳</span>;
+      case "sent": return <CheckSingle color="gray" />;
+      case "delivered": return <CheckDouble color="gray" />;
+      case "seen": return <CheckDouble color="#22c55e" />;
+      default: return null;
     }
   };
 
-  // reaction pills
+  // reactions pills
   const reactionPills = () => {
     if (!localReactions || Object.keys(localReactions).length === 0) return null;
     return (
       <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
         {Object.entries(localReactions).map(([emoji, users]) => (
-          <button
-            key={emoji}
-            onClick={() => toggleReaction(emoji)}
-            title={`${users.length} reaction${users.length > 1 ? "s" : ""}`}
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 6,
-              padding: "4px 8px",
-              borderRadius: 16,
-              background: isDark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.06)",
-              border: "none",
-              cursor: "pointer",
-              fontSize: 13,
-            }}
-          >
+          <button key={emoji} onClick={() => toggleReaction(emoji)} title={`${users.length} reaction${users.length>1?"s":""}`} style={{
+            display: "inline-flex", alignItems: "center", gap: 6, padding: "4px 8px", borderRadius: 16,
+            background: isDark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.06)", border: "none", cursor: "pointer", fontSize: 13
+          }}>
             <span style={{ fontSize: 16 }}>{emoji}</span>
             <span style={{ fontSize: 12, opacity: 0.85 }}>{users.length}</span>
           </button>
@@ -319,29 +232,25 @@ export default function MessageItem({
   // reply preview
   const renderReplyPreview = () => {
     if (!message.replyTo) return null;
-    const previewText = message.replyTo.text || (message.replyTo.mediaUrls ? "Media" : "");
+    const preview = message.replyTo.text || (message.replyTo.mediaUrls ? "Media" : "");
     const senderLabel = message.replyTo.senderName ?? (message.replyTo.senderId === myUid ? "You" : "Contact");
     return (
       <div
-        onClick={() => {
-          // parent may implement scrollToMessage using stored refs
-          // we simply call setReplyTo to let parent handle any special navigation
-          // nothing here to avoid unexpected jumps
-        }}
+        onClick={() => { if (scrollToMessage && message.replyTo.id) scrollToMessage(message.replyTo.id); }}
         style={{
-          marginBottom: 8,
-          padding: "6px 8px",
-          borderRadius: 10,
-          background: isMine ? "rgba(255,255,255,0.06)" : isDark ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.03)",
-          color: isMine ? "#fff" : isDark ? "#fff" : "#111",
-          fontSize: 13,
+          marginBottom: 8, padding: "6px 8px", borderRadius: 10, background: isMine ? "rgba(255,255,255,0.06)" : isDark ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.03)",
+          color: isMine ? "#fff" : isDark ? "#fff" : "#111", fontSize: 13, cursor: "pointer", transition: "background 0.2s"
         }}
+        onMouseEnter={(e)=>e.currentTarget.style.background=isMine?"rgba(255,255,255,0.12)":"rgba(0,0,0,0.08)"}
+        onMouseLeave={(e)=>e.currentTarget.style.background=isMine?"rgba(255,255,255,0.06)":isDark?"rgba(255,255,255,0.03)":"rgba(0,0,0,0.03)"}
       >
         <div style={{ fontWeight: 700, marginBottom: 4 }}>{senderLabel}</div>
-        <div style={{ fontSize: 13, opacity: 0.95, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{previewText}</div>
+        <div style={{ fontSize: 13, opacity: 0.95, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{preview}</div>
       </div>
     );
   };
+
+  if (message.deleted || (message.deletedFor && message.deletedFor.includes?.(myUid))) return null;
 
   return (
     <>
@@ -356,76 +265,27 @@ export default function MessageItem({
         onMouseLeave={cancelLongPress}
         style={{
           alignSelf: isMine ? "flex-end" : "flex-start",
-          maxWidth: "78%",
-          margin: "6px 0",
-          padding: 12,
-          borderRadius: 16,
+          maxWidth: "78%", margin: "6px 0", padding: 12, borderRadius: 16,
           backgroundColor: isMine ? (isDark ? "#0b6cff" : "#007bff") : isDark ? "#1f1f1f" : "#fff",
           color: isMine ? "#fff" : isDark ? "#fff" : "#111",
-          transform: `translateX(${swipeX}px)`,
-          transition: swipeX ? "none" : "transform 0.18s ease",
-          wordBreak: "break-word",
-          position: "relative",
-          boxShadow: isMine ? "0 6px 18px rgba(0,0,0,0.06)" : "0 1px 0 rgba(0,0,0,0.03)",
-          userSelect: "none",
+          transform: `translateX(${swipeX}px)`, transition: swipeX ? "none" : "transform 0.18s ease",
+          wordBreak: "break-word", position: "relative", boxShadow: isMine ? "0 6px 18px rgba(0,0,0,0.06)" : "0 1px 0 rgba(0,0,0,0.03)", userSelect: "none"
         }}
       >
-        {/* reply preview */}
         {renderReplyPreview()}
-
-        {/* media */}
         {renderMediaGrid()}
-
-        {/* text */}
-        {message.text && (
-          <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.4, fontSize: 15 }}>
-            {message.text.slice(0, visibleChars)}
-            {message.text.length > visibleChars && (
-              <span onClick={() => setVisibleChars((v) => v + READ_MORE_STEP)} style={{ color: "#c4c4c4", cursor: "pointer", marginLeft: 6 }}>
-                ...more
-              </span>
-            )}
-          </div>
-        )}
-
-        {/* reactions */}
+        {message.text && <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.4, fontSize: 15 }}>{message.text.slice(0, visibleChars)}{message.text.length > visibleChars && <span onClick={()=>setVisibleChars(v=>v+READ_MORE_STEP)} style={{ color: "#c4c4c4", cursor: "pointer", marginLeft:6 }}>...more</span>}</div>}
         {reactionPills()}
-
-        {/* timestamp + ticks */}
         <div style={{ fontSize: 11, opacity: 0.75, textAlign: "right", marginTop: 8, display: "flex", justifyContent: "flex-end", gap: 8, alignItems: "center" }}>
           <div style={{ color: isDark ? "rgba(255,255,255,0.75)" : "rgba(0,0,0,0.6)" }}>{fmtTime(message.createdAt)}</div>
           {tickElement()}
-          {message.editedAt ? <div style={{ marginLeft: 6, fontSize: 10 }}>edited</div> : null}
+          {message.editedAt ? <div style={{ marginLeft:6,fontSize:10 }}>edited</div> : null}
         </div>
-
-        {/* reaction pop */}
-        {reactionAnim.show && (
-          <div style={{ position: "absolute", top: -18, right: 10, fontSize: 20, animation: "floatUp 0.7s ease-out forwards", pointerEvents: "none" }}>
-            {reactionAnim.emoji}
-          </div>
-        )}
+        {reactionAnim.show && <div style={{ position:"absolute", top:-18, right:10, fontSize:20, animation:"floatUp 0.7s ease-out forwards", pointerEvents:"none" }}>{reactionAnim.emoji}</div>}
       </div>
 
-      {/* Inline emoji picker fallback (only if parent didn't provide a global picker) */}
-      {emojiOpen && !onOpenEmojiPicker && (
-        <div style={{ position: "fixed", inset: 0, zIndex: 4000, display: "flex", justifyContent: "center", alignItems: "flex-end", padding: 12 }}>
-          <div style={{ width: "100%", maxWidth: 520 }}>
-            <EmojiPicker
-              onSelect={(emoji) => {
-                toggleReaction(emoji);
-                setEmojiOpen(false);
-              }}
-              onClose={() => setEmojiOpen(false)}
-            />
-          </div>
-        </div>
-      )}
-
       <style>{`
-        @keyframes floatUp {
-          0% { opacity: 1; transform: translateY(0); }
-          100% { opacity: 0; transform: translateY(-24px); }
-        }
+        @keyframes floatUp { 0% { opacity:1; transform:translateY(0);} 100% { opacity:0; transform:translateY(-24px);} }
       `}</style>
     </>
   );
