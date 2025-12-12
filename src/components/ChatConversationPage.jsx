@@ -1,6 +1,6 @@
 // src/components/ChatConversationPage.jsx
-import React, { useEffect, useState, useRef, useCallback, useMemo, useContext } from "react";
-import { useParams } from "react-router-dom";
+import React, { useState, useEffect, useRef, useContext, useCallback, useMemo } from "react";
+import { useParams, useNavigate } from "react-router-dom";
 import {
   collection,
   addDoc,
@@ -10,8 +10,8 @@ import {
   arrayRemove,
   serverTimestamp,
   onSnapshot,
-  orderBy,
   query,
+  orderBy,
 } from "firebase/firestore";
 import { db, auth } from "../firebaseConfig";
 import { ThemeContext } from "../context/ThemeContext";
@@ -21,7 +21,8 @@ import ChatHeader from "./Chat/ChatHeader";
 import MessageItem from "./Chat/MessageItem";
 import ChatInput from "./Chat/ChatInput";
 import LongPressMessageModal from "./Chat/LongPressMessageModal";
-import EmojiPicker from "./Chat/EmojiPicker";
+import ImagePreviewModal from "./Chat/ImagePreviewModal";
+import MediaViewer from "./Chat/MediaViewer";
 import { toast, ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 
@@ -34,41 +35,49 @@ const FLASH_HIGHLIGHT_STYLE = `
 `;
 
 export default function ChatConversationPage() {
-  const { chatId } = useParams();
+  const { chatId: paramChatId } = useParams();
+  const navigate = useNavigate();
   const { theme, wallpaper } = useContext(ThemeContext);
   const { currentUser } = useContext(UserContext);
-  const isDark = theme === "dark";
   const myUid = auth.currentUser?.uid || currentUser?.uid;
+  const isDark = theme === "dark";
 
+  // -------------------- REFS --------------------
   const messagesRefEl = useRef(null);
   const endRef = useRef(null);
   const messageRefs = useRef({});
   const typingTimer = useRef(null);
-  const initialScrollDone = useRef(false);
 
-  const [chatInfo, setChatInfo] = useState({});
-  const [friendInfo, setFriendInfo] = useState({});
+  // -------------------- STATES --------------------
+  const [chatId, setChatId] = useState(paramChatId || null);
+  const [chatInfo, setChatInfo] = useState(null);
+  const [friendInfo, setFriendInfo] = useState(null);
   const [messages, setMessages] = useState([]);
   const [text, setText] = useState("");
   const [replyTo, setReplyTo] = useState(null);
+  const [selectedFiles, setSelectedFiles] = useState([]);
+  const [caption, setCaption] = useState("");
+  const [showPreview, setShowPreview] = useState(false);
+  const [mediaViewer, setMediaViewer] = useState({ open: false, startIndex: 0 });
   const [pinnedMessage, setPinnedMessage] = useState(null);
   const [isBlocked, setIsBlocked] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [friendTyping, setFriendTyping] = useState(false);
-  const [isAtBottom, setIsAtBottom] = useState(true);
+  const [friendOnline, setFriendOnline] = useState(false);
   const [longPressMessage, setLongPressMessage] = useState(null);
-  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [isAtBottom, setIsAtBottom] = useState(true);
+  const [stickyDate, setStickyDate] = useState(null);
 
-  // -------------------- CHAT & FRIEND INFO --------------------
+  // -------------------- REALTIME CHAT INFO --------------------
   useEffect(() => {
     if (!chatId) return;
     const chatRef = doc(db, "chats", chatId);
-    const unsubList = [];
+    let unsubChat, unsubFriend, unsubPinned;
 
-    const unsubChat = onSnapshot(chatRef, (snap) => {
+    unsubChat = onSnapshot(chatRef, (snap) => {
       if (!snap.exists()) return;
-      const data = snap.data();
 
+      const data = snap.data();
       setChatInfo({ id: snap.id, ...data });
       setIsBlocked(Boolean(data.blocked));
       setIsMuted(Boolean(data.mutedUntil && data.mutedUntil.toMillis() > Date.now()));
@@ -76,28 +85,38 @@ export default function ChatConversationPage() {
       const friendId = (data.participants || []).find((p) => p !== myUid);
       if (friendId) {
         const userRef = doc(db, "users", friendId);
-        const unsubFriend = onSnapshot(userRef, (s) => {
-          if (s.exists()) setFriendInfo({ id: s.id, ...s.data() });
+        unsubFriend = onSnapshot(userRef, (s) => {
+          if (s.exists()) {
+            const fData = s.data();
+            setFriendInfo({ id: s.id, ...fData });
+            setFriendOnline(Boolean(fData.online));
+          } else setFriendInfo(null);
         });
-        unsubList.push(unsubFriend);
-
-        setFriendTyping(Boolean(data.typing?.[friendId]));
       }
 
       if (data.pinnedMessageId) {
         const pinnedRef = doc(db, "chats", chatId, "messages", data.pinnedMessageId);
-        const unsubPinned = onSnapshot(pinnedRef, (s) => {
+        unsubPinned = onSnapshot(pinnedRef, (s) => {
           if (s.exists()) setPinnedMessage({ id: s.id, ...s.data() });
+          else setPinnedMessage(null);
         });
-        unsubList.push(unsubPinned);
-      } else setPinnedMessage(null);
+      }
+
+      const friendIdTyping = Object.keys(data.typing || {}).find((uid) => uid !== myUid);
+      if (friendIdTyping) {
+        const lastTyping = data.typing[friendIdTyping]?.toDate?.() || 0;
+        setFriendTyping(Date.now() - lastTyping < 3000);
+      }
     });
 
-    unsubList.push(unsubChat);
-    return () => unsubList.forEach((u) => u());
+    return () => {
+      unsubChat && unsubChat();
+      unsubFriend && unsubFriend();
+      unsubPinned && unsubPinned();
+    };
   }, [chatId, myUid]);
 
-  // -------------------- MESSAGES SUB --------------------
+  // -------------------- REALTIME MESSAGES --------------------
   useEffect(() => {
     if (!chatId) return;
     const messagesRef = collection(db, "chats", chatId, "messages");
@@ -109,150 +128,222 @@ export default function ChatConversationPage() {
         ...d.data(),
         createdAt: d.data().createdAt?.toDate?.() || new Date(),
       }));
+
       setMessages(docs);
 
-      // mark delivered for current user
+      // mark messages delivered in real-time
       docs
         .filter((m) => m.senderId !== myUid && !(m.deliveredTo || []).includes(myUid))
         .forEach((m) =>
-          updateDoc(doc(db, "chats", chatId, "messages", m.id), { deliveredTo: arrayUnion(myUid) }).catch(() => {})
+          updateDoc(doc(db, "chats", chatId, "messages", m.id), {
+            deliveredTo: arrayUnion(myUid),
+          }).catch(() => {})
         );
 
-      // auto scroll
-      if (isAtBottom || !initialScrollDone.current) {
-        setTimeout(() => endRef.current?.scrollIntoView({ behavior: "auto" }), 50);
-        initialScrollDone.current = true;
-      }
+      // scroll to bottom
+      if (isAtBottom) setTimeout(() => endRef.current?.scrollIntoView({ behavior: "smooth" }), 50);
     });
 
     return () => unsub();
   }, [chatId, myUid, isAtBottom]);
 
-  // -------------------- MARK SEEN --------------------
+  // -------------------- MARK SEEN REAL-TIME --------------------
   useEffect(() => {
-    if (!chatId || !myUid || messages.length === 0) return;
+    if (!chatId || messages.length === 0) return;
+
     messages
       .filter((m) => m.senderId !== myUid && !(m.seenBy || []).includes(myUid))
       .forEach((m) =>
-        updateDoc(doc(db, "chats", chatId, "messages", m.id), { seenBy: arrayUnion(myUid) }).catch(() => {})
+        updateDoc(doc(db, "chats", chatId, "messages", m.id), {
+          seenBy: arrayUnion(myUid),
+        }).catch(() => {})
       );
-    updateDoc(doc(db, "chats", chatId), { [`lastSeen.${myUid}`]: serverTimestamp() }).catch(() => {});
+
+    updateDoc(doc(db, "chats", chatId), {
+      [`lastSeen.${myUid}`]: serverTimestamp(),
+    }).catch(() => {});
   }, [messages, chatId, myUid]);
 
-  // -------------------- SCROLL --------------------
+  // -------------------- TYPING --------------------
+  const setTypingFlag = useCallback(
+    async (typing) => {
+      if (!chatId) return;
+      try {
+        await updateDoc(doc(db, "chats", chatId), {
+          [`typing.${myUid}`]: typing ? serverTimestamp() : null,
+        });
+      } catch {}
+    },
+    [chatId, myUid]
+  );
+
+  const handleUserTyping = useCallback(
+    (isTyping) => {
+      clearTimeout(typingTimer.current);
+      if (isTyping) setTypingFlag(true);
+      typingTimer.current = setTimeout(() => setTypingFlag(false), 1500);
+    },
+    [setTypingFlag]
+  );
+
+  // -------------------- SCROLL HANDLING --------------------
   useEffect(() => {
     const el = messagesRefEl.current;
     if (!el) return;
-    let timeout;
+
     const onScroll = () => {
-      clearTimeout(timeout);
-      timeout = setTimeout(() => {
-        setIsAtBottom(el.scrollHeight - el.scrollTop - el.clientHeight < 80);
-      }, 50);
+      const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+      setIsAtBottom(atBottom);
+
+      const firstVisible = Array.from(el.children).find((c) => c.dataset?.type === "message");
+      if (firstVisible) {
+        const date = firstVisible.dataset.date;
+        if (date !== stickyDate) setStickyDate(date);
+      }
     };
+
     el.addEventListener("scroll", onScroll);
     return () => el.removeEventListener("scroll", onScroll);
-  }, []);
-
-  // -------------------- TYPING --------------------
-  const setTypingFlag = useCallback(async (typing) => {
-    if (!chatId || !myUid) return;
-    try {
-      await updateDoc(doc(db, "chats", chatId), { [`typing.${myUid}`]: typing ? serverTimestamp() : null });
-    } catch {}
-  }, [chatId, myUid]);
-
-  const handleUserTyping = useCallback((isTyping) => {
-    clearTimeout(typingTimer.current);
-    if (isTyping) setTypingFlag(true);
-    typingTimer.current = setTimeout(() => setTypingFlag(false), 1500);
-  }, [setTypingFlag]);
+  }, [messages, stickyDate]);
 
   // -------------------- SEND MESSAGE --------------------
-  const sendMessage = useCallback(async (textMsg = "") => {
-    if (isBlocked) return toast.error("You cannot send messages");
-    if (!textMsg) return;
+  const sendMessage = useCallback(
+    async (textMsg = "", files = []) => {
+      if (isBlocked) return toast.error("You cannot send messages");
+      if (!textMsg && !files.length) return;
+      if (isMuted) toast.info("Chat is muted");
 
-    const tempId = `temp-${Date.now()}-${Math.random()}`;
-    const tempMessage = {
-      id: tempId,
-      senderId: myUid,
-      text: textMsg.trim(),
-      createdAt: new Date(),
-      reactions: {},
-      seenBy: [],
-      deliveredTo: [],
-      replyTo: replyTo ? { id: replyTo.id, text: replyTo.text, senderId: replyTo.senderId } : null,
-      status: "sending",
-    };
+      const tempId = `temp-${Date.now()}-${Math.random()}`;
+      const tempMessage = {
+        id: tempId,
+        senderId: myUid,
+        text: textMsg,
+        mediaUrls: files.map((f) => (typeof f === "string" ? f : URL.createObjectURL(f))),
+        createdAt: new Date(),
+        reactions: {},
+        seenBy: [],
+        deliveredTo: [],
+        replyTo: replyTo ? { id: replyTo.id, text: replyTo.text, senderId: replyTo.senderId } : null,
+        status: "sending",
+      };
 
-    // Optimistic UI
-    setMessages((prev) => [...prev, tempMessage]);
-    endRef.current?.scrollIntoView({ behavior: "smooth" });
+      setMessages((prev) => [...prev, tempMessage]);
+      if (isAtBottom) setTimeout(() => endRef.current?.scrollIntoView({ behavior: "smooth" }), 50);
 
-    try {
-      const messagesCol = collection(db, "chats", chatId, "messages");
-      const payload = { ...tempMessage, createdAt: serverTimestamp(), status: "sent" };
-      const docRef = await addDoc(messagesCol, payload);
-      setMessages((prev) =>
-        prev.map((m) => (m.id === tempId ? { ...payload, id: docRef.id, createdAt: new Date() } : m))
-      );
-      await updateDoc(doc(db, "chats", chatId), {
-        lastMessage: textMsg,
-        lastMessageSender: myUid,
-        lastMessageAt: serverTimestamp(),
-        lastMessageStatus: "delivered",
-      });
-    } catch (err) {
-      setMessages((prev) =>
-        prev.map((m) => (m.id === tempId ? { ...m, status: "failed" } : m))
-      );
-      toast.error("Failed to send message");
-    } finally {
-      setReplyTo(null);
-      setText("");
-    }
-  }, [chatId, myUid, isBlocked, replyTo]);
+      try {
+        const docRef = await addDoc(collection(db, "chats", chatId, "messages"), {
+          ...tempMessage,
+          createdAt: serverTimestamp(),
+          status: "sent",
+        });
+
+        setMessages((prev) =>
+          prev.map((m) => (m.id === tempId ? { ...tempMessage, id: docRef.id, status: "sent" } : m))
+        );
+
+        await updateDoc(doc(db, "chats", chatId), {
+          lastMessage: textMsg || "Media",
+          lastMessageSender: myUid,
+          lastMessageAt: serverTimestamp(),
+          lastMessageStatus: "delivered",
+        });
+      } catch {
+        setMessages((prev) =>
+          prev.map((m) => (m.id === tempId ? { ...m, status: "failed" } : m))
+        );
+        toast.error("Failed to send message");
+      } finally {
+        setReplyTo(null);
+        setText("");
+      }
+    },
+    [chatId, myUid, isBlocked, isAtBottom, replyTo, isMuted]
+  );
 
   // -------------------- REACTIONS --------------------
-  const handleReact = useCallback(async (messageId, emoji) => {
-    setMessages((prev) =>
-      prev.map((m) => {
-        if (m.id !== messageId) return m;
-        const hasReacted = m.reactions?.[emoji]?.includes(myUid);
-        const newReactions = { ...m.reactions };
-        if (!newReactions[emoji]) newReactions[emoji] = [];
-        newReactions[emoji] = hasReacted
-          ? newReactions[emoji].filter((uid) => uid !== myUid)
-          : [...newReactions[emoji], myUid];
-        return { ...m, reactions: newReactions };
-      })
-    );
+  const handleReact = useCallback(
+    async (messageId, emoji) => {
+      const msg = messages.find((m) => m.id === messageId);
+      if (!msg) return;
 
-    try {
-      const msgRef = doc(db, "chats", chatId, "messages", messageId);
-      const update = { [`reactions.${emoji}`]: arrayUnion(myUid) };
-      if (messages.find(m => m.id === messageId)?.reactions?.[emoji]?.includes(myUid)) {
-        await updateDoc(msgRef, { [`reactions.${emoji}`]: arrayRemove(myUid] });
-      } else {
-        await updateDoc(msgRef, update);
+      const hasReacted = msg.reactions?.[emoji]?.includes(myUid);
+      const newReactions = { ...msg.reactions };
+      if (!newReactions[emoji]) newReactions[emoji] = [];
+      newReactions[emoji] = hasReacted
+        ? newReactions[emoji].filter((uid) => uid !== myUid)
+        : [...newReactions[emoji], myUid];
+
+      setMessages((prev) =>
+        prev.map((m) => (m.id === messageId ? { ...m, reactions: newReactions } : m))
+      );
+
+      try {
+        const msgRef = doc(db, "chats", chatId, "messages", messageId);
+        await updateDoc(msgRef, {
+          [`reactions.${emoji}`]: hasReacted ? arrayRemove(myUid) : arrayUnion(myUid),
+        });
+      } catch {
+        toast.error("Failed to react");
       }
-    } catch {
-      toast.error("Failed to react");
-    }
-  }, [chatId, myUid, messages]);
+    },
+    [chatId, messages, myUid]
+  );
 
   // -------------------- SCROLL TO MESSAGE --------------------
   const scrollToMessage = useCallback((id) => {
     const el = messageRefs.current[id];
-    if (el) {
-      el.scrollIntoView({ behavior: "smooth", block: "center" });
-      el.classList.add("flash-highlight");
-      setTimeout(() => el.classList.remove("flash-highlight"), 1200);
-    }
+    if (!el) return;
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+    el.classList.add("flash-highlight");
+    setTimeout(() => el.classList.remove("flash-highlight"), 1200);
   }, []);
 
+  // -------------------- DATE HELPERS --------------------
+  const formatDateLabel = (dateStr) => {
+    const date = new Date(dateStr);
+    const today = new Date();
+    const yesterday = new Date(today);
+    yesterday.setDate(today.getDate() - 1);
+
+    if (date.toDateString() === today.toDateString()) return "Today";
+    if (date.toDateString() === yesterday.toDateString()) return "Yesterday";
+    return date.toLocaleDateString();
+  };
+
+  const messagesWithDateSeparators = useMemo(() => {
+    const res = [];
+    let lastDate = null;
+    messages.forEach((m) => {
+      const msgDate = new Date(m.createdAt).toDateString();
+      if (msgDate !== lastDate) {
+        res.push({ type: "date-separator", date: msgDate });
+        lastDate = msgDate;
+      }
+      res.push({ type: "message", data: m });
+    });
+    return res;
+  }, [messages]);
+
+  // -------------------- MEDIA VIEWER --------------------
+  const mediaItems = useMemo(
+    () =>
+      messages
+        .filter((m) => m.mediaUrls?.length)
+        .flatMap((m) => m.mediaUrls.map((url) => ({ url, id: m.id }))),
+    [messages]
+  );
+
+  const openMediaViewerAtMessage = useCallback(
+    (message) => {
+      const index = mediaItems.findIndex((m) => m.id === message.id);
+      setMediaViewer({ open: true, startIndex: index >= 0 ? index : 0 });
+    },
+    [mediaItems]
+  );
+
   // -------------------- RENDER --------------------
+  if (!chatInfo || !friendInfo) return <div style={{ padding: 20 }}>Loading chat...</div>;
+
   return (
     <div
       style={{
@@ -267,66 +358,116 @@ export default function ChatConversationPage() {
       <style>{FLASH_HIGHLIGHT_STYLE}</style>
 
       {/* Chat Header */}
-      <ChatHeader chatInfo={chatInfo} friendInfo={friendInfo} friendTyping={friendTyping} isDark={isDark} />
+      <ChatHeader
+        chatId={chatId}
+        friendId={friendInfo.id}
+        pinnedMessage={pinnedMessage}
+        setBlockedStatus={setIsBlocked}
+        onGoToPinned={() => pinnedMessage && scrollToMessage(pinnedMessage.id)}
+      />
+
+      {/* Sticky Date */}
+      {stickyDate && (
+        <div
+          style={{
+            position: "sticky",
+            top: 0,
+            zIndex: 5,
+            textAlign: "center",
+            background: wallpaper || (isDark ? "#0b0b0b" : "#f5f5f5"),
+            color: isDark ? "#888" : "#555",
+            fontSize: 12,
+            padding: "4px 0",
+          }}
+        >
+          {formatDateLabel(stickyDate)}
+        </div>
+      )}
 
       {/* Messages */}
-      <div ref={messagesRefEl} style={{ flex: 1, overflowY: "auto", padding: "0 12px" }}>
-        {pinnedMessage && (
-          <div style={{ padding: 6, backgroundColor: isDark ? "#222" : "#eee", borderRadius: 8, margin: "6px 0" }}>
-            📌 Pinned: {pinnedMessage.text}
-          </div>
+      <div
+        ref={messagesRefEl}
+        style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", padding: 8 }}
+      >
+        {messagesWithDateSeparators.map((item, idx) =>
+          item.type === "date-separator" ? (
+            <div
+              key={`date-${idx}`}
+              style={{ textAlign: "center", margin: "8px 0", color: isDark ? "#888" : "#555", fontSize: 12 }}
+            >
+              {formatDateLabel(item.date)}
+            </div>
+          ) : (
+            <MessageItem
+              key={item.data.id}
+              message={item.data}
+              myUid={myUid}
+              isDark={isDark}
+              setReplyTo={setReplyTo}
+              scrollToMessage={scrollToMessage}
+              openMediaViewer={openMediaViewerAtMessage}
+              setLongPressMessage={setLongPressMessage}
+              ref={(el) => (messageRefs.current[item.data.id] = el)}
+            />
+          )
         )}
-        {messages.map((msg) => (
-          <MessageItem
-            key={msg.id}
-            message={msg}
-            myUid={myUid}
-            setReplyTo={setReplyTo}
-            setLongPressMessage={setLongPressMessage}
-            handleReact={handleReact}
-            ref={(el) => (messageRefs.current[msg.id] = el)}
-          />
-        ))}
         <div ref={endRef} />
       </div>
 
+      {/* Typing & Online */}
+      {(friendTyping || friendOnline) && (
+        <div style={{ padding: 4, textAlign: "left", color: isDark ? "#aaa" : "#555", fontSize: 12 }}>
+          {friendTyping
+            ? `${friendInfo.displayName || "Friend"} is typing...`
+            : `${friendInfo.displayName || "Friend"} is online`}
+        </div>
+      )}
+
       {/* Chat Input */}
       <ChatInput
-        value={text}
-        onChange={(val) => { setText(val); handleUserTyping(val.length > 0); }}
-        onSend={() => sendMessage(text)}
-        onOpenEmoji={() => setShowEmojiPicker(true)}
+        text={text}
+        setText={setText}
+        onSend={(t) => sendMessage(t, [])}
+        onTyping={handleUserTyping}
+        onMediaSelect={(files) => {
+          setSelectedFiles(files);
+          setShowPreview(true);
+        }}
         replyTo={replyTo}
         onCancelReply={() => setReplyTo(null)}
       />
+
+      {/* Image Preview */}
+      {showPreview && selectedFiles.length > 0 && (
+        <ImagePreviewModal
+          files={selectedFiles}
+          caption={caption}
+          setCaption={setCaption}
+          onSend={(c) => sendMessage(c, selectedFiles)}
+          onClose={() => setShowPreview(false)}
+        />
+      )}
+
+      {/* Media Viewer */}
+      {mediaViewer.open && (
+        <MediaViewer
+          items={mediaItems}
+          startIndex={mediaViewer.startIndex}
+          onClose={() => setMediaViewer({ open: false, startIndex: 0 })}
+        />
+      )}
 
       {/* Long Press Modal */}
       {longPressMessage && (
         <LongPressMessageModal
           message={longPressMessage}
-          myUid={myUid}
           onClose={() => setLongPressMessage(null)}
           onReaction={(emoji) => handleReact(longPressMessage.id, emoji)}
-          onReply={() => { setReplyTo(longPressMessage); setLongPressMessage(null); scrollToMessage(longPressMessage.id); }}
-          onCopy={() => { navigator.clipboard.writeText(longPressMessage.text || ""); setLongPressMessage(null); toast.success("Copied!"); }}
-          onPin={async () => { await updateDoc(doc(db, "chats", chatId), { pinnedMessageId: longPressMessage.id }); setPinnedMessage(longPressMessage); setLongPressMessage(null); toast.success("Pinned!"); }}
-          onDeleteForMe={async () => { await updateDoc(doc(db, "chats", chatId, "messages", longPressMessage.id), { deletedFor: arrayUnion(myUid) }); setLongPressMessage(null); }}
-          onDeleteForEveryone={async () => { await updateDoc(doc(db, "chats", chatId, "messages", longPressMessage.id), { deleted: true }); setLongPressMessage(null); }}
-          isDark={isDark}
+          setReplyTo={setReplyTo}
         />
       )}
 
-      {/* Emoji Picker */}
-      {showEmojiPicker && (
-        <EmojiPicker
-          open={showEmojiPicker}
-          onClose={() => setShowEmojiPicker(false)}
-          onSelect={(emoji) => { setText(prev => prev + emoji); setShowEmojiPicker(false); }}
-          isDark={isDark}
-        />
-      )}
-
-      <ToastContainer position="top-center" autoClose={1500} hideProgressBar />
+      <ToastContainer position="bottom-right" />
     </div>
   );
 }
