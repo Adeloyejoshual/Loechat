@@ -1,15 +1,17 @@
 // src/components/ChatConversationPage.jsx
-import React, { useEffect, useState, useRef, useContext } from "react";
+import React, { useEffect, useState, useRef, useContext, useCallback } from "react";
 import { useParams } from "react-router-dom";
 import {
   collection,
   addDoc,
+  doc,
+  updateDoc,
+  arrayUnion,
+  arrayRemove,
   query,
   orderBy,
   onSnapshot,
   serverTimestamp,
-  doc,
-  updateDoc,
 } from "firebase/firestore";
 import { db, auth } from "../firebaseConfig";
 import { ThemeContext } from "../context/ThemeContext";
@@ -19,7 +21,7 @@ import ChatHeader from "./Chat/ChatHeader";
 import MessageItem from "./Chat/MessageItem";
 import ChatInput from "./Chat/ChatInput";
 import ImagePreviewModal from "./Chat/ImagePreviewModal";
-import { toast, ToastContainer } from "react-toastify";
+import { ToastContainer, toast } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import axios from "axios";
 
@@ -43,6 +45,8 @@ export default function ChatConversationPage() {
   const [isAtBottom, setIsAtBottom] = useState(true);
   const [showPreview, setShowPreview] = useState(false);
   const [isBlocked, setIsBlocked] = useState(false);
+  const [friendTyping, setFriendTyping] = useState(false);
+  const [stickyDate, setStickyDate] = useState("");
 
   // -------------------- Load chat & friend info --------------------
   useEffect(() => {
@@ -59,6 +63,9 @@ export default function ChatConversationPage() {
       if (friendId) {
         const userRef = doc(db, "users", friendId);
         onSnapshot(userRef, (s) => s.exists() && setFriendInfo({ id: s.id, ...s.data() }));
+
+        // Typing indicator
+        setFriendTyping(Boolean(data.typing?.[friendId]));
       }
 
       if (data.pinnedMessageId) {
@@ -70,61 +77,71 @@ export default function ChatConversationPage() {
     return () => unsubChat();
   }, [chatId, myUid]);
 
-  // -------------------- Real-time messages --------------------
+  // -------------------- Real-time messages + seen/delivered --------------------
   useEffect(() => {
     if (!chatId) return;
     const messagesRef = collection(db, "chats", chatId, "messages");
     const q = query(messagesRef, orderBy("createdAt", "asc"));
 
     const unsub = onSnapshot(q, (snap) => {
-      const docs = snap.docs.map((d) => ({ id: d.id, ...d.data(), status: "sent" }));
+      const docs = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+
+      // Mark delivered & seen
+      docs.forEach(async (m) => {
+        if (m.senderId !== myUid) {
+          if (!m.deliveredTo?.includes(myUid))
+            await updateDoc(doc(db, "chats", chatId, "messages", m.id), { deliveredTo: arrayUnion(myUid) });
+          if (!m.seenBy?.includes(myUid))
+            await updateDoc(doc(db, "chats", chatId, "messages", m.id), { seenBy: arrayUnion(myUid) });
+        }
+      });
+
       setMessages(docs);
 
       if (isAtBottom) endRef.current?.scrollIntoView({ behavior: "smooth" });
     });
 
     return () => unsub();
-  }, [chatId, isAtBottom]);
+  }, [chatId, isAtBottom, myUid]);
 
-  // -------------------- Scroll detection --------------------
+  // -------------------- Scroll detection & sticky date --------------------
   useEffect(() => {
     const el = messagesRefEl.current;
     if (!el) return;
-    const onScroll = () => setIsAtBottom(el.scrollHeight - el.scrollTop - el.clientHeight < 80);
+
+    const onScroll = () => {
+      const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+      setIsAtBottom(atBottom);
+
+      // Sticky date
+      const children = Array.from(el.children).filter((c) => c.dataset?.type === "message");
+      for (const child of children) {
+        const rect = child.getBoundingClientRect();
+        const parentRect = el.getBoundingClientRect();
+        if (rect.top - parentRect.top >= 0) {
+          const msgDate = child.dataset.date;
+          if (msgDate !== stickyDate) setStickyDate(msgDate);
+          break;
+        }
+      }
+    };
+
     el.addEventListener("scroll", onScroll);
+    onScroll(); // initial check
     return () => el.removeEventListener("scroll", onScroll);
-  }, []);
+  }, [messages, stickyDate]);
 
-  // -------------------- Date helpers --------------------
-  const formatDateSeparator = (date) => {
-    if (!date) return "";
-    const msgDate = new Date(date.toDate?.() || date);
-    const now = new Date();
-    const yesterday = new Date();
-    yesterday.setDate(now.getDate() - 1);
+  // -------------------- Typing indicator --------------------
+  const handleUserTyping = useCallback(
+    (typing) => {
+      if (!chatId) return;
+      const chatRef = doc(db, "chats", chatId);
+      updateDoc(chatRef, { [`typing.${myUid}`]: typing ? serverTimestamp() : null }).catch(() => {});
+    },
+    [chatId, myUid]
+  );
 
-    if (msgDate.toDateString() === now.toDateString()) return "Today";
-    if (msgDate.toDateString() === yesterday.toDateString()) return "Yesterday";
-
-    const options = { month: "short", day: "numeric" };
-    if (msgDate.getFullYear() !== now.getFullYear()) options.year = "numeric";
-    return msgDate.toLocaleDateString(undefined, options);
-  };
-
-  const groupedMessages = messages.reduce((acc, msg) => {
-    const dateStr = formatDateSeparator(msg.createdAt);
-    const lastDate = acc.length ? acc[acc.length - 1].date : null;
-    if (dateStr !== lastDate) acc.push({ type: "date-separator", date: dateStr });
-    acc.push({ type: "message", data: msg });
-    return acc;
-  }, []);
-
-  const scrollToMessage = (id) => {
-    const el = document.getElementById(id);
-    if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
-  };
-
-  // -------------------- Send message (optimistic UI) --------------------
+  // -------------------- Send message --------------------
   const sendMessage = async (textMsg = "", files = []) => {
     if (isBlocked) return toast.error("You cannot send messages to this user");
     if (!textMsg && files.length === 0) return;
@@ -132,14 +149,7 @@ export default function ChatConversationPage() {
     const messagesCol = collection(db, "chats", chatId, "messages");
 
     for (let f of files) {
-      const type = f.type.startsWith("image/")
-        ? "image"
-        : f.type.startsWith("video/")
-          ? "video"
-          : f.type.startsWith("audio/")
-            ? "audio"
-            : "file";
-
+      const type = f.type.startsWith("image/") ? "image" : f.type.startsWith("video/") ? "video" : "file";
       const tempId = `temp-${Date.now()}-${Math.random()}`;
 
       const tempMessage = {
@@ -151,47 +161,43 @@ export default function ChatConversationPage() {
         createdAt: new Date(),
         reactions: {},
         seenBy: [],
+        deliveredTo: [],
         status: "sending",
         replyTo: replyTo ? { id: replyTo.id, text: replyTo.text, senderId: replyTo.senderId } : null,
       };
+
       setMessages((prev) => [...prev, tempMessage]);
       endRef.current?.scrollIntoView({ behavior: "smooth" });
 
-      // Upload to Cloudinary
       try {
-        let mediaUrl = "";
-        if (type !== "file") {
-          const formData = new FormData();
-          formData.append("file", f);
-          formData.append("upload_preset", import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET);
+        const formData = new FormData();
+        formData.append("file", f);
+        formData.append("upload_preset", import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET);
 
-          const res = await axios.post(
-            `https://api.cloudinary.com/v1_1/${import.meta.env.VITE_CLOUDINARY_CLOUD_NAME}/auto/upload`,
-            formData
-          );
-          mediaUrl = res.data.secure_url;
-        }
+        const res = await axios.post(
+          `https://api.cloudinary.com/v1_1/${import.meta.env.VITE_CLOUDINARY_CLOUD_NAME}/auto/upload`,
+          formData
+        );
 
         const payload = {
           senderId: myUid,
           text: f.name,
-          mediaUrl,
+          mediaUrl: res.data.secure_url,
           mediaType: type,
           createdAt: serverTimestamp(),
           reactions: {},
           seenBy: [],
+          deliveredTo: [],
           replyTo: replyTo ? { id: replyTo.id, text: replyTo.text, senderId: replyTo.senderId } : null,
         };
 
         const docRef = await addDoc(messagesCol, payload);
-
         setMessages((prev) =>
           prev.map((m) =>
             m.id === tempId ? { ...payload, id: docRef.id, status: "sent", createdAt: new Date() } : m
           )
         );
-      } catch (err) {
-        console.error(err);
+      } catch {
         toast.error(`Failed to send ${f.name}`);
         setMessages((prev) =>
           prev.map((m) => (m.id === tempId ? { ...m, status: "failed" } : m))
@@ -199,7 +205,6 @@ export default function ChatConversationPage() {
       }
     }
 
-    // -------------------- Text messages --------------------
     if (textMsg.trim()) {
       const tempId = `temp-${Date.now()}-${Math.random()}`;
       const tempMessage = {
@@ -211,23 +216,23 @@ export default function ChatConversationPage() {
         createdAt: new Date(),
         reactions: {},
         seenBy: [],
+        deliveredTo: [],
         status: "sending",
         replyTo: replyTo ? { id: replyTo.id, text: replyTo.text, senderId: replyTo.senderId } : null,
       };
+
       setMessages((prev) => [...prev, tempMessage]);
       endRef.current?.scrollIntoView({ behavior: "smooth" });
 
       try {
         const payload = { ...tempMessage, createdAt: serverTimestamp(), status: "sent" };
         const docRef = await addDoc(messagesCol, payload);
-
         setMessages((prev) =>
           prev.map((m) =>
             m.id === tempId ? { ...payload, id: docRef.id, createdAt: new Date() } : m
           )
         );
-      } catch (err) {
-        console.error(err);
+      } catch {
         toast.error("Failed to send message");
         setMessages((prev) =>
           prev.map((m) => (m.id === tempId ? { ...m, status: "failed" } : m))
@@ -235,9 +240,7 @@ export default function ChatConversationPage() {
       }
     }
 
-    // -------------------- Update chat last message --------------------
-    const chatRef = doc(db, "chats", chatId);
-    await updateDoc(chatRef, {
+    await updateDoc(doc(db, "chats", chatId), {
       lastMessage: textMsg || files[0]?.name,
       lastMessageSender: myUid,
       lastMessageAt: serverTimestamp(),
@@ -248,6 +251,35 @@ export default function ChatConversationPage() {
     setSelectedFiles([]);
     setReplyTo(null);
     setShowPreview(false);
+  };
+
+  // -------------------- Add reaction --------------------
+  const handleReaction = async (messageId, emoji) => {
+    const msgRef = doc(db, "chats", chatId, "messages", messageId);
+    const msg = messages.find((m) => m.id === messageId);
+    if (!msg) return;
+
+    const hasReacted = msg.reactions?.[emoji]?.includes(myUid);
+    const update = hasReacted
+      ? { [`reactions.${emoji}`]: arrayRemove(myUid) }
+      : { [`reactions.${emoji}`]: arrayUnion(myUid) };
+
+    try {
+      await updateDoc(msgRef, update);
+    } catch {
+      toast.error("Failed to react");
+    }
+  };
+
+  // -------------------- Date formatting --------------------
+  const formatDateLabel = (date) => {
+    const d = new Date(date.toDate?.() || date);
+    const now = new Date();
+    const yesterday = new Date();
+    yesterday.setDate(now.getDate() - 1);
+    if (d.toDateString() === now.toDateString()) return "Today";
+    if (d.toDateString() === yesterday.toDateString()) return "Yesterday";
+    return d.toLocaleDateString();
   };
 
   return (
@@ -266,22 +298,24 @@ export default function ChatConversationPage() {
         chatId={chatId}
         pinnedMessage={pinnedMessage}
         setBlockedStatus={setIsBlocked}
-        onClearChat={async () => {
-          if (!window.confirm("Clear this chat?")) return;
-          messages.forEach(async (msg) => {
-            const msgRef = doc(db, "chats", chatId, "messages", msg.id);
-            await updateDoc(msgRef, { deleted: true });
-          });
-          toast.success("Chat cleared");
-        }}
-        onSearch={() => {
-          const q = prompt("Search text:");
-          if (!q) return;
-          const results = messages.filter((m) => m.text?.toLowerCase().includes(q.toLowerCase()));
-          if (!results.length) return toast.info("No messages found");
-          scrollToMessage(results[0].id);
-        }}
       />
+
+      {stickyDate && (
+        <div
+          style={{
+            position: "sticky",
+            top: 0,
+            backgroundColor: wallpaper || (isDark ? "#0b0b0b" : "#f5f5f5"),
+            color: isDark ? "#888" : "#555",
+            fontSize: 12,
+            padding: "4px 0",
+            textAlign: "center",
+            zIndex: 5,
+          }}
+        >
+          {stickyDate}
+        </div>
+      )}
 
       <div
         ref={messagesRefEl}
@@ -293,36 +327,29 @@ export default function ChatConversationPage() {
           flexDirection: "column",
         }}
       >
-        {groupedMessages.map((item, idx) =>
-          item.type === "date-separator" ? (
-            <div
-              key={idx}
-              style={{
-                textAlign: "center",
-                margin: "10px 0",
-                fontSize: 12,
-                color: isDark ? "#aaa" : "#555",
-              }}
-            >
-              {item.date}
-            </div>
-          ) : (
-            <MessageItem
-              key={item.data.id}
-              message={item.data}
-              myUid={myUid}
-              isDark={isDark}
-              chatId={chatId}
-              setReplyTo={setReplyTo}
-              pinnedMessage={pinnedMessage}
-              setPinnedMessage={setPinnedMessage}
-              friendId={friendInfo?.id}
-              onReplyClick={(id) => scrollToMessage(id)}
-            />
-          )
-        )}
+        {messages.map((msg) => (
+          <MessageItem
+            key={msg.id}
+            message={msg}
+            myUid={myUid}
+            isDark={isDark}
+            chatId={chatId}
+            setReplyTo={setReplyTo}
+            pinnedMessage={pinnedMessage}
+            setPinnedMessage={setPinnedMessage}
+            friendId={friendInfo?.id}
+            onReaction={handleReaction}
+            data-date={formatDateLabel(msg.createdAt)}
+          />
+        ))}
         <div ref={endRef} />
       </div>
+
+      {friendTyping && (
+        <div style={{ padding: 4, color: isDark ? "#aaa" : "#555", fontSize: 12 }}>
+          {friendInfo?.displayName || "Friend"} is typing...
+        </div>
+      )}
 
       <ChatInput
         text={text}
@@ -336,6 +363,7 @@ export default function ChatConversationPage() {
         replyTo={replyTo}
         setReplyTo={setReplyTo}
         disabled={isBlocked}
+        onTyping={handleUserTyping}
       />
 
       {showPreview && selectedFiles.length > 0 && (
@@ -346,7 +374,6 @@ export default function ChatConversationPage() {
           onCancel={() => setShowPreview(false)}
           onAddFiles={() => document.getElementById("file-input")?.click()}
           isDark={isDark}
-          chatId={chatId}
           replyTo={replyTo}
           setReplyTo={setReplyTo}
         />
