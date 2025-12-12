@@ -1,33 +1,15 @@
-// src/components/Chat/MessageItem.jsx
 import React, { useRef, useEffect, useState } from "react";
 import {
   doc,
   updateDoc,
   arrayUnion,
   arrayRemove,
-  serverTimestamp,
-  onSnapshot,
   getDoc,
+  onSnapshot,
 } from "firebase/firestore";
 import { db } from "../../firebaseConfig";
-import EmojiPicker from "./EmojiPicker";
 import { toast } from "react-toastify";
-
-/**
- * MessageItem
- *
- * Important props:
- * - message
- * - myUid
- * - isDark
- * - setReplyTo(message)
- * - setPinnedMessage(message)
- * - onMediaClick(message, index)
- * - registerRef(el)            // parent stores element refs for scroll-to
- * - chatContainerRef           // optional: container ref for auto-scroll
- * - onOpenLongPress(message)   // <-- IMPORTANT: parent should open the shared LongPress modal
- * - onOpenEmojiPicker(message) // optional: parent handles a global emoji picker
- */
+import LongPressMessageModal from "./LongPressMessageModal";
 
 const READ_MORE_STEP = 450;
 const LONG_PRESS_DELAY = 700;
@@ -40,16 +22,13 @@ const fmtTime = (ts) => {
 };
 
 const CheckSingle = ({ color = "gray", size = 14 }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" style={{ display: "inline-block", verticalAlign: "middle" }}>
+  <svg width={size} height={size} viewBox="0 0 24 24">
     <path d="M20.285 6.708L9 18l-5.285-5.292 1.414-1.414L9 15.172 18.87 5.293z" fill={color} />
   </svg>
 );
 const CheckDouble = ({ color = "gray", size = 14 }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" style={{ display: "inline-block", verticalAlign: "middle" }}>
-    <path
-      d="M16.97 6.58L15.56 5.17 9 11.73 6.44 9.17 5.03 10.58 9 14.55zM21.03 6.58L19.62 5.17 13.06 11.73 10.5 9.17 9.09 10.58 13.06 14.55z"
-      fill={color}
-    />
+  <svg width={size} height={size} viewBox="0 0 24 24">
+    <path d="M16.97 6.58L15.56 5.17 9 11.73 6.44 9.17 5.03 10.58 9 14.55zM21.03 6.58L19.62 5.17 13.06 11.73 10.5 9.17 9.09 10.58 13.06 14.55z" fill={color} />
   </svg>
 );
 
@@ -62,113 +41,45 @@ export default function MessageItem({
   onMediaClick,
   registerRef,
   chatContainerRef,
-  onOpenLongPress, // parent opens modal
-  onOpenEmojiPicker, // optional parent emoji handler
 }) {
   const isMine = message.senderId === myUid;
   const containerRef = useRef(null);
-
-  // UI state
   const [visibleChars, setVisibleChars] = useState(READ_MORE_STEP);
   const [swipeX, setSwipeX] = useState(0);
   const [swipeActive, setSwipeActive] = useState(false);
-  const [emojiOpen, setEmojiOpen] = useState(false);
   const [reactionAnim, setReactionAnim] = useState({ show: false, emoji: "" });
   const [localReactions, setLocalReactions] = useState(message.reactions || {});
-  const [status, setStatus] = useState(message.status || (isMine ? "sending" : "sent")); // sending|sent|delivered|seen|failed
+  const [status, setStatus] = useState(message.status || (isMine ? "sending" : "sent"));
+  const [longPressOpen, setLongPressOpen] = useState(false);
 
   const longPressTimer = useRef(null);
   const touchStartX = useRef(0);
 
-  // keep local reactions in sync when prop changes
   useEffect(() => setLocalReactions(message.reactions || {}), [message.reactions]);
 
-  // subscribe to single-message doc to get live reactions & status updates for outgoing messages
+  // Subscribe to live updates
   useEffect(() => {
     if (!message?.id || !message?.chatId) return;
     const msgRef = doc(db, "chats", message.chatId, "messages", message.id);
-
-    const unsub = onSnapshot(
-      msgRef,
-      (snap) => {
-        const data = snap.data();
-        if (!data) return;
-        setLocalReactions(data.reactions || {});
-
-        if (isMine) {
-          if (Array.isArray(data.seenBy) && data.seenBy.length > 0) setStatus("seen");
-          else if (Array.isArray(data.deliveredTo) && data.deliveredTo.length > 0) setStatus("delivered");
-          else setStatus(data.status || "sent");
-        }
-      },
-      (err) => {
-        // ignore
+    const unsub = onSnapshot(msgRef, (snap) => {
+      const data = snap.data();
+      if (!data) return;
+      setLocalReactions(data.reactions || {});
+      if (isMine) {
+        if (Array.isArray(data.seenBy) && data.seenBy.length > 0) setStatus("seen");
+        else if (Array.isArray(data.deliveredTo) && data.deliveredTo.length > 0) setStatus("delivered");
+        else setStatus(data.status || "sent");
       }
-    );
-
+    });
     return () => unsub();
   }, [message?.id, message?.chatId, isMine]);
 
-  // Incoming messages: mark delivered once when component mounts
-  useEffect(() => {
-    if (!message?.id || !message?.chatId || isMine) return;
-    const msgRef = doc(db, "chats", message.chatId, "messages", message.id);
-    getDoc(msgRef)
-      .then((snap) => {
-        const data = snap.data() || {};
-        if (!Array.isArray(data.deliveredTo) || !data.deliveredTo.includes(myUid)) {
-          updateDoc(msgRef, { deliveredTo: arrayUnion(myUid) }).catch(() => {});
-        }
-      })
-      .catch(() => {});
-  }, [message?.id, message?.chatId, isMine, myUid]);
-
-  // IntersectionObserver to mark seen when incoming message is visible >=60%
-  useEffect(() => {
-    if (!containerRef.current || isMine) return;
-    const el = containerRef.current;
-    const observer = new IntersectionObserver(
-      (entries) => {
-        entries.forEach((entry) => {
-          if (entry.isIntersecting && entry.intersectionRatio >= 0.6) {
-            if (message?.id && message?.chatId) {
-              const msgRef = doc(db, "chats", message.chatId, "messages", message.id);
-              updateDoc(msgRef, { seenBy: arrayUnion(myUid) }).catch(() => {});
-            }
-          }
-        });
-      },
-      { threshold: [0.6] }
-    );
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [message, myUid, isMine]);
-
-  // register/unregister DOM ref with parent for scroll-to support
-  useEffect(() => {
-    if (registerRef && containerRef.current) registerRef(containerRef.current);
-    return () => {
-      if (registerRef) registerRef(null);
-    };
-  }, [registerRef]);
-
-  // smart auto-scroll: if parent container near bottom, scroll to new message
-  useEffect(() => {
-    if (!chatContainerRef?.current || !containerRef.current) return;
-    const container = chatContainerRef.current;
-    const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
-    if (distanceFromBottom < 120) {
-      containerRef.current.scrollIntoView({ behavior: "smooth", block: "end" });
-    }
-  }, [message.createdAt, chatContainerRef]);
-
-  // LONG PRESS & SWIPE logic (long press only triggers parent modal via onOpenLongPress)
+  // Swipe to reply
   const startLongPress = () => {
     if (longPressTimer.current) return;
     longPressTimer.current = setTimeout(() => {
       longPressTimer.current = null;
-      // delegate to parent to open a single modal (prevents many modals in DOM)
-      onOpenLongPress?.(message);
+      setLongPressOpen(true);
     }, LONG_PRESS_DELAY);
   };
   const cancelLongPress = () => {
@@ -177,7 +88,6 @@ export default function MessageItem({
       longPressTimer.current = null;
     }
   };
-
   const onTouchStart = (e) => {
     if (!e.touches?.[0]) return;
     touchStartX.current = e.touches[0].clientX;
@@ -187,23 +97,19 @@ export default function MessageItem({
   const onTouchMove = (e) => {
     if (!e.touches?.[0]) return;
     const diff = e.touches[0].clientX - touchStartX.current;
-    if (Math.abs(diff) > 10) cancelLongPress(); // cancel long press once user moves finger
+    if (Math.abs(diff) > 10) cancelLongPress();
     if (!swipeActive) return;
     setSwipeX(Math.max(Math.min(diff, 140), -140));
   };
   const onTouchEnd = () => {
     cancelLongPress();
     if (swipeActive && Math.abs(swipeX) > SWIPE_TRIGGER_DISTANCE) {
-      // swipe to reply
       setReplyTo?.(message);
-      // try to bring original into view if possible (parent holds refs)
-      // parent should expose scrollToMessage via higher-level props; if not, messageRefs pattern handles it
     }
     setSwipeX(0);
     setSwipeActive(false);
   };
 
-  // reaction write
   const toggleReaction = async (emoji) => {
     if (!message?.id || !message?.chatId) return;
     const msgRef = doc(db, "chats", message.chatId, "messages", message.id);
@@ -214,33 +120,30 @@ export default function MessageItem({
       const reacted = users.includes(myUid);
       if (reacted) await updateDoc(msgRef, { [`reactions.${emoji}`]: arrayRemove(myUid) });
       else await updateDoc(msgRef, { [`reactions.${emoji}`]: arrayUnion(myUid) });
-
       setReactionAnim({ show: true, emoji });
       setTimeout(() => setReactionAnim({ show: false, emoji: "" }), 700);
-    } catch (err) {
-      console.error("toggleReaction", err);
+    } catch {
       toast.error("Failed to react");
     }
   };
 
-  // pin / delete / copy helpers (local UI only — parent long-press modal will call server actions)
-  const copyText = () => {
-    try {
-      navigator.clipboard.writeText(message.text || "");
-      toast.success("Copied");
-    } catch {
-      toast.error("Copy failed");
+  const tickElement = () => {
+    if (!isMine) return null;
+    switch (status) {
+      case "sending": return <span style={{ marginLeft: 8 }}>⏳</span>;
+      case "sent": return <CheckSingle color="gray" />;
+      case "delivered": return <CheckDouble color="gray" />;
+      case "seen": return <CheckDouble color="#22c55e" />;
+      default: return null;
     }
   };
 
-  // media grid
-  const mediaArray = message.mediaUrls || (message.mediaUrl ? [message.mediaUrl] : []);
   const renderMediaGrid = () => {
-    if (!mediaArray || mediaArray.length === 0) return null;
+    const mediaArray = message.mediaUrls || (message.mediaUrl ? [message.mediaUrl] : []);
+    if (!mediaArray.length) return null;
     const maxVisible = 4;
     const extra = Math.max(0, mediaArray.length - maxVisible);
     const gridTemplate = mediaArray.length === 1 ? "1fr" : mediaArray.length === 2 ? "1fr 1fr" : "repeat(auto-fit,minmax(120px,1fr))";
-
     return (
       <div style={{ display: "grid", gridTemplateColumns: gridTemplate, gap: 6, marginBottom: 8, position: "relative" }}>
         {mediaArray.slice(0, maxVisible).map((url, i) => (
@@ -248,66 +151,21 @@ export default function MessageItem({
             {/\.(mp4|webm|ogg)$/i.test(String(url)) ? (
               <video src={url} controls onClick={() => onMediaClick?.(message, i)} style={{ width: "100%", height: "100%", objectFit: "cover", cursor: "pointer" }} />
             ) : (
-              <img src={url} alt="" onClick={() => onMediaClick?.(message, i)} style={{ width: "100%", height: "100%", objectFit: "cover", cursor: "pointer", filter: message.status === "sending" ? "brightness(0.6)" : "none" }} draggable={false} />
-            )}
-            {message.status === "sending" && typeof message.uploadProgress === "number" && (
-              <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", backgroundColor: "rgba(0,0,0,0.32)", color: "#fff", fontWeight: 700, fontSize: 16 }}>
-                {message.uploadProgress}%
-              </div>
+              <img src={url} alt="" onClick={() => onMediaClick?.(message, i)} style={{ width: "100%", height: "100%", objectFit: "cover", cursor: "pointer" }} draggable={false} />
             )}
           </div>
         ))}
-
-        {extra > 0 && (
-          <div style={{ position: "absolute", right: 10, bottom: 10, backgroundColor: "rgba(0,0,0,0.55)", color: "#fff", padding: "6px 8px", borderRadius: 10, fontWeight: 700 }}>
-            +{extra}
-          </div>
-        )}
+        {extra > 0 && <div style={{ position: "absolute", right: 10, bottom: 10, background: "rgba(0,0,0,0.55)", color: "#fff", padding: "6px 8px", borderRadius: 10, fontWeight: 700 }}>+{extra}</div>}
       </div>
     );
   };
 
-  if (message.deleted || (message.deletedFor && message.deletedFor.includes?.(myUid))) return null;
-
-  // tick UI
-  const tickElement = () => {
-    if (!isMine) return null;
-    switch (status) {
-      case "sending":
-        return <span style={{ marginLeft: 8, color: "gray" }}>⏳</span>;
-      case "sent":
-        return <CheckSingle color="gray" />;
-      case "delivered":
-        return <CheckDouble color="gray" />;
-      case "seen":
-        return <CheckDouble color="#22c55e" />;
-      default:
-        return null;
-    }
-  };
-
-  // reaction pills
   const reactionPills = () => {
     if (!localReactions || Object.keys(localReactions).length === 0) return null;
     return (
       <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
         {Object.entries(localReactions).map(([emoji, users]) => (
-          <button
-            key={emoji}
-            onClick={() => toggleReaction(emoji)}
-            title={`${users.length} reaction${users.length > 1 ? "s" : ""}`}
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 6,
-              padding: "4px 8px",
-              borderRadius: 16,
-              background: isDark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.06)",
-              border: "none",
-              cursor: "pointer",
-              fontSize: 13,
-            }}
-          >
+          <button key={emoji} onClick={() => toggleReaction(emoji)} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "4px 8px", borderRadius: 16, background: isDark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.06)", border: "none", cursor: "pointer", fontSize: 13 }}>
             <span style={{ fontSize: 16 }}>{emoji}</span>
             <span style={{ fontSize: 12, opacity: 0.85 }}>{users.length}</span>
           </button>
@@ -316,32 +174,7 @@ export default function MessageItem({
     );
   };
 
-  // reply preview
-  const renderReplyPreview = () => {
-    if (!message.replyTo) return null;
-    const previewText = message.replyTo.text || (message.replyTo.mediaUrls ? "Media" : "");
-    const senderLabel = message.replyTo.senderName ?? (message.replyTo.senderId === myUid ? "You" : "Contact");
-    return (
-      <div
-        onClick={() => {
-          // parent may implement scrollToMessage using stored refs
-          // we simply call setReplyTo to let parent handle any special navigation
-          // nothing here to avoid unexpected jumps
-        }}
-        style={{
-          marginBottom: 8,
-          padding: "6px 8px",
-          borderRadius: 10,
-          background: isMine ? "rgba(255,255,255,0.06)" : isDark ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.03)",
-          color: isMine ? "#fff" : isDark ? "#fff" : "#111",
-          fontSize: 13,
-        }}
-      >
-        <div style={{ fontWeight: 700, marginBottom: 4 }}>{senderLabel}</div>
-        <div style={{ fontSize: 13, opacity: 0.95, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{previewText}</div>
-      </div>
-    );
-  };
+  if (message.deleted || (message.deletedFor && message.deletedFor.includes?.(myUid))) return null;
 
   return (
     <>
@@ -370,55 +203,37 @@ export default function MessageItem({
           userSelect: "none",
         }}
       >
-        {/* reply preview */}
-        {renderReplyPreview()}
-
-        {/* media */}
         {renderMediaGrid()}
 
-        {/* text */}
         {message.text && (
           <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.4, fontSize: 15 }}>
             {message.text.slice(0, visibleChars)}
             {message.text.length > visibleChars && (
-              <span onClick={() => setVisibleChars((v) => v + READ_MORE_STEP)} style={{ color: "#c4c4c4", cursor: "pointer", marginLeft: 6 }}>
-                ...more
-              </span>
+              <span onClick={() => setVisibleChars(v => v + READ_MORE_STEP)} style={{ color: "#c4c4c4", cursor: "pointer", marginLeft: 6 }}>...more</span>
             )}
           </div>
         )}
 
-        {/* reactions */}
         {reactionPills()}
 
-        {/* timestamp + ticks */}
         <div style={{ fontSize: 11, opacity: 0.75, textAlign: "right", marginTop: 8, display: "flex", justifyContent: "flex-end", gap: 8, alignItems: "center" }}>
           <div style={{ color: isDark ? "rgba(255,255,255,0.75)" : "rgba(0,0,0,0.6)" }}>{fmtTime(message.createdAt)}</div>
           {tickElement()}
-          {message.editedAt ? <div style={{ marginLeft: 6, fontSize: 10 }}>edited</div> : null}
         </div>
 
-        {/* reaction pop */}
-        {reactionAnim.show && (
-          <div style={{ position: "absolute", top: -18, right: 10, fontSize: 20, animation: "floatUp 0.7s ease-out forwards", pointerEvents: "none" }}>
-            {reactionAnim.emoji}
-          </div>
-        )}
+        {reactionAnim.show && <div style={{ position: "absolute", top: -18, right: 10, fontSize: 20, animation: "floatUp 0.7s ease-out forwards", pointerEvents: "none" }}>{reactionAnim.emoji}</div>}
       </div>
 
-      {/* Inline emoji picker fallback (only if parent didn't provide a global picker) */}
-      {emojiOpen && !onOpenEmojiPicker && (
-        <div style={{ position: "fixed", inset: 0, zIndex: 4000, display: "flex", justifyContent: "center", alignItems: "flex-end", padding: 12 }}>
-          <div style={{ width: "100%", maxWidth: 520 }}>
-            <EmojiPicker
-              onSelect={(emoji) => {
-                toggleReaction(emoji);
-                setEmojiOpen(false);
-              }}
-              onClose={() => setEmojiOpen(false)}
-            />
-          </div>
-        </div>
+      {longPressOpen && (
+        <LongPressMessageModal
+          message={message}
+          myUid={myUid}
+          onClose={() => setLongPressOpen(false)}
+          setReplyTo={setReplyTo}
+          setPinnedMessage={setPinnedMessage}
+          chatContainerRef={chatContainerRef}
+          onReactionChange={(newReactions) => setLocalReactions(newReactions)}
+        />
       )}
 
       <style>{`
