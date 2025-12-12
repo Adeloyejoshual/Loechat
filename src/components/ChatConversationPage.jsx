@@ -499,32 +499,65 @@ export default function ChatConversationPage() {
       )}
 
       {/* Long Press Message Modal */}
-      {longPressMessage && (
-        <LongPressMessageModal
-          onClose={() => setLongPressMessage(null)}
-          onReaction={(emoji) => handleReact(longPressMessage.id, emoji)}
-          onReply={() => {
-            setReplyTo(longPressMessage);
-            setLongPressMessage(null);
-            setTimeout(() => scrollToMessage(longPressMessage.id), 200);
-          }}
-          onCopy={() => {
-            navigator.clipboard.writeText(longPressMessage.text || "");
-            toast.success("Copied!");
-            setLongPressMessage(null);
-          }}
-          onPin={async () => {
-            await updateDoc(doc(db, "chats", chatId), { pinnedMessageId: longPressMessage.id });
-            setPinnedMessage(longPressMessage);
-            toast.success("Pinned!");
-            setLongPressMessage(null);
-          }}
-          onDeleteForMe={() => handleDeleteForMe(longPressMessage)}
-          onDeleteForEveryone={() => handleDeleteForEveryone(longPressMessage)}
-          isDark={isDark}
-          messageSenderName={longPressMessage.senderId === myUid ? "You" : friendInfo?.name}
-        />
-      )}
+      {longPressMessage?.id && (
+  <LongPressMessageModal
+    key={longPressMessage.id}   // <— prevents blank screen after actions
+
+    onClose={() => setLongPressMessage(null)}
+
+    onReaction={(emoji) => {
+      handleReact(longPressMessage.id, emoji);
+      setLongPressMessage(null);
+    }}
+
+    onReply={() => {
+      setReplyTo(longPressMessage);
+      setLongPressMessage(null);
+      setTimeout(() => scrollToMessage(longPressMessage.id), 200);
+    }}
+
+    onCopy={() => {
+      try {
+        if (longPressMessage?.text) {
+          navigator.clipboard.writeText(longPressMessage.text);
+          toast.success("Copied!");
+        }
+      } catch {}
+      finally {
+        setLongPressMessage(null);
+      }
+    }}
+
+    onPin={async () => {
+      try {
+        await updateDoc(doc(db, "chats", chatId), {
+          pinnedMessageId: longPressMessage.id,
+        });
+        setPinnedMessage(longPressMessage);
+        toast.success("Pinned!");
+      } catch (err) {
+        toast.error("Failed to pin");
+      } finally {
+        setLongPressMessage(null);
+      }
+    }}
+
+    onDeleteForMe={() => {
+      handleDeleteForMe(longPressMessage);
+      setLongPressMessage(null);
+    }}
+
+    onDeleteForEveryone={() => {
+      handleDeleteForEveryone(longPressMessage);
+      setLongPressMessage(null);
+    }}
+
+    isDark={isDark}
+    messageSenderName={
+      longPressMessage.senderId === myUid ? "You" : friendInfo?.name
+    }
+  />
+)}
 
       <ToastContainer position="top-center" autoClose={1500} hideProgressBar />
     </div>
