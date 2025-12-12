@@ -17,20 +17,39 @@ export default function LongPressMessageModal({
 
   const isMine = message.senderId === myUid;
 
-  const handleReply = () => { setReplyTo?.(message); };
+  // -------------------- Actions --------------------
+  const handleReply = () => setReplyTo?.(message);
+
   const handlePin = async () => {
     if (!message?.chatId || !message?.id) return;
-    try { await updateDoc(doc(db,"chats",message.chatId,"messages",message.id), { pinned: true }); setPinnedMessage?.(message); toast.success("Pinned"); } 
-    catch { toast.error("Failed"); }
+    try {
+      await updateDoc(doc(db, "chats", message.chatId), { pinnedMessageId: message.id });
+      setPinnedMessage?.(message);
+      toast.success("Message pinned");
+    } catch {
+      toast.error("Failed to pin message");
+    }
   };
-  const handleCopy = () => { try { navigator.clipboard.writeText(message.text || ""); toast.success("Copied"); } catch { toast.error("Failed"); } };
+
+  const handleCopy = () => {
+    try {
+      navigator.clipboard.writeText(message.text || "");
+      toast.success("Copied");
+    } catch {
+      toast.error("Failed to copy");
+    }
+  };
+
   const handleDelete = async () => {
     if (!message?.chatId || !message?.id) return;
     try {
-      if (isMine) await updateDoc(doc(db,"chats",message.chatId,"messages",message.id), { deleted: true });
-      else await updateDoc(doc(db,"chats",message.chatId,"messages",message.id), { deletedFor: arrayUnion(myUid) });
-      toast.success("Deleted");
-    } catch { toast.error("Failed"); }
+      const msgRef = doc(db, "chats", message.chatId, "messages", message.id);
+      if (isMine) await updateDoc(msgRef, { deleted: true });
+      else await updateDoc(msgRef, { deletedFor: arrayUnion(myUid) });
+      toast.success("Message deleted");
+    } catch {
+      toast.error("Failed to delete");
+    }
   };
 
   const handleReact = async (emoji) => {
@@ -42,27 +61,36 @@ export default function LongPressMessageModal({
       const users = data.reactions?.[emoji] || [];
       if (users.includes(myUid)) await updateDoc(msgRef, { [`reactions.${emoji}`]: arrayRemove(myUid) });
       else await updateDoc(msgRef, { [`reactions.${emoji}`]: arrayUnion(myUid) });
+      
       const updatedSnap = await getDoc(msgRef);
       onReactionChange?.(updatedSnap.data()?.reactions || {});
-    } catch { toast.error("Failed"); }
+    } catch {
+      toast.error("Failed to react");
+    }
   };
 
   const emojis = ["👍","❤️","😂","😮","😢","🙏"];
 
   return (
-    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", display: "flex", justifyContent: "center", alignItems: "center", zIndex: 5000 }}>
-      <div onClick={e=>e.stopPropagation()} style={{ background:"#fff", borderRadius:12, padding:16, width:"90%", maxWidth:360, display:"flex", flexDirection:"column", gap:12 }}>
+    <div 
+      onClick={onClose} 
+      style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", display: "flex", justifyContent: "center", alignItems: "center", zIndex: 5000 }}
+    >
+      <div onClick={e => e.stopPropagation()} style={{ background:"#fff", borderRadius:12, padding:16, width:"90%", maxWidth:360, display:"flex", flexDirection:"column", gap:12 }}>
         <button onClick={handleReply} style={buttonStyle}>Reply</button>
         <button onClick={handlePin} style={buttonStyle}>Pin</button>
         {message.text && <button onClick={handleCopy} style={buttonStyle}>Copy</button>}
-        <button onClick={handleDelete} style={{...buttonStyle,color:"red"}}>{isMine ? "Delete for everyone" : "Delete for me"}</button>
+        <button onClick={handleDelete} style={{ ...buttonStyle, color:"red" }}>{isMine ? "Delete for everyone" : "Delete for me"}</button>
+
         <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
-          {emojis.map(e=>(
-            <button key={e} onClick={()=>handleReact(e)} style={{ fontSize:20, padding:4, borderRadius:8, border:"1px solid #ddd", cursor:"pointer" }}>{e}</button>
+          {emojis.map(e => (
+            <button key={e} onClick={() => handleReact(e)} style={emojiButtonStyle}>{e}</button>
           ))}
-          <button onClick={()=>setEmojiPickerOpen(true)} style={{ fontSize:20, padding:4, borderRadius:8, border:"1px solid #ddd", cursor:"pointer" }}>+</button>
+          <button onClick={() => setEmojiPickerOpen(true)} style={emojiButtonStyle}>+</button>
         </div>
-        {emojiPickerOpen && <EmojiPicker open={true} onClose={()=>setEmojiPickerOpen(false)} onSelect={handleReact} />}
+
+        {emojiPickerOpen && <EmojiPicker open={true} onClose={() => setEmojiPickerOpen(false)} onSelect={handleReact} />}
+
         <button onClick={onClose} style={{ ...buttonStyle, marginTop:8, color:"#555" }}>Cancel</button>
       </div>
     </div>
@@ -70,3 +98,4 @@ export default function LongPressMessageModal({
 }
 
 const buttonStyle = { padding:"10px 12px", borderRadius:8, border:"none", background:"#f0f0f0", cursor:"pointer", textAlign:"left", fontSize:14, fontWeight:500 };
+const emojiButtonStyle = { fontSize:20, padding:4, borderRadius:8, border:"1px solid #ddd", cursor:"pointer" };
