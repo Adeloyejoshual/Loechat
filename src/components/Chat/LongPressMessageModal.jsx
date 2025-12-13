@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { doc, updateDoc, arrayUnion, arrayRemove } from "firebase/firestore";
 import { db } from "../../firebaseConfig";
 import { toast } from "react-toastify";
@@ -15,6 +15,11 @@ export default function LongPressMessageModal({
   localReactions = {},
 }) {
   const [reactions, setReactions] = useState(localReactions);
+
+  // Ensure reactions stay in sync if localReactions change
+  useEffect(() => {
+    setReactions(localReactions);
+  }, [localReactions]);
 
   // Toggle emoji reaction
   const toggleReaction = async (emoji) => {
@@ -35,7 +40,9 @@ export default function LongPressMessageModal({
     try {
       const users = reactions[emoji] || [];
       await updateDoc(msgRef, {
-        [`reactions.${emoji}`]: users.includes(myUid) ? arrayRemove(myUid) : arrayUnion(myUid),
+        [`reactions.${emoji}`]: users.includes(myUid)
+          ? arrayRemove(myUid)
+          : arrayUnion(myUid),
       });
     } catch {
       toast.error("Failed to update reaction");
@@ -85,6 +92,9 @@ export default function LongPressMessageModal({
             fontSize: 14,
             color: isDark ? "#eee" : "#111",
             wordBreak: "break-word",
+            maxHeight: 60,
+            overflow: "hidden",
+            textOverflow: "ellipsis",
           }}
         >
           {message.text || "Media message"}
