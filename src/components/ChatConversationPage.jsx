@@ -11,8 +11,10 @@ import {
   onSnapshot,
   query,
   orderBy,
+  addDoc,
 } from "firebase/firestore";
-import { db, auth } from "../firebaseConfig";
+import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
+import { db, auth, storage } from "../firebaseConfig";
 import { ThemeContext } from "../context/ThemeContext";
 import { UserContext } from "../context/UserContext";
 
@@ -51,8 +53,8 @@ export default function ChatConversationPage() {
   const [friendInfo, setFriendInfo] = useState(null);
   const [messages, setMessages] = useState([]);
   const [text, setText] = useState("");
-  const [selectedFiles, setSelectedFiles] = useState([]);
   const [caption, setCaption] = useState("");
+  const [selectedFiles, setSelectedFiles] = useState([]);
   const [replyTo, setReplyTo] = useState(null);
   const [pinnedMessage, setPinnedMessage] = useState(null);
   const [isBlocked, setIsBlocked] = useState(false);
@@ -198,6 +200,48 @@ export default function ChatConversationPage() {
     typingTimer.current = setTimeout(() => setTypingFlag(false), 1500);
   };
 
+  // ---------- Send Message ----------
+  const sendMessage = async (textMsg = "", mediaFiles = []) => {
+    if ((!textMsg || !textMsg.trim()) && mediaFiles.length === 0) return;
+
+    try {
+      const messagesRef = collection(db, "chats", chatId, "messages");
+      const newMsg = {
+        senderId: myUid,
+        text: textMsg.trim() || "",
+        mediaUrls: [],
+        createdAt: serverTimestamp(),
+        reactions: {},
+        replyTo: replyTo ? replyTo.id : null,
+      };
+
+      const docRef = await addDoc(messagesRef, newMsg);
+
+      if (mediaFiles.length) {
+        const uploadedUrls = await Promise.all(
+          mediaFiles.map(async (file) => {
+            const storageRef = ref(storage, `chatMedia/${chatId}/${Date.now()}_${file.name}`);
+            await uploadBytes(storageRef, file);
+            return await getDownloadURL(storageRef);
+          })
+        );
+
+        await updateDoc(docRef, { mediaUrls: uploadedUrls });
+      }
+
+      setText("");
+      setCaption("");
+      setReplyTo(null);
+      setSelectedFiles([]);
+      setShowPreview(false);
+
+      setTimeout(() => endRef.current?.scrollIntoView({ behavior: "smooth" }), 50);
+    } catch (err) {
+      console.error("Failed to send message:", err);
+      toast.error("Message failed to send");
+    }
+  };
+
   // ---------- Helpers ----------
   const scrollToMessage = (id) => {
     const el = messageRefs.current[id];
@@ -297,7 +341,6 @@ export default function ChatConversationPage() {
         onGoToPinned={() => pinnedMessage && scrollToMessage(pinnedMessage.id)}
       />
 
-      {/* Compact pinned message bar */}
       {pinnedMessage && (
         <div
           style={{
@@ -389,7 +432,7 @@ export default function ChatConversationPage() {
 
       {showPreview && selectedFiles.length > 0 && (
         <ImagePreviewModal
-          previews={selectedFiles.map((f) => ({ file: f, url: URL.createObjectURL(f) }))}
+          previews={selectedFiles.map((f) => ({ file: f, previewUrl: URL.createObjectURL(f) }))}
           caption={caption}
           setCaption={setCaption}
           onRemove={(i) => setSelectedFiles((prev) => prev.filter((_, idx) => idx !== i))}
@@ -404,7 +447,13 @@ export default function ChatConversationPage() {
         />
       )}
 
-      {mediaViewer.open && <MediaViewer items={mediaItems} startIndex={mediaViewer.startIndex} onClose={() => setMediaViewer({ open: false, startIndex: 0 })} />}
+      {mediaViewer.open && (
+        <MediaViewer
+          items={mediaItems}
+          startIndex={mediaViewer.startIndex}
+          onClose={() => setMediaViewer({ open: false, startIndex: 0 })}
+        />
+      )}
 
       {longPressMessage && (
         <LongPressMessageModal
@@ -422,7 +471,9 @@ export default function ChatConversationPage() {
           }}
           localReactions={longPressMessage.reactions}
           onReactionChange={(reactions) => {
-            setMessages((prev) => prev.map((mm) => (mm.id === longPressMessage.id ? { ...mm, reactions } : mm)));
+            setMessages((prev) =>
+              prev.map((mm) => (mm.id === longPressMessage.id ? { ...mm, reactions } : mm))
+            );
             setLongPressMessage(null);
           }}
           isDark={isDark}
