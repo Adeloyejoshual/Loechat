@@ -1,9 +1,9 @@
-// src/components/Chat/LongPressMessageModal.jsx
 import React, { useState } from "react";
-import { doc, updateDoc, arrayUnion, arrayRemove, getDoc } from "firebase/firestore";
+import { doc, updateDoc, arrayUnion, arrayRemove } from "firebase/firestore";
 import { db } from "../../firebaseConfig";
 import { toast } from "react-toastify";
-import EmojiPicker from "./EmojiPicker";
+
+const QUICK_EMOJIS = ["👍", "❤️", "😂", "😮", "😢"];
 
 export default function LongPressMessageModal({
   message,
@@ -11,107 +11,164 @@ export default function LongPressMessageModal({
   onClose,
   setReplyTo,
   setPinnedMessage,
-  onReactionChange,
+  localReactions = {},
+  isDark = false,
 }) {
-  const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
-  if (!message) return null;
-  const isMine = message.senderId === myUid;
+  const [reactions, setReactions] = useState(localReactions);
 
-  const handleReply = () => {
-    setReplyTo?.(message);
-    onClose?.();
-  };
+  const toggleReaction = async (emoji) => {
+    const msgRef = doc(db, "chats", message.chatId, "messages", message.id);
 
-  const handlePin = async () => {
-    if (!message?.chatId || !message?.id) return;
+    setReactions((prev) => {
+      const next = { ...prev };
+      const users = next[emoji] || [];
+      if (users.includes(myUid)) {
+        const r = users.filter((u) => u !== myUid);
+        r.length ? (next[emoji] = r) : delete next[emoji];
+      } else {
+        next[emoji] = [...users, myUid];
+      }
+      return next;
+    });
+
     try {
-      await updateDoc(doc(db, "chats", message.chatId), { pinnedMessageId: message.id });
-      setPinnedMessage?.(message);
-      toast.success("Pinned");
+      const users = reactions[emoji] || [];
+      await updateDoc(msgRef, {
+        [`reactions.${emoji}`]: users.includes(myUid) ? arrayRemove(myUid) : arrayUnion(myUid),
+      });
     } catch {
-      toast.error("Failed to pin");
+      toast.error("Reaction failed");
     }
-    onClose?.();
   };
 
   const handleCopy = () => {
-    try {
-      const txt = message.text ?? message.message ?? message.body ?? "";
-      navigator.clipboard.writeText(txt);
-      toast.success("Copied");
-    } catch {
-      toast.error("Failed to copy");
-    }
-    onClose?.();
+    navigator.clipboard.writeText(message.text || "").then(() => {
+      toast.success("Message copied!");
+    });
   };
-
-  const handleDelete = async () => {
-    if (!message?.chatId || !message?.id) return;
-    try {
-      if (isMine) {
-        await updateDoc(doc(db, "chats", message.chatId, "messages", message.id), { deleted: true });
-      } else {
-        await updateDoc(doc(db, "chats", message.chatId, "messages", message.id), { deletedFor: arrayUnion(myUid) });
-      }
-      toast.success("Deleted");
-    } catch {
-      toast.error("Failed");
-    }
-    onClose?.();
-  };
-
-  const handleReact = async (emoji) => {
-    if (!message?.chatId || !message?.id) return;
-    const msgRef = doc(db, "chats", message.chatId, "messages", message.id);
-    try {
-      const snap = await getDoc(msgRef);
-      const data = snap.data() || {};
-      const users = data.reactions?.[emoji] || [];
-      if (users.includes(myUid)) {
-        await updateDoc(msgRef, { [`reactions.${emoji}`]: arrayRemove(myUid) });
-      } else {
-        await updateDoc(msgRef, { [`reactions.${emoji}`]: arrayUnion(myUid) });
-      }
-      const updated = (await getDoc(msgRef)).data()?.reactions || {};
-      onReactionChange?.(updated);
-    } catch {
-      toast.error("Failed to react");
-    }
-    onClose?.();
-  };
-
-  const emojis = ["👍", "❤️", "😂", "😮", "😢", "🙏"];
 
   return (
-    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", display: "flex", justifyContent: "center", alignItems: "center", zIndex: 5000 }}>
-      <div onClick={(e) => e.stopPropagation()} style={{ background: "#fff", borderRadius: 12, padding: 16, width: "90%", maxWidth: 360, display: "flex", flexDirection: "column", gap: 12 }}>
-        <button onClick={handleReply} style={buttonStyle}>Reply</button>
-        <button onClick={handlePin} style={buttonStyle}>Pin</button>
-        {message.text && <button onClick={handleCopy} style={buttonStyle}>Copy</button>}
-        <button onClick={handleDelete} style={{ ...buttonStyle, color: "red" }}>{isMine ? "Delete for everyone" : "Delete for me"}</button>
-
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          {emojis.map((e) => (
-            <button key={e} onClick={() => handleReact(e)} style={{ fontSize: 20, padding: 6, borderRadius: 8, border: "1px solid #ddd", cursor: "pointer" }}>{e}</button>
-          ))}
-          <button onClick={() => setEmojiPickerOpen(true)} style={{ fontSize: 18, padding: 6, borderRadius: 8, border: "1px solid #ddd", cursor: "pointer" }}>+</button>
+    <div
+      style={{
+        position: "fixed",
+        top: 0,
+        left: 0,
+        width: "100%",
+        height: "100%",
+        backdropFilter: "blur(4px)",
+        backgroundColor: "rgba(0,0,0,0.35)",
+        display: "flex",
+        justifyContent: "center",
+        alignItems: "center",
+        zIndex: 9999,
+      }}
+      onClick={onClose}
+    >
+      <div
+        style={{
+          width: "90%",
+          maxWidth: 350,
+          background: isDark ? "#1c1c1c" : "#fff",
+          borderRadius: 16,
+          padding: 16,
+          boxShadow: "0 4px 12px rgba(0,0,0,0.25)",
+          display: "flex",
+          flexDirection: "column",
+          gap: 12,
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Message preview */}
+        <div style={{ fontSize: 14, color: isDark ? "#eee" : "#111", wordBreak: "break-word" }}>
+          {message.text || "Media message"}
         </div>
 
-        {emojiPickerOpen && <EmojiPicker open={true} onClose={() => setEmojiPickerOpen(false)} onSelect={(e) => handleReact(e)} />}
+        {/* Quick Actions */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <button
+            onClick={() => {
+              setReplyTo?.(message);
+              onClose();
+            }}
+            style={buttonStyle(isDark)}
+          >
+            Reply
+          </button>
 
-        <button onClick={onClose} style={{ ...buttonStyle, marginTop: 8, color: "#555" }}>Cancel</button>
+          <button
+            onClick={() => {
+              setPinnedMessage?.(message);
+              onClose();
+            }}
+            style={buttonStyle(isDark)}
+          >
+            Pin
+          </button>
+
+          <button onClick={handleCopy} style={buttonStyle(isDark)}>
+            Copy
+          </button>
+        </div>
+
+        {/* Reactions */}
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            marginTop: 10,
+            flexWrap: "wrap",
+            gap: 8,
+          }}
+        >
+          {QUICK_EMOJIS.map((emoji) => (
+            <button
+              key={emoji}
+              onClick={() => toggleReaction(emoji)}
+              style={{
+                padding: 8,
+                fontSize: 18,
+                borderRadius: 12,
+                border: "1px solid",
+                borderColor: reactions[emoji]?.includes(myUid) ? "#4a90e2" : isDark ? "#555" : "#ccc",
+                background: reactions[emoji]?.includes(myUid) ? "#4a90e2" : isDark ? "#2a2a2a" : "#f5f5f5",
+                color: reactions[emoji]?.includes(myUid) ? "#fff" : isDark ? "#eee" : "#111",
+                cursor: "pointer",
+                flex: "1 1 20%",
+                textAlign: "center",
+              }}
+            >
+              {emoji} {reactions[emoji]?.length || ""}
+            </button>
+          ))}
+        </div>
+
+        {/* Close button */}
+        <button
+          onClick={onClose}
+          style={{
+            marginTop: 12,
+            padding: 8,
+            borderRadius: 12,
+            background: isDark ? "#333" : "#ddd",
+            color: isDark ? "#fff" : "#111",
+            fontWeight: 600,
+          }}
+        >
+          Close
+        </button>
       </div>
     </div>
   );
 }
 
-const buttonStyle = {
-  padding: "10px 12px",
-  borderRadius: 8,
+// Button style helper
+const buttonStyle = (isDark) => ({
+  padding: 10,
+  borderRadius: 12,
   border: "none",
-  background: "#f0f0f0",
-  cursor: "pointer",
+  background: isDark ? "#333" : "#eee",
+  color: isDark ? "#fff" : "#111",
   textAlign: "left",
   fontSize: 14,
-  fontWeight: 500,
-};
+  cursor: "pointer",
+});
