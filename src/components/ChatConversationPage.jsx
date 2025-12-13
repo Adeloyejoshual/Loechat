@@ -1,4 +1,4 @@
-// src/components/ChatConversationPage.jsx
+// ChatConversationPage.jsx
 import React, { useEffect, useState, useRef, useContext, useCallback, useMemo } from "react";
 import { useParams, useLocation } from "react-router-dom";
 import {
@@ -67,7 +67,7 @@ export default function ChatConversationPage() {
   const [stickyDate, setStickyDate] = useState(null);
   const [highlightMessageId, setHighlightMessageId] = useState(location.state?.highlightMessageId || null);
 
-  // ---------- Chat listener ----------
+  // ---------- Chat & Friend Info ----------
   useEffect(() => {
     if (!chatId) return;
     const chatRef = doc(db, "chats", chatId);
@@ -118,7 +118,7 @@ export default function ChatConversationPage() {
         initialScrollDone.current = true;
       }
 
-      // Scroll to highlighted message from search
+      // Scroll to highlighted message
       if (highlightMessageId) {
         setTimeout(() => {
           scrollToMessage(highlightMessageId);
@@ -309,8 +309,7 @@ export default function ChatConversationPage() {
 
   // ---------- Messages with pinned first ----------
   const messagesWithPinned = useMemo(() => {
-    const pinned = pinnedMessage ? [pinnedMessage] : [];
-    return [...pinned, ...messages.filter((m) => !pinnedMessage || m.id !== pinnedMessage.id)];
+    return pinnedMessage ? [pinnedMessage, ...messages.filter((m) => m.id !== pinnedMessage.id)] : messages;
   }, [messages, pinnedMessage]);
 
   // ---------- Messages with date separators ----------
@@ -328,7 +327,6 @@ export default function ChatConversationPage() {
     return res;
   }, [messagesWithPinned]);
 
-  // ---------- RENDER ----------
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100vh", backgroundColor: wallpaper || (isDark ? "#0b0b0b" : "#f5f5f5"), color: isDark ? "#fff" : "#000", position: "relative" }}>
       <style>{FLASH_HIGHLIGHT_STYLE}</style>
@@ -465,7 +463,15 @@ export default function ChatConversationPage() {
             setLongPressMessage(null);
             setTimeout(() => scrollToMessage(m.id), 200);
           }}
-          setPinnedMessage={(m) => {
+          setPinnedMessage={async (m) => {
+            // Unpin old pinned message
+            if (pinnedMessage && pinnedMessage.id !== m.id) {
+              await updateDoc(doc(db, "chats", chatId, "messages", pinnedMessage.id), { pinned: false }).catch(() => {});
+            }
+
+            // Pin new message
+            await updateDoc(doc(db, "chats", chatId, "messages", m.id), { pinned: true }).catch(() => {});
+
             setPinnedMessage(m);
             setLongPressMessage(null);
           }}
