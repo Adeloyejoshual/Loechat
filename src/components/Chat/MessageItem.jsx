@@ -4,52 +4,35 @@ import { db } from "../../firebaseConfig";
 import { toast } from "react-toastify";
 import LongPressMessageModal from "./LongPressMessageModal";
 
-/* ---------------- CONSTANTS ---------------- */
-const READ_MORE_STEP = 450;
 const LONG_PRESS_DELAY = 700;
 const SWIPE_TRIGGER_DISTANCE = 60;
-const QUICK_EMOJIS = ["👍", "❤️", "😂", "😮", "😢"];
 
-/* ---------------- SAFE HAPTIC (WEB) ---------------- */
 const haptic = (ms = 20) => {
   if (navigator?.vibrate) navigator.vibrate(ms);
 };
 
-/* ---------------- TIME ---------------- */
 const fmtTime = (ts) => {
   if (!ts) return "";
   const d = ts.toDate ? ts.toDate() : new Date(ts);
   return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 };
 
-/* ================================================= */
-
 const MessageItem = forwardRef(function MessageItem(
-  {
-    message,
-    myUid,
-    isDark,
-    setReplyTo,
-    setPinnedMessage,
-    onReplyClick,
-    friendName,
-  },
+  { message, myUid, isDark, setReplyTo, setPinnedMessage, friendName },
   ref
 ) {
   const isMine = message.senderId === myUid;
   const containerRef = ref || useRef(null);
 
-  const [visibleChars, setVisibleChars] = useState(READ_MORE_STEP);
-  const [swipeX, setSwipeX] = useState(0);
-  const [swipeActive, setSwipeActive] = useState(false);
   const [localReactions, setLocalReactions] = useState(message.reactions || {});
   const [status, setStatus] = useState("sent");
   const [longPressOpen, setLongPressOpen] = useState(false);
+  const [swipeX, setSwipeX] = useState(0);
+  const [swipeActive, setSwipeActive] = useState(false);
 
   const longPressTimer = useRef(null);
   const touchStartX = useRef(0);
 
-  /* ---------- REALTIME MESSAGE ---------- */
   useEffect(() => {
     if (!message?.id || !message?.chatId) return;
     const ref = doc(db, "chats", message.chatId, "messages", message.id);
@@ -66,7 +49,6 @@ const MessageItem = forwardRef(function MessageItem(
     });
   }, [message.id, message.chatId, isMine]);
 
-  /* ---------- LONG PRESS ---------- */
   const startLongPress = () => {
     if (longPressTimer.current) return;
     longPressTimer.current = setTimeout(() => {
@@ -80,7 +62,6 @@ const MessageItem = forwardRef(function MessageItem(
     longPressTimer.current = null;
   };
 
-  /* ---------- SWIPE TO REPLY ---------- */
   const onTouchStart = (e) => {
     touchStartX.current = e.touches[0].clientX;
     setSwipeActive(true);
@@ -103,7 +84,6 @@ const MessageItem = forwardRef(function MessageItem(
     setSwipeActive(false);
   };
 
-  /* ---------- REACTIONS ---------- */
   const toggleReaction = async (emoji) => {
     const ref = doc(db, "chats", message.chatId, "messages", message.id);
 
@@ -135,7 +115,6 @@ const MessageItem = forwardRef(function MessageItem(
 
   if (message.deleted) return null;
 
-  /* ================= UI ================= */
   return (
     <div
       ref={containerRef}
@@ -146,35 +125,57 @@ const MessageItem = forwardRef(function MessageItem(
       onMouseUp={cancelLongPress}
       style={{
         alignSelf: isMine ? "flex-end" : "flex-start",
-        maxWidth: "78%",
-        padding: 12,
+        maxWidth: "85%", // mobile friendly
+        width: "fit-content",
+        padding: 10,
         margin: "6px 0",
         borderRadius: 16,
-        background: isMine
-          ? isDark ? "#0b6cff" : "#007bff"
-          : isDark ? "#1f1f1f" : "#fff",
+        background: isMine ? (isDark ? "#0b6cff" : "#007bff") : isDark ? "#1f1f1f" : "#fff",
         color: isMine ? "#fff" : "#111",
         transform: `translateX(${swipeX}px)`,
         transition: swipeX ? "none" : "transform .18s",
+        display: "flex",
+        flexDirection: "column",
+        wordBreak: "break-word",
+        fontSize: 14,
       }}
     >
-      {!isMine && (
-        <div style={{ fontSize: 12, opacity: 0.6 }}>{friendName}</div>
+      {!isMine && <div style={{ fontSize: 12, opacity: 0.6 }}>{friendName}</div>}
+
+      <div>{message.text}</div>
+
+      {/* Reactions summary under bubble */}
+      {Object.keys(localReactions).length > 0 && (
+        <div
+          style={{
+            marginTop: 4,
+            display: "flex",
+            gap: 4,
+            flexWrap: "wrap",
+            fontSize: 12,
+          }}
+        >
+          {Object.entries(localReactions).map(([emoji, users]) => (
+            <div
+              key={emoji}
+              style={{
+                background: isDark ? "#333" : "#eee",
+                padding: "2px 6px",
+                borderRadius: 12,
+                cursor: "pointer",
+                minWidth: 20,
+                textAlign: "center",
+              }}
+              onClick={() => toggleReaction(emoji)}
+            >
+              {emoji} {users.length}
+            </div>
+          ))}
+        </div>
       )}
 
-      {message.text}
-
-      <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
-        {QUICK_EMOJIS.map((e) => (
-          <button key={e} onClick={() => toggleReaction(e)}>
-            {e} {localReactions[e]?.length || ""}
-          </button>
-        ))}
-      </div>
-
-      <div style={{ fontSize: 11, opacity: 0.7, textAlign: "right" }}>
-        {fmtTime(message.createdAt)}{" "}
-        {isMine && (status === "seen" ? "✓✓" : status === "delivered" ? "✓✓" : "✓")}
+      <div style={{ fontSize: 11, opacity: 0.7, textAlign: "right", marginTop: 4 }}>
+        {fmtTime(message.createdAt)} {isMine && (status === "seen" ? "✓✓" : status === "delivered" ? "✓✓" : "✓")}
       </div>
 
       {longPressOpen && (
