@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { doc, updateDoc, arrayUnion, arrayRemove } from "firebase/firestore";
 import { db } from "../../firebaseConfig";
 import { toast } from "react-toastify";
-import EmojiPicker from "emoji-picker-react";
+import EmojiPicker from "../Chat/EmojiPicker";
 
 const QUICK_EMOJIS = ["👍", "❤️", "😂", "😮", "😢"];
 
@@ -16,12 +16,12 @@ export default function LongPressMessageModal({
   localReactions = {},
 }) {
   const [reactions, setReactions] = useState(localReactions);
-  const [showFullEmojiPicker, setShowFullEmojiPicker] = useState(false);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const modalRef = useRef(null);
 
   useEffect(() => setReactions(localReactions), [localReactions]);
 
-  // Click outside closes modal
+  // Close modal on outside click
   useEffect(() => {
     const handleClickOutside = (e) => {
       if (modalRef.current && !modalRef.current.contains(e.target)) {
@@ -29,7 +29,7 @@ export default function LongPressMessageModal({
       }
     };
     document.addEventListener("mousedown", handleClickOutside);
-    document.addEventListener("touchstart", handleClickOutside);
+    document.addEventListener("touchstart", handleClickOutside, { passive: true });
     return () => {
       document.removeEventListener("mousedown", handleClickOutside);
       document.removeEventListener("touchstart", handleClickOutside);
@@ -75,28 +75,33 @@ export default function LongPressMessageModal({
     }
   };
 
-  const handleEmojiClick = (emojiData) => {
-    toggleReaction(emojiData.emoji); // closes modal automatically
+  const handleEmojiSelect = (emoji) => {
+    toggleReaction(emoji); // adds reaction and closes modal
   };
 
   return (
-    <div
-      style={{
-        position: "fixed",
-        inset: 0,
-        backgroundColor: "rgba(0,0,0,0.35)",
-        backdropFilter: "blur(4px)",
-        display: "flex",
-        justifyContent: "center",
-        alignItems: "center",
-        zIndex: 9999,
-        padding: 16,
-      }}
-    >
+    <>
+      {/* Overlay */}
+      <div
+        style={{
+          position: "fixed",
+          inset: 0,
+          backgroundColor: "rgba(0,0,0,0.35)",
+          backdropFilter: "blur(4px)",
+          zIndex: 9999,
+        }}
+        onClick={onClose}
+      />
+
+      {/* Modal */}
       <div
         ref={modalRef}
         style={{
-          width: "100%",
+          position: "fixed",
+          bottom: 20,
+          left: "50%",
+          transform: "translateX(-50%)",
+          width: "90%",
           maxWidth: 360,
           background: isDark ? "#1c1c1c" : "#fff",
           borderRadius: 16,
@@ -105,107 +110,98 @@ export default function LongPressMessageModal({
           flexDirection: "column",
           gap: 16,
           boxShadow: "0 6px 16px rgba(0,0,0,0.25)",
+          zIndex: 10000,
+          animation: "slideUp 0.2s ease-out",
         }}
       >
-        {!showFullEmojiPicker ? (
-          <>
-            {/* Message Preview */}
-            <div
-              style={{
-                fontSize: 14,
-                color: isDark ? "#eee" : "#111",
-                wordBreak: "break-word",
-                maxHeight: 60,
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-              }}
-            >
-              {message.text || "Media message"}
-            </div>
+        {/* Message Preview */}
+        <div
+          style={{
+            fontSize: 14,
+            color: isDark ? "#eee" : "#111",
+            wordBreak: "break-word",
+            maxHeight: 60,
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+          }}
+        >
+          {message.text || "Media message"}
+        </div>
 
-            {/* Action Buttons */}
-            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              <ActionButton
-                label="Reply"
-                isDark={isDark}
-                onClick={() => {
-                  setReplyTo?.(message);
-                  onClose();
-                }}
-              />
-              <ActionButton
-                label="Pin"
-                isDark={isDark}
-                onClick={() => {
-                  setPinnedMessage?.(message);
-                  onClose();
-                }}
-              />
-              <ActionButton label="Copy" isDark={isDark} onClick={handleCopy} />
-            </div>
+        {/* Action Buttons */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <ActionButton
+            label="Reply"
+            isDark={isDark}
+            onClick={() => {
+              setReplyTo?.(message);
+              onClose();
+            }}
+          />
+          <ActionButton
+            label="Pin"
+            isDark={isDark}
+            onClick={() => {
+              setPinnedMessage?.(message);
+              onClose();
+            }}
+          />
+          <ActionButton label="Copy" isDark={isDark} onClick={handleCopy} />
+        </div>
 
-            {/* Quick Emoji Reactions + + button */}
-            <div
-              style={{
-                display: "flex",
-                flexWrap: "wrap",
-                gap: 10,
-                marginTop: 8,
-                justifyContent: "flex-start",
-              }}
-            >
-              {QUICK_EMOJIS.map((emoji) => {
-                const selected = reactions[emoji]?.includes(myUid);
-                return (
-                  <button
-                    key={emoji}
-                    onClick={() => toggleReaction(emoji)}
-                    style={{
-                      padding: 10,
-                      fontSize: 18,
-                      borderRadius: 12,
-                      border: "1px solid",
-                      borderColor: selected ? "#4a90e2" : isDark ? "#555" : "#ccc",
-                      background: selected ? "#4a90e2" : isDark ? "#2a2a2a" : "#f5f5f5",
-                      color: selected ? "#fff" : isDark ? "#eee" : "#111",
-                      cursor: "pointer",
-                      flex: "1 1 20%",
-                      textAlign: "center",
-                      minWidth: 50,
-                    }}
-                  >
-                    {emoji} {reactions[emoji]?.length || ""}
-                  </button>
-                );
-              })}
-              {/* + button */}
+        {/* Quick Emoji Reactions + + button */}
+        <div
+          style={{
+            display: "flex",
+            flexWrap: "wrap",
+            gap: 10,
+            marginTop: 8,
+            justifyContent: "flex-start",
+          }}
+        >
+          {QUICK_EMOJIS.map((emoji) => {
+            const selected = reactions[emoji]?.includes(myUid);
+            return (
               <button
-                onClick={() => setShowFullEmojiPicker(true)}
+                key={emoji}
+                onClick={() => toggleReaction(emoji)}
                 style={{
                   padding: 10,
                   fontSize: 18,
                   borderRadius: 12,
                   border: "1px solid",
-                  borderColor: isDark ? "#555" : "#ccc",
-                  background: isDark ? "#2a2a2a" : "#f5f5f5",
-                  color: isDark ? "#eee" : "#111",
+                  borderColor: selected ? "#4a90e2" : isDark ? "#555" : "#ccc",
+                  background: selected ? "#4a90e2" : isDark ? "#2a2a2a" : "#f5f5f5",
+                  color: selected ? "#fff" : isDark ? "#eee" : "#111",
                   cursor: "pointer",
                   flex: "1 1 20%",
                   textAlign: "center",
                   minWidth: 50,
                 }}
               >
-                +
+                {emoji} {reactions[emoji]?.length || ""}
               </button>
-            </div>
-          </>
-        ) : (
-          <EmojiPicker
-            onEmojiClick={handleEmojiClick}
-            width="100%"
-            height="300px"
-          />
-        )}
+            );
+          })}
+          <button
+            onClick={() => setShowEmojiPicker(true)}
+            style={{
+              padding: 10,
+              fontSize: 18,
+              borderRadius: 12,
+              border: "1px solid",
+              borderColor: isDark ? "#555" : "#ccc",
+              background: isDark ? "#2a2a2a" : "#f5f5f5",
+              color: isDark ? "#eee" : "#111",
+              cursor: "pointer",
+              flex: "1 1 20%",
+              textAlign: "center",
+              minWidth: 50,
+            }}
+          >
+            +
+          </button>
+        </div>
 
         {/* Close Button */}
         <button
@@ -224,7 +220,25 @@ export default function LongPressMessageModal({
           Close
         </button>
       </div>
-    </div>
+
+      {/* Emoji Picker as Bottom Sheet */}
+      {showEmojiPicker && (
+        <EmojiPicker
+          open={true}
+          isDark={isDark}
+          onClose={() => setShowEmojiPicker(false)}
+          onSelect={handleEmojiSelect}
+          maxHeightPct={0.6} // pick your preferred height
+        />
+      )}
+
+      <style>{`
+        @keyframes slideUp {
+          from { transform: translateX(-50%) translateY(100%); opacity: 0; }
+          to { transform: translateX(-50%) translateY(0); opacity: 1; }
+        }
+      `}</style>
+    </>
   );
 }
 
