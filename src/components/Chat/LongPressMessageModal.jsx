@@ -15,11 +15,11 @@ export default function LongPressMessageModal({
   setPinnedMessage,
   localReactions = {},
 }) {
-  const [reactions, setReactions] = useState(localReactions);
+  const [reactions, setReactions] = useState(localReactions || {});
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const modalRef = useRef(null);
 
-  useEffect(() => setReactions(localReactions), [localReactions]);
+  useEffect(() => setReactions(localReactions || {}), [localReactions]);
 
   // Close modal on outside click
   useEffect(() => {
@@ -38,13 +38,12 @@ export default function LongPressMessageModal({
 
   const toggleReaction = async (emoji) => {
     const msgRef = doc(db, "chats", message.chatId, "messages", message.id);
-
     setReactions((prev) => {
       const next = { ...prev };
       const users = next[emoji] || [];
       if (users.includes(myUid)) {
-        const r = users.filter((u) => u !== myUid);
-        r.length ? (next[emoji] = r) : delete next[emoji];
+        const filtered = users.filter((u) => u !== myUid);
+        filtered.length ? (next[emoji] = filtered) : delete next[emoji];
       } else {
         next[emoji] = [...users, myUid];
       }
@@ -54,20 +53,22 @@ export default function LongPressMessageModal({
     try {
       const users = reactions[emoji] || [];
       await updateDoc(msgRef, {
-        [`reactions.${emoji}`]: users.includes(myUid)
-          ? arrayRemove(myUid)
-          : arrayUnion(myUid),
+        [`reactions.${emoji}`]: users.includes(myUid) ? arrayRemove(myUid) : arrayUnion(myUid),
       });
     } catch {
       toast.error("Failed to update reaction");
     }
-
-    onClose?.(); // close modal after reaction
   };
 
-  const handleCopy = async () => {
+  const handleCopy = () => {
     try {
-      await navigator.clipboard.writeText(message.text || "");
+      // fallback method: use a temporary input element
+      const tempInput = document.createElement("textarea");
+      tempInput.value = message.text || "[Media]";
+      document.body.appendChild(tempInput);
+      tempInput.select();
+      document.execCommand("copy");
+      document.body.removeChild(tempInput);
       toast.success("Message copied!");
       onClose?.();
     } catch {
@@ -76,7 +77,13 @@ export default function LongPressMessageModal({
   };
 
   const handleEmojiSelect = (emoji) => {
-    toggleReaction(emoji); // adds reaction and closes modal
+    toggleReaction(emoji);
+    setShowEmojiPicker(false);
+  };
+
+  const handlePin = () => {
+    setPinnedMessage?.(message);
+    onClose();
   };
 
   return (
@@ -111,7 +118,6 @@ export default function LongPressMessageModal({
           gap: 16,
           boxShadow: "0 6px 16px rgba(0,0,0,0.25)",
           zIndex: 10000,
-          animation: "slideUp 0.2s ease-out",
         }}
       >
         {/* Message Preview */}
@@ -138,14 +144,7 @@ export default function LongPressMessageModal({
               onClose();
             }}
           />
-          <ActionButton
-            label="Pin"
-            isDark={isDark}
-            onClick={() => {
-              setPinnedMessage?.(message);
-              onClose();
-            }}
-          />
+          <ActionButton label="Pin" isDark={isDark} onClick={handlePin} />
           <ActionButton label="Copy" isDark={isDark} onClick={handleCopy} />
         </div>
 
@@ -221,23 +220,16 @@ export default function LongPressMessageModal({
         </button>
       </div>
 
-      {/* Emoji Picker as Bottom Sheet */}
+      {/* Emoji Picker */}
       {showEmojiPicker && (
         <EmojiPicker
           open={true}
           isDark={isDark}
           onClose={() => setShowEmojiPicker(false)}
           onSelect={handleEmojiSelect}
-          maxHeightPct={0.6} // pick your preferred height
+          maxHeightPct={0.6}
         />
       )}
-
-      <style>{`
-        @keyframes slideUp {
-          from { transform: translateX(-50%) translateY(100%); opacity: 0; }
-          to { transform: translateX(-50%) translateY(0); opacity: 1; }
-        }
-      `}</style>
     </>
   );
 }
