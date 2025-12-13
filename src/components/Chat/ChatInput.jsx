@@ -11,8 +11,8 @@ export default function ChatInput({
   isDark,
   replyTo,
   setReplyTo,
-  sendTextMessage,
-  sendMediaMessage,
+  sendTextMessage,   // should accept (text, replyTo)
+  sendMediaMessage,  // should accept (files, replyTo)
   setShowPreview,
   disabled,
   friendTyping,
@@ -21,26 +21,71 @@ export default function ChatInput({
   const fileInputRef = useRef(null);
   const textareaRef = useRef(null);
   const lastInput = useRef("");
+  const typingTimeout = useRef(null);
 
   const [typingVisible, setTypingVisible] = useState(false);
-  const typingTimeout = useRef(null);
 
   const previews = useMemo(
     () => selectedFiles.map((file) => ({ file, url: URL.createObjectURL(file) })),
     [selectedFiles]
   );
 
-  // Auto-resize textarea with max height
+  // Auto-resize textarea
   useEffect(() => {
     if (!textareaRef.current) return;
     const el = textareaRef.current;
     el.style.height = "auto";
-    const maxHeight = 120; // ~6 lines
+    const maxHeight = 120;
     el.style.height = `${Math.min(el.scrollHeight, maxHeight)}px`;
     el.style.overflowY = el.scrollHeight > maxHeight ? "auto" : "hidden";
   }, [text]);
 
-  // File selection
+  // Typing detection
+  useEffect(() => {
+    if (!setTyping) return;
+    const changed = text !== lastInput.current;
+    if (!changed) return;
+    lastInput.current = text;
+    setTyping(text.length > 0);
+  }, [text, setTyping]);
+
+  // Friend typing indicator
+  useEffect(() => {
+    if (friendTyping) {
+      setTypingVisible(true);
+      if (typingTimeout.current) clearTimeout(typingTimeout.current);
+    } else {
+      typingTimeout.current = setTimeout(() => setTypingVisible(false), 400);
+    }
+    return () => clearTimeout(typingTimeout.current);
+  }, [friendTyping]);
+
+  // ----------------- Send message -----------------
+  const handleSend = async () => {
+    if (disabled) return;
+    try {
+      // Send media first
+      if (selectedFiles.length > 0) {
+        await sendMediaMessage(selectedFiles, replyTo || null);
+        setSelectedFiles([]);
+        setShowPreview(false);
+      }
+
+      // Send text message
+      if (text.trim()) {
+        await sendTextMessage(text.trim(), replyTo || null);
+        setText("");
+      }
+
+      // Reset reply & typing
+      setReplyTo?.(null);
+      setTyping?.(false);
+    } catch (err) {
+      console.error("Failed to send message:", err);
+    }
+  };
+
+  // ----------------- File handling -----------------
   const handleFileChange = (e) => {
     const files = Array.from(e.target.files || []);
     if (!files.length) return;
@@ -54,40 +99,7 @@ export default function ChatInput({
   const handleRemoveFile = (index) => setSelectedFiles((prev) => prev.filter((_, i) => i !== index));
   const handleCancelPreview = () => { setSelectedFiles([]); setShowPreview(false); };
 
-  // Send handler
-  const handleSend = () => {
-    if (disabled) return;
-    if (selectedFiles.length > 0) {
-      sendMediaMessage(selectedFiles);
-      setSelectedFiles([]);
-    } else if (text.trim()) {
-      sendTextMessage();
-    }
-    setReplyTo?.(null);
-    setTyping?.(false);
-    setText("");
-  };
-
-  // Typing detection for sending live status
-  useEffect(() => {
-    if (!setTyping) return;
-    const changed = text !== lastInput.current;
-    if (!changed) return;
-    lastInput.current = text;
-    setTyping(text.length > 0);
-  }, [text, setTyping]);
-
-  // Typing indicator dots with smooth fade
-  useEffect(() => {
-    if (friendTyping) {
-      setTypingVisible(true);
-      if (typingTimeout.current) clearTimeout(typingTimeout.current);
-    } else {
-      typingTimeout.current = setTimeout(() => setTypingVisible(false), 400);
-    }
-    return () => clearTimeout(typingTimeout.current);
-  }, [friendTyping]);
-
+  // ----------------- Typing dots -----------------
   const TypingDots = () => {
     if (!typingVisible) return null;
     const dotStyle = (delay) => ({
@@ -118,7 +130,6 @@ export default function ChatInput({
 
   return (
     <>
-      {/* Typing indicator */}
       <TypingDots />
 
       {/* Reply preview */}
@@ -192,7 +203,7 @@ export default function ChatInput({
           previews={previews}
           onRemove={handleRemoveFile}
           onClose={handleCancelPreview}
-          onSend={(caption) => sendMediaMessage(selectedFiles, caption)}
+          onSend={(caption) => sendMediaMessage(selectedFiles, replyTo || null, caption)}
           isDark={isDark}
         />
       )}
