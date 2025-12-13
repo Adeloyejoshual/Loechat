@@ -36,6 +36,19 @@ const FLASH_HIGHLIGHT_STYLE = `
 }
 `;
 
+// ---------- DATE FORMATTING ----------
+const formatChatDate = (dateInput) => {
+  const date = dateInput instanceof Date ? dateInput : new Date(dateInput);
+  const today = new Date();
+  const yesterday = new Date();
+  yesterday.setDate(today.getDate() - 1);
+
+  if (date.toDateString() === today.toDateString()) return "Today";
+  if (date.toDateString() === yesterday.toDateString()) return "Yesterday";
+
+  return date.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+};
+
 export default function ChatConversationPage() {
   const { chatId } = useParams();
   const { theme, wallpaper } = useContext(ThemeContext);
@@ -66,10 +79,11 @@ export default function ChatConversationPage() {
   const [longPressMessage, setLongPressMessage] = useState(null);
   const [stickyDate, setStickyDate] = useState(null);
 
-  // ---------- CHAT doc listener (friend info + pinned + typing) ----------
+  // ---------- CHAT doc listener ----------
   useEffect(() => {
     if (!chatId) return;
     const chatRef = doc(db, "chats", chatId);
+
     const unsub = onSnapshot(chatRef, (snap) => {
       if (!snap.exists()) return;
       const data = snap.data();
@@ -77,24 +91,20 @@ export default function ChatConversationPage() {
       setIsBlocked(Boolean(data.blocked));
       setIsMuted(Boolean(data.mutedUntil && (data.mutedUntil.toMillis ? data.mutedUntil.toMillis() : data.mutedUntil) > Date.now()));
 
-      // friend id
       const friendId = (data.participants || []).find((p) => p !== myUid);
       if (friendId) {
         const userRef = doc(db, "users", friendId);
         const unsubUser = onSnapshot(userRef, (uSnap) => {
           if (uSnap.exists()) setFriendInfo({ id: uSnap.id, ...uSnap.data() });
         });
-        // cleanup user listener separately
         return () => unsubUser();
-      } else {
-        setFriendInfo(null);
-      }
+      } else setFriendInfo(null);
     });
 
     return () => unsub();
   }, [chatId, myUid]);
 
-  // ---------- Messages realtime subscription ----------
+  // ---------- MESSAGES REALTIME ----------
   useEffect(() => {
     if (!chatId) return;
     const messagesRef = collection(db, "chats", chatId, "messages");
@@ -103,20 +113,19 @@ export default function ChatConversationPage() {
     const unsub = onSnapshot(q, (snap) => {
       const docs = snap.docs.map((d) => {
         const data = d.data();
-        // normalize createdAt to Date for UI
         const createdAt = data.createdAt?.toDate?.() || (data.createdAt instanceof Date ? data.createdAt : new Date());
         return { id: d.id, ...data, createdAt };
       });
       setMessages(docs);
 
-      // mark delivered for new incoming messages quickly
+      // mark delivered
       docs
         .filter((m) => m.senderId !== myUid && !(m.deliveredTo || []).includes(myUid))
         .forEach((m) =>
           updateDoc(doc(db, "chats", chatId, "messages", m.id), { deliveredTo: arrayUnion(myUid) }).catch(() => {})
         );
 
-      // autoscroll for new messages
+      // scroll
       if (isAtBottom || !initialScrollDone.current) {
         setTimeout(() => endRef.current?.scrollIntoView({ behavior: "auto" }), 50);
         initialScrollDone.current = true;
@@ -126,19 +135,18 @@ export default function ChatConversationPage() {
     return () => unsub();
   }, [chatId, myUid, isAtBottom]);
 
-  // ---------- Mark seen when messages array changes (fast) ----------
+  // ---------- MARK SEEN ----------
   useEffect(() => {
     if (!chatId || !myUid || messages.length === 0) return;
+
     messages
       .filter((m) => m.senderId !== myUid && !(m.seenBy || []).includes(myUid))
-      .forEach((m) => {
-        updateDoc(doc(db, "chats", chatId, "messages", m.id), { seenBy: arrayUnion(myUid) }).catch(() => {});
-      });
+      .forEach((m) => updateDoc(doc(db, "chats", chatId, "messages", m.id), { seenBy: arrayUnion(myUid) }).catch(() => {}));
 
     updateDoc(doc(db, "chats", chatId), { [`lastSeen.${myUid}`]: serverTimestamp() }).catch(() => {});
   }, [messages, chatId, myUid]);
 
-  // ---------- Scroll & sticky date ----------
+  // ---------- SCROLL & STICKY DATE ----------
   useEffect(() => {
     const el = messagesRefEl.current;
     if (!el) return;
@@ -170,21 +178,18 @@ export default function ChatConversationPage() {
     };
   }, [messages, stickyDate]);
 
-  // ---------- Typing flag (professional) ----------
+  // ---------- TYPING ----------
   const setTypingFlag = useCallback(
     async (typing) => {
       if (!chatId || !myUid) return;
       try {
         await updateDoc(doc(db, "chats", chatId), { [`typing.${myUid}`]: typing ? serverTimestamp() : null });
-      } catch (err) {
-        // ignore
-      }
+      } catch {}
     },
     [chatId, myUid]
   );
 
   useEffect(() => {
-    // listen for typing updates on chat doc to show professional realtime typing
     if (!chatId) return;
     const chatRef = doc(db, "chats", chatId);
     const unsub = onSnapshot(chatRef, (snap) => {
@@ -193,21 +198,19 @@ export default function ChatConversationPage() {
       const friendId = (data.participants || []).find((p) => p !== myUid);
       const t = data.typing?.[friendId];
       if (!t) return setFriendTyping(false);
-      // t may be Firestore Timestamp
       const ms = typeof t.toMillis === "function" ? t.toMillis() : new Date(t).getTime();
-      setFriendTyping(Date.now() - ms < 3500); // show typing for ~3.5s after timestamp
+      setFriendTyping(Date.now() - ms < 3500);
     });
     return () => unsub();
   }, [chatId, myUid]);
 
-  // small debounce helper for input
   const handleUserTyping = (isTyping) => {
     clearTimeout(typingTimer.current);
     if (isTyping) setTypingFlag(true);
     typingTimer.current = setTimeout(() => setTypingFlag(false), 1500);
   };
 
-  // ---------- Helpers ----------
+  // ---------- HELPERS ----------
   const scrollToMessage = (id) => {
     const el = messageRefs.current[id];
     if (el?.scrollIntoView) {
@@ -217,32 +220,22 @@ export default function ChatConversationPage() {
     }
   };
 
-  const formatDateLabel = (dateStr) => {
-    const date = new Date(dateStr);
-    const today = new Date();
-    const yesterday = new Date(today);
-    yesterday.setDate(today.getDate() - 1);
-
-    if (date.toDateString() === today.toDateString()) return "Today";
-    if (date.toDateString() === yesterday.toDateString()) return "Yesterday";
-    return date.toLocaleDateString();
-  };
-
-  const messagesWithDateSeparators = useMemo(() => {
-    const res = [];
+  // ---------- GROUP MESSAGES BY DATE ----------
+  const groupedMessages = useMemo(() => {
+    const groups = [];
     let lastDate = null;
-    messages.forEach((m) => {
-      const msgDate = new Date(m.createdAt).toDateString();
+    messages.forEach((msg) => {
+      const msgDate = formatChatDate(msg.createdAt);
       if (msgDate !== lastDate) {
-        res.push({ type: "date-separator", date: msgDate });
+        groups.push({ type: "date", label: msgDate });
         lastDate = msgDate;
       }
-      res.push({ type: "message", data: m });
+      groups.push({ type: "message", data: msg });
     });
-    return res;
+    return groups;
   }, [messages]);
 
-  // ---------- Media viewer ----------
+  // ---------- MEDIA VIEWER ----------
   const mediaItems = useMemo(
     () =>
       messages
@@ -259,7 +252,7 @@ export default function ChatConversationPage() {
     [mediaItems]
   );
 
-  // ---------- Send message (text + media), optimistic UI ----------
+  // ---------- SEND MESSAGE ----------
   const sendMessage = useCallback(
     async (textMsg = "", files = []) => {
       if (isBlocked) return toast.error("You cannot send messages to this user");
@@ -267,63 +260,72 @@ export default function ChatConversationPage() {
 
       const messagesCol = collection(db, "chats", chatId, "messages");
 
-      // first handle uploads (if any) as separate messages for clarity
-      if (files.length > 0) {
-        for (const file of files) {
-          const tempId = `temp-${Date.now()}-${Math.random()}`;
-          const type = file.type.startsWith("image/") ? "image" : file.type.startsWith("video/") ? "video" : "file";
-          const tempMessage = {
-            id: tempId,
-            senderId: myUid,
-            text: file.name,
-            mediaUrl: URL.createObjectURL(file),
-            mediaType: type,
-            mediaUrls: [], // normalized
-            createdAt: new Date(),
-            reactions: {},
-            seenBy: [],
-            deliveredTo: [],
-            replyTo: replyTo ? { id: replyTo.id, text: replyTo.text, senderId: replyTo.senderId } : null,
-            status: "sending",
-          };
-          setMessages((prev) => [...prev, tempMessage]);
-          if (isAtBottom) setTimeout(() => endRef.current?.scrollIntoView({ behavior: "smooth" }), 40);
+      const sendSingle = async (tempMessage, file) => {
+        setMessages((prev) => [...prev, tempMessage]);
+        if (isAtBottom) setTimeout(() => endRef.current?.scrollIntoView({ behavior: "smooth" }), 40);
 
-          // upload to Cloudinary
-          try {
+        try {
+          let mediaUrl = "";
+          let type = "";
+
+          if (file) {
+            type = file.type.startsWith("image/") ? "image" : file.type.startsWith("video/") ? "video" : "file";
             const formData = new FormData();
             formData.append("file", file);
             formData.append("upload_preset", import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET);
+
             const res = await axios.post(
               `https://api.cloudinary.com/v1_1/${import.meta.env.VITE_CLOUDINARY_CLOUD_NAME}/auto/upload`,
               formData,
               {
                 onUploadProgress: (ev) => {
                   const pct = Math.round((ev.loaded * 100) / ev.total);
-                  setMessages((prev) => prev.map((m) => (m.id === tempId ? { ...m, uploadProgress: pct } : m)));
+                  setMessages((prev) => prev.map((m) => (m.id === tempMessage.id ? { ...m, uploadProgress: pct } : m)));
                 },
               }
             );
-            const mediaUrl = res.data.secure_url;
-            const payload = {
-              ...tempMessage,
-              mediaUrl,
-              mediaType: type,
-              mediaUrls: [mediaUrl],
-              createdAt: serverTimestamp(),
-              status: "sent",
-            };
-            const docRef = await addDoc(messagesCol, payload);
-            setMessages((prev) => prev.map((m) => (m.id === tempId ? { ...payload, id: docRef.id, createdAt: new Date() } : m)));
-          } catch (err) {
-            console.error("upload error", err);
-            setMessages((prev) => prev.map((m) => (m.id === tempId ? { ...m, status: "failed" } : m)));
-            toast.error("Failed to send media");
+            mediaUrl = res.data.secure_url;
           }
+
+          const payload = {
+            ...tempMessage,
+            mediaUrl: mediaUrl || tempMessage.mediaUrl,
+            mediaType: type || tempMessage.mediaType,
+            mediaUrls: mediaUrl ? [mediaUrl] : tempMessage.mediaUrls,
+            createdAt: serverTimestamp(),
+            status: "sent",
+          };
+
+          const docRef = await addDoc(messagesCol, payload);
+          setMessages((prev) => prev.map((m) => (m.id === tempMessage.id ? { ...payload, id: docRef.id, createdAt: new Date() } : m)));
+        } catch (err) {
+          console.error(err);
+          setMessages((prev) => prev.map((m) => (m.id === tempMessage.id ? { ...m, status: "failed" } : m)));
+          toast.error("Failed to send message");
         }
+      };
+
+      // send files first
+      for (const file of files) {
+        const tempId = `temp-${Date.now()}-${Math.random()}`;
+        const tempMessage = {
+          id: tempId,
+          senderId: myUid,
+          text: file.name,
+          mediaUrl: URL.createObjectURL(file),
+          mediaType: "",
+          mediaUrls: [],
+          createdAt: new Date(),
+          reactions: {},
+          seenBy: [],
+          deliveredTo: [],
+          replyTo: replyTo ? { id: replyTo.id, text: replyTo.text, senderId: replyTo.senderId } : null,
+          status: "sending",
+        };
+        await sendSingle(tempMessage, file);
       }
 
-      // now text message (if present)
+      // send text
       if (textMsg.trim()) {
         const tempId = `temp-${Date.now()}-${Math.random()}`;
         const tempMessage = {
@@ -338,18 +340,7 @@ export default function ChatConversationPage() {
           replyTo: replyTo ? { id: replyTo.id, text: replyTo.text, senderId: replyTo.senderId } : null,
           status: "sending",
         };
-        setMessages((prev) => [...prev, tempMessage]);
-        if (isAtBottom) setTimeout(() => endRef.current?.scrollIntoView({ behavior: "smooth" }), 40);
-
-        try {
-          const payload = { ...tempMessage, createdAt: serverTimestamp(), status: "sent" };
-          const docRef = await addDoc(messagesCol, payload);
-          setMessages((prev) => prev.map((m) => (m.id === tempId ? { ...payload, id: docRef.id, createdAt: new Date() } : m)));
-        } catch (err) {
-          console.error("send error", err);
-          setMessages((prev) => prev.map((m) => (m.id === tempId ? { ...m, status: "failed" } : m)));
-          toast.error("Failed to send message");
-        }
+        await sendSingle(tempMessage);
       }
 
       // update chat metadata
@@ -360,22 +351,19 @@ export default function ChatConversationPage() {
           lastMessageAt: serverTimestamp(),
           lastMessageStatus: "delivered",
         });
-      } catch (err) {
-        // ignore
-      }
+      } catch {}
 
       setShowPreview(false);
       setCaption("");
       setSelectedFiles([]);
       setReplyTo(null);
     },
-    [chatId, myUid, isAtBottom, replyTo, isBlocked, isMuted]
+    [chatId, myUid, isAtBottom, replyTo, isBlocked]
   );
 
-  // ---------- handle react (toggle), robust syntax ----------
+  // ---------- HANDLE REACTIONS ----------
   const handleReact = useCallback(
     async (messageId, emoji) => {
-      // optimistic local update
       setMessages((prev) =>
         prev.map((m) => {
           if (m.id !== messageId) return m;
@@ -389,28 +377,19 @@ export default function ChatConversationPage() {
 
       try {
         const msgRef = doc(db, "chats", chatId, "messages", messageId);
-        // fetch current server state to decide
-        const snap = await msgRef.get?.() || await getDocs(collection(db, "chats", chatId, "messages")).catch(() => null);
-        // simpler: attempt to remove first if user already present in local state, else add
-        const locally = messages.find((mm) => mm.id === messageId);
+        const locally = messages.find((m) => m.id === messageId);
         const already = locally?.reactions?.[emoji]?.includes(myUid);
-        if (already) {
-          await updateDoc(msgRef, { [`reactions.${emoji}`]: arrayRemove(myUid) });
-        } else {
-          await updateDoc(msgRef, { [`reactions.${emoji}`]: arrayUnion(myUid) });
-        }
+        if (already) await updateDoc(msgRef, { [`reactions.${emoji}`]: arrayRemove(myUid) });
+        else await updateDoc(msgRef, { [`reactions.${emoji}`]: arrayUnion(myUid) });
       } catch (err) {
-        console.error("reaction err", err);
+        console.error("reaction error", err);
         toast.error("Failed to react");
       }
     },
     [chatId, myUid, messages]
   );
 
-  // ---------- scroll-to helper for pinned etc ----------
-  const scrollToMessagePublic = (id) => scrollToMessage(id);
-
-  // ---------- render ----------
+  // ---------- RENDER ----------
   return (
     <div
       style={{
@@ -429,7 +408,7 @@ export default function ChatConversationPage() {
         chatId={chatId}
         pinnedMessage={pinnedMessage}
         setBlockedStatus={setIsBlocked}
-        onGoToPinned={() => pinnedMessage && scrollToMessagePublic(pinnedMessage.id)}
+        onGoToPinned={() => pinnedMessage && scrollToMessage(pinnedMessage.id)}
         onClearChat={async () => {
           if (!window.confirm("Clear chat?")) return;
           const msgsRef = collection(db, "chats", chatId, "messages");
@@ -442,16 +421,27 @@ export default function ChatConversationPage() {
 
       {stickyDate && (
         <div style={{ position: "sticky", top: 0, zIndex: 5, textAlign: "center", padding: 4, fontSize: 12, color: isDark ? "#888" : "#555" }}>
-          {formatDateLabel(stickyDate)}
+          {stickyDate}
         </div>
       )}
 
       <div ref={messagesRefEl} style={{ flex: 1, overflowY: "auto", padding: 8, display: "flex", flexDirection: "column" }}>
-        {messagesWithDateSeparators.map((item, idx) => {
-          if (item.type === "date-separator") {
+        {groupedMessages.map((item, i) => {
+          if (item.type === "date") {
             return (
-              <div key={`date-${idx}`} style={{ textAlign: "center", margin: "8px 0", color: isDark ? "#888" : "#555", fontSize: 12 }}>
-                {formatDateLabel(item.date)}
+              <div
+                key={`date-${i}`}
+                style={{
+                  alignSelf: "center",
+                  margin: "12px 0",
+                  padding: "4px 12px",
+                  borderRadius: 12,
+                  fontSize: 12,
+                  background: isDark ? "#1e1e1e" : "#e5e5e5",
+                  color: isDark ? "#aaa" : "#555",
+                }}
+              >
+                {item.label}
               </div>
             );
           } else {
@@ -471,7 +461,7 @@ export default function ChatConversationPage() {
                 }}
                 onReact={handleReact}
                 onOpenLongPress={(m) => setLongPressMessage(m)}
-                data-date={new Date(msg.createdAt).toDateString()}
+                data-date={formatChatDate(msg.createdAt)}
                 data-type="message"
               />
             );
@@ -480,7 +470,6 @@ export default function ChatConversationPage() {
         <div ref={endRef} />
       </div>
 
-      {/* typing */}
       {friendTyping && (
         <div style={{ padding: "4px 12px", fontSize: 12, color: isDark ? "#ccc" : "#555" }}>
           {friendInfo?.displayName || friendInfo?.name || "Contact"} is typing...
@@ -533,7 +522,7 @@ export default function ChatConversationPage() {
           setReplyTo={(m) => {
             setReplyTo(m);
             setLongPressMessage(null);
-            setTimeout(() => scrollToMessagePublic(m.id), 200);
+            setTimeout(() => scrollToMessage(m.id), 200);
           }}
           setPinnedMessage={(m) => {
             setPinnedMessage(m);
