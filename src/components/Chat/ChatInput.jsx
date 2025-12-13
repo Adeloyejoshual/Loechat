@@ -1,5 +1,5 @@
 // src/components/ChatInput.jsx
-import React, { useRef, useEffect, useMemo } from "react";
+import React, { useRef, useEffect, useMemo, useState } from "react";
 import { Paperclip, Send, X } from "lucide-react";
 import ImagePreviewModal from "./ImagePreviewModal";
 
@@ -22,6 +22,9 @@ export default function ChatInput({
   const textareaRef = useRef(null);
   const lastInput = useRef("");
 
+  const [typingVisible, setTypingVisible] = useState(false);
+  const typingTimeout = useRef(null);
+
   const previews = useMemo(
     () => selectedFiles.map((file) => ({ file, url: URL.createObjectURL(file) })),
     [selectedFiles]
@@ -31,8 +34,8 @@ export default function ChatInput({
   useEffect(() => {
     if (!textareaRef.current) return;
     const el = textareaRef.current;
-    el.style.height = "auto"; // reset
-    const maxHeight = 120; // max height in px (~6 lines)
+    el.style.height = "auto";
+    const maxHeight = 120; // ~6 lines
     el.style.height = `${Math.min(el.scrollHeight, maxHeight)}px`;
     el.style.overflowY = el.scrollHeight > maxHeight ? "auto" : "hidden";
   }, [text]);
@@ -65,7 +68,7 @@ export default function ChatInput({
     setText("");
   };
 
-  // Typing detection
+  // Typing detection for sending live status
   useEffect(() => {
     if (!setTyping) return;
     const changed = text !== lastInput.current;
@@ -74,14 +77,49 @@ export default function ChatInput({
     setTyping(text.length > 0);
   }, [text, setTyping]);
 
+  // Typing indicator dots with smooth fade
+  useEffect(() => {
+    if (friendTyping) {
+      setTypingVisible(true);
+      if (typingTimeout.current) clearTimeout(typingTimeout.current);
+    } else {
+      typingTimeout.current = setTimeout(() => setTypingVisible(false), 400);
+    }
+    return () => clearTimeout(typingTimeout.current);
+  }, [friendTyping]);
+
+  const TypingDots = () => {
+    if (!typingVisible) return null;
+    const dotStyle = (delay) => ({
+      width: 8,
+      height: 8,
+      margin: 2,
+      borderRadius: "50%",
+      backgroundColor: isDark ? "#fff" : "#333",
+      display: "inline-block",
+      animation: `bounce 1.2s infinite ${delay}s`,
+    });
+    return (
+      <div style={{ margin: "4px 10px 0", height: 18, opacity: typingVisible ? 1 : 0, transition: "opacity 0.4s" }}>
+        <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+          <span style={dotStyle(0)}></span>
+          <span style={dotStyle(0.2)}></span>
+          <span style={dotStyle(0.4)}></span>
+        </div>
+        <style>{`
+          @keyframes bounce {
+            0%, 80%, 100% { transform: scale(0); }
+            40% { transform: scale(1); }
+          }
+        `}</style>
+      </div>
+    );
+  };
+
   return (
     <>
       {/* Typing indicator */}
-      {friendTyping && (
-        <div style={{ margin: "4px 10px 0", fontSize: 12, color: isDark ? "#ccc" : "#555", fontStyle: "italic", height: 18 }}>
-          {friendTyping === true ? "Typing..." : friendTyping}
-        </div>
-      )}
+      <TypingDots />
 
       {/* Reply preview */}
       {replyTo && (
