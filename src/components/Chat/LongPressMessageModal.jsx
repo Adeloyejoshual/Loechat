@@ -1,4 +1,4 @@
-
+// src/components/Chat/LongPressMessageModal.jsx
 import React, { useState, useEffect, useRef } from "react";
 import { doc, updateDoc, arrayUnion, arrayRemove, deleteDoc } from "firebase/firestore";
 import { db } from "../../firebaseConfig";
@@ -14,18 +14,21 @@ export default function LongPressMessageModal({
   onClose,
   setReplyTo,
   setPinnedMessage,
-  localReactions = {},
+  onDeleteMessage,
+  onReactionChange,
 }) {
-  const [reactions, setReactions] = useState(localReactions);
+  const [reactions, setReactions] = useState(message.reactions || {});
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const modalRef = useRef(null);
 
-  useEffect(() => setReactions(localReactions), [localReactions]);
+  useEffect(() => setReactions(message.reactions || {}), [message.reactions]);
 
   // Close modal on outside click
   useEffect(() => {
     const handleClickOutside = (e) => {
-      if (modalRef.current && !modalRef.current.contains(e.target)) onClose?.();
+      if (modalRef.current && !modalRef.current.contains(e.target)) {
+        onClose?.();
+      }
     };
     document.addEventListener("mousedown", handleClickOutside);
     document.addEventListener("touchstart", handleClickOutside, { passive: true });
@@ -35,60 +38,61 @@ export default function LongPressMessageModal({
     };
   }, [onClose]);
 
-  // ---------- Real-time reactions ----------
+  // Toggle reaction in Firestore
   const toggleReaction = async (emoji) => {
     const msgRef = doc(db, "chats", message.chatId, "messages", message.id);
+    const hasReacted = reactions[emoji]?.includes(myUid);
+    const newReactions = { ...reactions };
+
+    if (hasReacted) {
+      newReactions[emoji] = newReactions[emoji].filter((u) => u !== myUid);
+      if (newReactions[emoji].length === 0) delete newReactions[emoji];
+    } else {
+      newReactions[emoji] = [...(newReactions[emoji] || []), myUid];
+    }
+
+    setReactions(newReactions);
+    onReactionChange?.(newReactions);
 
     try {
-      const alreadyReacted = message.reactions?.[emoji]?.includes(myUid);
       await updateDoc(msgRef, {
-        [`reactions.${emoji}`]: alreadyReacted ? arrayRemove(myUid) : arrayUnion(myUid),
+        [`reactions.${emoji}`]: hasReacted ? arrayRemove(myUid) : arrayUnion(myUid),
       });
-    } catch {
+    } catch (err) {
+      console.error("Failed to update reaction:", err);
       toast.error("Failed to update reaction");
     }
-    onClose?.();
   };
 
-  // ---------- Copy ----------
   const handleCopy = async () => {
     try {
       await navigator.clipboard.writeText(message.text || "");
       toast.success("Message copied!");
-      onClose?.();
     } catch {
       toast.error("Failed to copy message");
     }
   };
 
-  // ---------- Pin ----------
-  const handlePin = async () => {
-    try {
-      // Unpin any existing pinned messages
-      const chatRef = doc(db, "chats", message.chatId);
-      if (message.pinned) return; // already pinned
-      await updateDoc(chatRef, { pinnedMessageId: message.id });
-
-      setPinnedMessage(message); // update UI
-      onClose?.();
-    } catch {
-      toast.error("Failed to pin message");
-    }
-  };
-
-  // ---------- Delete ----------
   const handleDelete = async () => {
     try {
       await deleteDoc(doc(db, "chats", message.chatId, "messages", message.id));
       toast.success("Message deleted");
+      onDeleteMessage?.(message.id);
       onClose?.();
-    } catch {
+    } catch (err) {
+      console.error(err);
       toast.error("Failed to delete message");
     }
   };
 
+  const handleEmojiSelect = (emoji) => {
+    toggleReaction(emoji);
+    setShowEmojiPicker(false);
+  };
+
   return (
     <>
+      {/* Overlay */}
       <div
         style={{
           position: "fixed",
@@ -99,6 +103,8 @@ export default function LongPressMessageModal({
         }}
         onClick={onClose}
       />
+
+      {/* Modal */}
       <div
         ref={modalRef}
         style={{
@@ -110,39 +116,126 @@ export default function LongPressMessageModal({
           maxWidth: 360,
           background: isDark ? "#1c1c1c" : "#fff",
           borderRadius: 16,
-          padding: 20,
+          padding: 16,
           display: "flex",
           flexDirection: "column",
-          gap: 16,
+          gap: 12,
           boxShadow: "0 6px 16px rgba(0,0,0,0.25)",
           zIndex: 10000,
         }}
       >
-        <div>{message.text || "Media message"}</div>
-
-        <button onClick={() => { setReplyTo(message); onClose(); }}>Reply</button>
-        <button onClick={handlePin}>Pin</button>
-        <button onClick={handleCopy}>Copy</button>
-        <button onClick={handleDelete} style={{ color: "red" }}>Delete</button>
-
-        <div style={{ display: "flex", gap: 8 }}>
-          {QUICK_EMOJIS.map((e) => (
-            <button key={e} onClick={() => toggleReaction(e)}>
-              {e} {message.reactions?.[e]?.length || ""}
-            </button>
-          ))}
-          <button onClick={() => setShowEmojiPicker(true)}>+</button>
+        {/* Message Preview */}
+        <div
+          style={{
+            fontSize: 14,
+            color: isDark ? "#eee" : "#111",
+            wordBreak: "break-word",
+            maxHeight: 60,
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+          }}
+        >
+          {message.text || "Media message"}
         </div>
 
-        {showEmojiPicker && (
-          <EmojiPicker
-            open
+        {/* Actions */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <ActionButton
+            label="Reply"
             isDark={isDark}
-            onClose={() => setShowEmojiPicker(false)}
-            onSelect={(e) => toggleReaction(e)}
+            onClick={() => {
+              setReplyTo?.(message);
+              onClose();
+            }}
           />
-        )}
+          <ActionButton
+            label="Pin"
+            isDark={isDark}
+            onClick={() => {
+              setPinnedMessage?.(message);
+              onClose();
+            }}
+          />
+          <ActionButton label="Copy" isDark={isDark} onClick={handleCopy} />
+          <ActionButton label="Delete" isDark={isDark} onClick={handleDelete} />
+        </div>
+
+        {/* Quick emoji reactions */}
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
+          {QUICK_EMOJIS.map((emoji) => {
+            const selected = reactions[emoji]?.includes(myUid);
+            return (
+              <button
+                key={emoji}
+                onClick={() => toggleReaction(emoji)}
+                style={{
+                  padding: 6,
+                  fontSize: 18,
+                  borderRadius: 10,
+                  border: selected ? "2px solid #4a90e2" : "1px solid #ccc",
+                  background: selected ? "#4a90e2" : isDark ? "#2a2a2a" : "#f5f5f5",
+                  color: selected ? "#fff" : isDark ? "#eee" : "#111",
+                  cursor: "pointer",
+                  minWidth: 40,
+                  textAlign: "center",
+                }}
+              >
+                {emoji} {reactions[emoji]?.length || ""}
+              </button>
+            );
+          })}
+
+          <button
+            onClick={() => setShowEmojiPicker(true)}
+            style={{
+              padding: 6,
+              fontSize: 18,
+              borderRadius: 10,
+              border: "1px solid #ccc",
+              background: isDark ? "#2a2a2a" : "#f5f5f5",
+              color: isDark ? "#eee" : "#111",
+              cursor: "pointer",
+              minWidth: 40,
+              textAlign: "center",
+            }}
+          >
+            +
+          </button>
+        </div>
+
+        {/* Close button */}
+        <ActionButton label="Close" isDark={isDark} onClick={onClose} />
       </div>
+
+      {/* Emoji Picker */}
+      {showEmojiPicker && (
+        <EmojiPicker
+          open={showEmojiPicker}
+          onClose={() => setShowEmojiPicker(false)}
+          onSelect={handleEmojiSelect}
+          isDark={isDark}
+          maxHeightPct={0.5}
+        />
+      )}
     </>
   );
 }
+
+const ActionButton = ({ label, onClick, isDark }) => (
+  <button
+    onClick={onClick}
+    style={{
+      padding: 12,
+      borderRadius: 12,
+      background: isDark ? "#333" : "#eee",
+      color: isDark ? "#fff" : "#111",
+      border: "none",
+      textAlign: "left",
+      fontSize: 14,
+      cursor: "pointer",
+      width: "100%",
+    }}
+  >
+    {label}
+  </button>
+);
