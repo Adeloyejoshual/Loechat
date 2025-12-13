@@ -10,7 +10,7 @@ const READ_MORE_STEP = 450;
 const LONG_PRESS_DELAY = 700;
 const SWIPE_TRIGGER_DISTANCE = 60;
 
-// Limited emojis for reactions bar
+// Quick emojis for reactions bar
 const QUICK_EMOJIS = ["👍","❤️","😂","😮","😢"];
 
 const fmtTime = (ts) => {
@@ -26,9 +26,12 @@ const MessageItem = forwardRef(function MessageItem({
   setReplyTo,
   setPinnedMessage,
   chatContainerRef,
+  onReplyClick,
+  friendName,
 }, ref) {
   const isMine = message.senderId === myUid;
   const containerRef = ref || useRef(null);
+
   const [visibleChars, setVisibleChars] = useState(READ_MORE_STEP);
   const [swipeX, setSwipeX] = useState(0);
   const [swipeActive, setSwipeActive] = useState(false);
@@ -49,10 +52,8 @@ const MessageItem = forwardRef(function MessageItem({
       const data = snap.data();
       if (!data) return;
 
-      // Update reactions live
       setLocalReactions(data.reactions || {});
 
-      // Update message status for mine
       if (isMine) {
         if (Array.isArray(data.seenBy) && data.seenBy.length > 0) setStatus("seen");
         else if (Array.isArray(data.deliveredTo) && data.deliveredTo.length > 0) setStatus("delivered");
@@ -81,7 +82,7 @@ const MessageItem = forwardRef(function MessageItem({
     if (!e.touches?.[0]) return;
     touchStartX.current = e.touches[0].clientX;
     setSwipeActive(true);
-    startLongPress();
+    if (isMine) startLongPress();
   };
   const onTouchMove = (e) => {
     if (!e.touches?.[0]) return;
@@ -92,7 +93,7 @@ const MessageItem = forwardRef(function MessageItem({
   };
   const onTouchEnd = () => {
     cancelLongPress();
-    if (swipeActive && Math.abs(swipeX) > SWIPE_TRIGGER_DISTANCE) {
+    if (swipeActive && isMine && Math.abs(swipeX) > SWIPE_TRIGGER_DISTANCE) {
       setReplyTo?.(message);
       Haptics.impact({ style: ImpactStyle.Light });
     }
@@ -105,7 +106,6 @@ const MessageItem = forwardRef(function MessageItem({
     if (!message?.id || !message?.chatId) return;
     const msgRef = doc(db, "chats", message.chatId, "messages", message.id);
 
-    // Optimistic UI
     setLocalReactions(prev => {
       const updated = { ...prev };
       const users = updated[emoji] || [];
@@ -119,10 +119,8 @@ const MessageItem = forwardRef(function MessageItem({
       return updated;
     });
 
-    // Haptic feedback
     Haptics.impact({ style: ImpactStyle.Light });
-    
-    // Firestore update
+
     try {
       const snap = await msgRef.get();
       const users = snap.data()?.reactions?.[emoji] || [];
@@ -182,12 +180,29 @@ const MessageItem = forwardRef(function MessageItem({
     </div>
   );
 
+  // ----------------- Media rendering -----------------
+  const renderMedia = () => {
+    if (!message.mediaUrl) return null;
+    const type = message.mediaType || "";
+    if (type.startsWith("image")) return <img src={message.mediaUrl} alt="media" style={{ maxWidth:"100%", borderRadius:12, marginTop:6, cursor:"pointer" }} onClick={() => chatContainerRef?.current?.scrollTo({ top: containerRef.current.offsetTop, behavior:"smooth" })} />;
+    if (type.startsWith("video")) return <video src={message.mediaUrl} controls style={{ maxWidth:"100%", borderRadius:12, marginTop:6 }} />;
+    return null;
+  };
+
+  // ----------------- Click reply navigation -----------------
+  const handleClick = () => {
+    if (message.replyTo?.id) {
+      onReplyClick?.(message.replyTo.id);
+    }
+  };
+
   if (message.deleted || (message.deletedFor && message.deletedFor.includes?.(myUid))) return null;
 
   return (
     <div
       ref={containerRef}
       data-id={message.id}
+      onClick={handleClick}
       onTouchStart={onTouchStart}
       onTouchMove={onTouchMove}
       onTouchEnd={onTouchEnd}
@@ -207,9 +222,13 @@ const MessageItem = forwardRef(function MessageItem({
         wordBreak:"break-word",
         position:"relative",
         boxShadow:isMine ? "0 6px 18px rgba(0,0,0,0.06)" : "0 1px 0 rgba(0,0,0,0.03)",
-        userSelect:"none"
+        userSelect:"none",
+        cursor: message.replyTo?.id ? "pointer" : "default",
       }}
     >
+      {/* Sender name if not mine */}
+      {!isMine && <div style={{ fontSize:12, fontWeight:500, marginBottom:4, color:isDark?"#aaa":"#555" }}>{friendName}</div>}
+
       {/* Text */}
       {message.text && (
         <div style={{ whiteSpace:"pre-wrap", lineHeight:1.4, fontSize:15 }}>
@@ -220,6 +239,9 @@ const MessageItem = forwardRef(function MessageItem({
           )}
         </div>
       )}
+
+      {/* Media */}
+      {renderMedia()}
 
       {/* Reactions */}
       {reactionPills()}
