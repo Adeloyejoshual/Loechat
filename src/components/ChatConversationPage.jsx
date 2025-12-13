@@ -1,9 +1,8 @@
 // src/components/ChatConversationPage.jsx
 import React, { useEffect, useState, useRef, useContext, useCallback, useMemo } from "react";
-import { useParams } from "react-router-dom";
+import { useParams, useLocation } from "react-router-dom";
 import {
   collection,
-  addDoc,
   doc,
   updateDoc,
   arrayUnion,
@@ -12,7 +11,6 @@ import {
   onSnapshot,
   query,
   orderBy,
-  getDocs,
 } from "firebase/firestore";
 import { db, auth } from "../firebaseConfig";
 import { ThemeContext } from "../context/ThemeContext";
@@ -26,7 +24,6 @@ import MediaViewer from "./Chat/MediaViewer";
 import LongPressMessageModal from "./Chat/LongPressMessageModal";
 import { toast, ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
-import axios from "axios";
 
 const FLASH_HIGHLIGHT_STYLE = `
 .flash-highlight { animation: flash 1.2s ease; }
@@ -38,6 +35,7 @@ const FLASH_HIGHLIGHT_STYLE = `
 
 export default function ChatConversationPage() {
   const { chatId } = useParams();
+  const location = useLocation();
   const { theme, wallpaper } = useContext(ThemeContext);
   const { currentUser } = useContext(UserContext);
   const isDark = theme === "dark";
@@ -65,8 +63,9 @@ export default function ChatConversationPage() {
   const [isAtBottom, setIsAtBottom] = useState(true);
   const [longPressMessage, setLongPressMessage] = useState(null);
   const [stickyDate, setStickyDate] = useState(null);
+  const [highlightMessageId, setHighlightMessageId] = useState(location.state?.highlightMessageId || null);
 
-  // ---------- CHAT doc listener ----------
+  // ---------- Chat listener ----------
   useEffect(() => {
     if (!chatId) return;
     const chatRef = doc(db, "chats", chatId);
@@ -86,16 +85,14 @@ export default function ChatConversationPage() {
         return () => unsubUser();
       } else setFriendInfo(null);
     });
-
     return () => unsub();
   }, [chatId, myUid]);
 
-  // ---------- Messages realtime subscription ----------
+  // ---------- Messages subscription ----------
   useEffect(() => {
     if (!chatId) return;
     const messagesRef = collection(db, "chats", chatId, "messages");
     const q = query(messagesRef, orderBy("createdAt", "asc"));
-
     const unsub = onSnapshot(q, (snap) => {
       const docs = snap.docs.map((d) => {
         const data = d.data();
@@ -103,26 +100,33 @@ export default function ChatConversationPage() {
         return { id: d.id, ...data, createdAt };
       });
 
-      // pinned message extraction
       const pinned = docs.find((m) => m.pinned);
       if (pinned) setPinnedMessage(pinned);
 
       setMessages(docs);
 
-      // mark delivered
+      // Mark delivered
       docs
         .filter((m) => m.senderId !== myUid && !(m.deliveredTo || []).includes(myUid))
         .forEach((m) => updateDoc(doc(db, "chats", chatId, "messages", m.id), { deliveredTo: arrayUnion(myUid) }).catch(() => {}));
 
-      // auto scroll
+      // Auto scroll
       if (isAtBottom || !initialScrollDone.current) {
         setTimeout(() => endRef.current?.scrollIntoView({ behavior: "auto" }), 50);
         initialScrollDone.current = true;
       }
+
+      // Scroll to highlighted message from search
+      if (highlightMessageId) {
+        setTimeout(() => {
+          scrollToMessage(highlightMessageId);
+          setHighlightMessageId(null);
+        }, 150);
+      }
     });
 
     return () => unsub();
-  }, [chatId, myUid, isAtBottom]);
+  }, [chatId, myUid, isAtBottom, highlightMessageId]);
 
   // ---------- Mark seen ----------
   useEffect(() => {
@@ -157,7 +161,6 @@ export default function ChatConversationPage() {
         }
       }, 60);
     };
-
     el.addEventListener("scroll", onScroll);
     onScroll();
     return () => {
@@ -171,7 +174,7 @@ export default function ChatConversationPage() {
     if (!chatId || !myUid) return;
     try {
       await updateDoc(doc(db, "chats", chatId), { [`typing.${myUid}`]: typing ? serverTimestamp() : null });
-    } catch (err) {}
+    } catch {}
   }, [chatId, myUid]);
 
   useEffect(() => {
@@ -210,7 +213,6 @@ export default function ChatConversationPage() {
     const today = new Date();
     const yesterday = new Date(today);
     yesterday.setDate(today.getDate() - 1);
-
     if (date.toDateString() === today.toDateString()) return "Today";
     if (date.toDateString() === yesterday.toDateString()) return "Yesterday";
     return date.toLocaleDateString();
@@ -264,10 +266,7 @@ export default function ChatConversationPage() {
   // ---------- Messages with pinned first ----------
   const messagesWithPinned = useMemo(() => {
     const pinned = pinnedMessage ? [pinnedMessage] : [];
-    return [
-      ...pinned,
-      ...messages.filter((m) => !pinnedMessage || m.id !== pinnedMessage.id),
-    ];
+    return [...pinned, ...messages.filter((m) => !pinnedMessage || m.id !== pinnedMessage.id)];
   }, [messages, pinnedMessage]);
 
   // ---------- Messages with date separators ----------
@@ -354,6 +353,7 @@ export default function ChatConversationPage() {
                   else delete messageRefs.current[msg.id];
                 }}
                 onReact={handleReact}
+                highlight={msg.id === highlightMessageId}
                 data-date={new Date(msg.createdAt).toDateString()}
                 data-type="message"
                 onOpenLongPress={(m) => setLongPressMessage(m)}
