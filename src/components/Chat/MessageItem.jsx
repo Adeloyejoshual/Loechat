@@ -11,7 +11,6 @@ export default function MessageItem({
   isDark,
   setReplyTo,
   setPinnedMessage,
-  friendInfo,
   onMediaClick,
   registerRef,
   onReact,
@@ -244,6 +243,38 @@ export default function MessageItem({
               onClick={(e) => e.stopPropagation()}
             />
           )
+        )}
+
+        {/* Reactions (text under media) */}
+        {localReactions && Object.keys(localReactions).length > 0 && (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 6 }}>
+            {Object.entries(localReactions).map(([emoji, users]) => {
+              const reactedByMe = users.includes(myUid);
+              return (
+                <button
+                  key={emoji}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onReact?.(message.id, emoji);
+                  }}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 4,
+                    padding: "2px 6px",
+                    fontSize: 14,
+                    borderRadius: 12,
+                    border: reactedByMe ? "1px solid #4a90e2" : "1px solid #ccc",
+                    backgroundColor: reactedByMe ? "#4a90e2" : isDark ? "#2a2a2a" : "#f0f0f0",
+                    color: reactedByMe ? "#fff" : isDark ? "#fff" : "#000",
+                    cursor: "pointer",
+                  }}
+                >
+                  {emoji} {users.length}
+                </button>
+              );
+            })}
+          </div>
         )}
 
         {/* Status */}
