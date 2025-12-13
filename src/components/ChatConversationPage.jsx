@@ -102,6 +102,11 @@ export default function ChatConversationPage() {
         const createdAt = data.createdAt?.toDate?.() || (data.createdAt instanceof Date ? data.createdAt : new Date());
         return { id: d.id, ...data, createdAt };
       });
+
+      // pinned message extraction
+      const pinned = docs.find((m) => m.pinned);
+      if (pinned) setPinnedMessage(pinned);
+
       setMessages(docs);
 
       // mark delivered
@@ -211,20 +216,6 @@ export default function ChatConversationPage() {
     return date.toLocaleDateString();
   };
 
-  const messagesWithDateSeparators = useMemo(() => {
-    const res = [];
-    let lastDate = null;
-    messages.forEach((m) => {
-      const msgDate = new Date(m.createdAt).toDateString();
-      if (msgDate !== lastDate) {
-        res.push({ type: "date-separator", date: msgDate });
-        lastDate = msgDate;
-      }
-      res.push({ type: "message", data: m });
-    });
-    return res;
-  }, [messages]);
-
   // ---------- Media viewer ----------
   const mediaItems = useMemo(
     () =>
@@ -242,118 +233,7 @@ export default function ChatConversationPage() {
     [mediaItems]
   );
 
-  // ---------- Send message ----------
-  const sendMessage = useCallback(
-    async (textMsg = "", files = []) => {
-      if (isBlocked) return toast.error("You cannot send messages to this user");
-      if (!textMsg.trim() && files.length === 0) return;
-
-      const messagesCol = collection(db, "chats", chatId, "messages");
-
-      // handle media
-      if (files.length > 0) {
-        for (const file of files) {
-          const tempId = `temp-${Date.now()}-${Math.random()}`;
-          const type = file.type.startsWith("image/") ? "image" : file.type.startsWith("video/") ? "video" : "file";
-          const tempMessage = {
-            id: tempId,
-            senderId: myUid,
-            text: file.name,
-            mediaUrl: URL.createObjectURL(file),
-            mediaType: type,
-            mediaUrls: [],
-            createdAt: new Date(),
-            reactions: {},
-            seenBy: [],
-            deliveredTo: [],
-            replyTo: replyTo ? { id: replyTo.id, text: replyTo.text, senderId: replyTo.senderId } : null,
-            status: "sending",
-          };
-          setMessages((prev) => [...prev, tempMessage]);
-          if (isAtBottom) setTimeout(() => endRef.current?.scrollIntoView({ behavior: "smooth" }), 40);
-
-          try {
-            const formData = new FormData();
-            formData.append("file", file);
-            formData.append("upload_preset", import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET);
-            const res = await axios.post(
-              `https://api.cloudinary.com/v1_1/${import.meta.env.VITE_CLOUDINARY_CLOUD_NAME}/auto/upload`,
-              formData,
-              {
-                onUploadProgress: (ev) => {
-                  const pct = Math.round((ev.loaded * 100) / ev.total);
-                  setMessages((prev) => prev.map((m) => (m.id === tempId ? { ...m, uploadProgress: pct } : m)));
-                },
-              }
-            );
-            const mediaUrl = res.data.secure_url;
-            const payload = {
-              ...tempMessage,
-              mediaUrl,
-              mediaType: type,
-              mediaUrls: [mediaUrl],
-              createdAt: serverTimestamp(),
-              status: "sent",
-            };
-            const docRef = await addDoc(messagesCol, payload);
-            setMessages((prev) => prev.map((m) => (m.id === tempId ? { ...payload, id: docRef.id, createdAt: new Date() } : m)));
-          } catch (err) {
-            console.error("upload error", err);
-            setMessages((prev) => prev.map((m) => (m.id === tempId ? { ...m, status: "failed" } : m)));
-            toast.error("Failed to send media");
-          }
-        }
-      }
-
-      // handle text
-      if (textMsg.trim()) {
-        const tempId = `temp-${Date.now()}-${Math.random()}`;
-        const tempMessage = {
-          id: tempId,
-          senderId: myUid,
-          text: textMsg.trim(),
-          mediaUrls: [],
-          createdAt: new Date(),
-          reactions: {},
-          seenBy: [],
-          deliveredTo: [],
-          replyTo: replyTo ? { id: replyTo.id, text: replyTo.text, senderId: replyTo.senderId } : null,
-          status: "sending",
-        };
-        setMessages((prev) => [...prev, tempMessage]);
-        if (isAtBottom) setTimeout(() => endRef.current?.scrollIntoView({ behavior: "smooth" }), 40);
-
-        try {
-          const payload = { ...tempMessage, createdAt: serverTimestamp(), status: "sent" };
-          const docRef = await addDoc(messagesCol, payload);
-          setMessages((prev) => prev.map((m) => (m.id === tempId ? { ...payload, id: docRef.id, createdAt: new Date() } : m)));
-        } catch (err) {
-          console.error("send error", err);
-          setMessages((prev) => prev.map((m) => (m.id === tempId ? { ...m, status: "failed" } : m)));
-          toast.error("Failed to send message");
-        }
-      }
-
-      // update chat metadata
-      try {
-        await updateDoc(doc(db, "chats", chatId), {
-          lastMessage: textMsg || (files[0]?.name || "Media"),
-          lastMessageSender: myUid,
-          lastMessageAt: serverTimestamp(),
-          lastMessageStatus: "delivered",
-        });
-      } catch (err) {}
-
-      setShowPreview(false);
-      setCaption("");
-      setSelectedFiles([]);
-      setReplyTo(null);
-      setText(""); // <-- clear input after sending
-    },
-    [chatId, myUid, isAtBottom, replyTo, isBlocked, isMuted]
-  );
-
-  // ---------- handle reactions ----------
+  // ---------- Reactions ----------
   const handleReact = useCallback(
     async (messageId, emoji) => {
       setMessages((prev) =>
@@ -381,20 +261,33 @@ export default function ChatConversationPage() {
     [chatId, myUid, messages]
   );
 
-  const scrollToMessagePublic = (id) => scrollToMessage(id);
+  // ---------- Messages with pinned first ----------
+  const messagesWithPinned = useMemo(() => {
+    const pinned = pinnedMessage ? [pinnedMessage] : [];
+    return [
+      ...pinned,
+      ...messages.filter((m) => !pinnedMessage || m.id !== pinnedMessage.id),
+    ];
+  }, [messages, pinnedMessage]);
+
+  // ---------- Messages with date separators ----------
+  const messagesWithDateSeparators = useMemo(() => {
+    const res = [];
+    let lastDate = null;
+    messagesWithPinned.forEach((m) => {
+      const msgDate = new Date(m.createdAt).toDateString();
+      if (msgDate !== lastDate) {
+        res.push({ type: "date-separator", date: msgDate });
+        lastDate = msgDate;
+      }
+      res.push({ type: "message", data: m });
+    });
+    return res;
+  }, [messagesWithPinned]);
 
   // ---------- RENDER ----------
   return (
-    <div
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        height: "100vh",
-        backgroundColor: wallpaper || (isDark ? "#0b0b0b" : "#f5f5f5"),
-        color: isDark ? "#fff" : "#000",
-        position: "relative",
-      }}
-    >
+    <div style={{ display: "flex", flexDirection: "column", height: "100vh", backgroundColor: wallpaper || (isDark ? "#0b0b0b" : "#f5f5f5"), color: isDark ? "#fff" : "#000", position: "relative" }}>
       <style>{FLASH_HIGHLIGHT_STYLE}</style>
 
       <ChatHeader
@@ -402,37 +295,46 @@ export default function ChatConversationPage() {
         chatId={chatId}
         pinnedMessage={pinnedMessage}
         setBlockedStatus={setIsBlocked}
-        onGoToPinned={() => pinnedMessage && scrollToMessagePublic(pinnedMessage.id)}
-        onClearChat={async () => {
-          if (!window.confirm("Clear chat?")) return;
-          const msgsRef = collection(db, "chats", chatId, "messages");
-          const snap = await getDocs(msgsRef);
-          await Promise.all(snap.docs.map((m) => updateDoc(doc(db, "chats", chatId, "messages", m.id), { deleted: true })));
-          setMessages([]);
-          toast.success("Chat cleared");
-        }}
+        onGoToPinned={() => pinnedMessage && scrollToMessage(pinnedMessage.id)}
       />
 
+      {/* Compact pinned message bar */}
+      {pinnedMessage && (
+        <div
+          style={{
+            position: "sticky",
+            top: 50,
+            zIndex: 6,
+            background: isDark ? "#222" : "#fff",
+            color: isDark ? "#eee" : "#111",
+            padding: "6px 12px",
+            margin: "4px 8px",
+            borderRadius: 12,
+            maxHeight: 50,
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+            cursor: "pointer",
+            boxShadow: "0 2px 6px rgba(0,0,0,0.15)",
+          }}
+          onClick={() => scrollToMessage(pinnedMessage.id)}
+          title={pinnedMessage.text}
+        >
+          📌 {pinnedMessage.text}
+        </div>
+      )}
+
       {stickyDate && (
-        <div style={{ position: "sticky", top: 0, zIndex: 5, textAlign: "center", padding: 4, fontSize: 12, color: isDark ? "#888" : "#555" }}>
+        <div style={{ position: "sticky", top: pinnedMessage ? 100 : 0, zIndex: 5, textAlign: "center", padding: 4, fontSize: 12, color: isDark ? "#888" : "#555" }}>
           {formatDateLabel(stickyDate)}
         </div>
       )}
 
-      <div ref={messagesRefEl} style={{ flex: 1, overflowY: "auto", padding: 8, display: "flex", flexDirection: "column",
-      }}>
+      <div ref={messagesRefEl} style={{ flex: 1, overflowY: "auto", padding: 8, display: "flex", flexDirection: "column" }}>
         {messagesWithDateSeparators.map((item, idx) => {
           if (item.type === "date-separator") {
             return (
-              <div
-                key={`date-${idx}`}
-                style={{
-                  textAlign: "center",
-                  margin: "8px 0",
-                  color: isDark ? "#888" : "#555",
-                  fontSize: 12,
-                }}
-              >
+              <div key={`date-${idx}`} style={{ textAlign: "center", margin: "8px 0", color: isDark ? "#888" : "#555", fontSize: 12 }}>
                 {formatDateLabel(item.date)}
               </div>
             );
@@ -452,9 +354,9 @@ export default function ChatConversationPage() {
                   else delete messageRefs.current[msg.id];
                 }}
                 onReact={handleReact}
-                onOpenLongPress={(m) => setLongPressMessage(m)}
                 data-date={new Date(msg.createdAt).toDateString()}
                 data-type="message"
+                onOpenLongPress={(m) => setLongPressMessage(m)}
               />
             );
           }
@@ -462,14 +364,12 @@ export default function ChatConversationPage() {
         <div ref={endRef} />
       </div>
 
-      {/* Typing indicator */}
       {friendTyping && (
         <div style={{ padding: "4px 12px", fontSize: 12, color: isDark ? "#ccc" : "#555" }}>
           {friendInfo?.displayName || friendInfo?.name || "Contact"} is typing...
         </div>
       )}
 
-      {/* Chat input */}
       <ChatInput
         text={text}
         setText={(v) => {
@@ -487,7 +387,6 @@ export default function ChatConversationPage() {
         disabled={isBlocked}
       />
 
-      {/* Image preview modal */}
       {showPreview && selectedFiles.length > 0 && (
         <ImagePreviewModal
           previews={selectedFiles.map((f) => ({ file: f, url: URL.createObjectURL(f) }))}
@@ -505,16 +404,8 @@ export default function ChatConversationPage() {
         />
       )}
 
-      {/* Media viewer */}
-      {mediaViewer.open && (
-        <MediaViewer
-          items={mediaItems}
-          startIndex={mediaViewer.startIndex}
-          onClose={() => setMediaViewer({ open: false, startIndex: 0 })}
-        />
-      )}
+      {mediaViewer.open && <MediaViewer items={mediaItems} startIndex={mediaViewer.startIndex} onClose={() => setMediaViewer({ open: false, startIndex: 0 })} />}
 
-      {/* Long press message modal */}
       {longPressMessage && (
         <LongPressMessageModal
           message={longPressMessage}
@@ -523,16 +414,18 @@ export default function ChatConversationPage() {
           setReplyTo={(m) => {
             setReplyTo(m);
             setLongPressMessage(null);
-            setTimeout(() => scrollToMessagePublic(m.id), 200);
+            setTimeout(() => scrollToMessage(m.id), 200);
           }}
           setPinnedMessage={(m) => {
             setPinnedMessage(m);
             setLongPressMessage(null);
           }}
+          localReactions={longPressMessage.reactions}
           onReactionChange={(reactions) => {
             setMessages((prev) => prev.map((mm) => (mm.id === longPressMessage.id ? { ...mm, reactions } : mm)));
             setLongPressMessage(null);
           }}
+          isDark={isDark}
         />
       )}
 
