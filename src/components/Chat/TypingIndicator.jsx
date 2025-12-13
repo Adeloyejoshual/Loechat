@@ -1,34 +1,27 @@
+// src/components/Chat/TypingIndicator.jsx
 import React from "react";
 
-const dotStyle = {
-  display: "inline-block",
-  width: 6,
-  height: 6,
-  margin: "0 2px",
-  backgroundColor: "#555",
-  borderRadius: "50%",
-  animation: "typingBounce 1.2s infinite ease-in-out",
-};
+export default function TypingIndicator({ isTyping, isDark }) {
+  if (!isTyping) return null;
 
-export default function TypingIndicator({ userName = "Someone", isDark = false }) {
+  const dotStyle = (delay) => ({
+    width: 8,
+    height: 8,
+    margin: 2,
+    borderRadius: "50%",
+    backgroundColor: isDark ? "#fff" : "#333",
+    display: "inline-block",
+    animation: `bounce 1.2s infinite ${delay}s`,
+  });
+
   return (
-    <div
-      style={{
-        display: "flex",
-        alignItems: "center",
-        fontSize: 12,
-        fontStyle: "italic",
-        color: isDark ? "#ccc" : "#555",
-        marginTop: 4,
-      }}
-    >
-      <span style={{ marginRight: 4 }}>{userName} typing</span>
-      <span style={{ ...dotStyle, animationDelay: "0s" }} />
-      <span style={{ ...dotStyle, animationDelay: "0.2s" }} />
-      <span style={{ ...dotStyle, animationDelay: "0.4s" }} />
+    <div style={{ display: "flex", alignItems: "center", gap: 2, padding: 8, margin: "4px 0" }}>
+      <span style={dotStyle(0)}></span>
+      <span style={dotStyle(0.2)}></span>
+      <span style={dotStyle(0.4)}></span>
 
       <style>{`
-        @keyframes typingBounce {
+        @keyframes bounce {
           0%, 80%, 100% { transform: scale(0); }
           40% { transform: scale(1); }
         }
