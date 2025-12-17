@@ -14,7 +14,7 @@ import { useNavigate } from "react-router-dom";
 import { ThemeContext } from "../context/ThemeContext";
 import { usePopup } from "../context/PopupContext";
 import confetti from "canvas-confetti";
-import { useAd } from "./AdGateway";
+import { useAd } from "../components/AdGateway";
 
 // Cloudinary env
 const CLOUDINARY_CLOUD = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME;
@@ -45,7 +45,7 @@ function useAnimatedNumber(target, duration = 800) {
 
 export default function SettingsPage() {
   const { theme } = useContext(ThemeContext);
-  const { showPopup, hidePopup } = usePopup();
+  const { showPopup } = usePopup();
   const { showRewarded } = useAd();
   const navigate = useNavigate();
 
@@ -75,7 +75,6 @@ export default function SettingsPage() {
       setUser(u);
       setEmail(u.email || "");
 
-      // Load user info
       const userRef = doc(db, "users", u.uid);
       const snap = await getDoc(userRef);
       if (!snap.exists()) {
@@ -96,9 +95,6 @@ export default function SettingsPage() {
         setBio(data.bio || "");
         setProfilePic(data.profilePic || null);
       });
-
-      // Load wallet
-      loadWallet(u.uid);
 
       return () => unsubSnap();
     });
@@ -128,35 +124,20 @@ export default function SettingsPage() {
   };
 
   // ------------------ Daily Reward ------------------
-  const alreadyClaimed = transactions.some((t) => {
-    if (t.type !== "checkin") return false;
-    const txDate = new Date(t.createdAt || t.date);
-    const today = new Date();
-    return (
-      txDate.getFullYear() === today.getFullYear() &&
-      txDate.getMonth() === today.getMonth() &&
-      txDate.getDate() === today.getDate()
-    );
-  });
+  const launchConfetti = () => {
+    confetti({
+      particleCount: 120,
+      spread: 90,
+      origin: { y: 0.5 },
+      colors: ["#ffd700", "#ff9800", "#00e676", "#007bff"],
+    });
+  };
 
   const handleDailyReward = async () => {
-    if (!user || loadingReward || alreadyClaimed) return;
+    if (!user || loadingReward) return;
     setLoadingReward(true);
 
     try {
-      // Show rewarded ad first
-      if (showRewarded) {
-        const adSuccess = await new Promise((resolve) =>
-          showRewarded(15, () => resolve(true))
-        );
-        if (!adSuccess) {
-          showPopup("Ad skipped or failed. Reward not credited.");
-          setLoadingReward(false);
-          return;
-        }
-      }
-
-      // Claim reward
       const token = await getToken();
       const res = await fetch(`${backend}/api/wallet/daily`, {
         method: "POST",
@@ -166,20 +147,13 @@ export default function SettingsPage() {
         },
         body: JSON.stringify({ amount: 0.25 }),
       });
-
       const data = await res.json();
+
       if (res.ok) {
         setBalance(data.balance);
         setTransactions((prev) => [data.txn, ...prev]);
         showPopup("🎉 Daily reward claimed!");
-
-        // Confetti
-        confetti({
-          particleCount: 120,
-          spread: 90,
-          origin: { y: 0.5 },
-          colors: ["#ffd700", "#ff9800", "#00e676", "#007bff"],
-        });
+        launchConfetti();
 
         setFlashReward(true);
         setTimeout(() => setFlashReward(false), 600);
@@ -195,6 +169,19 @@ export default function SettingsPage() {
       setLoadingReward(false);
     }
   };
+
+  const alreadyClaimed = (() => {
+    if (!transactions || transactions.length === 0) return false;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    return transactions.some((t) => {
+      if (t.type !== "checkin") return false;
+      const txDate = new Date(t.createdAt || t.date);
+      txDate.setHours(0, 0, 0, 0);
+      return txDate.getTime() === today.getTime();
+    });
+  })();
 
   // ------------------ Cloudinary Upload ------------------
   const uploadToCloudinary = async (file) => {
@@ -284,7 +271,6 @@ export default function SettingsPage() {
           position: "relative",
         }}
       >
-        {/* Profile Picture */}
         <div
           onClick={() => navigate("/edit-profile")}
           style={{
@@ -306,7 +292,6 @@ export default function SettingsPage() {
           {!profilePic && (name?.[0] || "U")}
         </div>
 
-        {/* Info & Menu */}
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
             <h3 style={{ margin: 0, fontSize: 20 }}>{name || "Unnamed User"}</h3>
@@ -364,32 +349,23 @@ export default function SettingsPage() {
             {email}
           </p>
 
-          {/* Wallet Panel */}
+          {/* Wallet Panel - Fully Clickable */}
           <div
-            onClick={async () => {
-              if (!user) return;
-
-              try {
-                if (showRewarded) {
-                  const adSuccess = await new Promise((resolve) =>
-                    showRewarded(15, () => resolve(true))
-                  );
-                  if (!adSuccess) {
-                    showPopup("Ad skipped or failed. Cannot open wallet.");
-                    return;
-                  }
-                }
-                navigate("/wallet");
-              } catch (err) {
-                console.error(err);
-                showPopup("Failed to show ad. Try again.");
-              }
-            }}
+            onClick={() => navigate("/wallet")}
             style={{
               padding: 16,
               background: isDark ? "#1f1f1f" : "#eef6ff",
               borderRadius: 12,
               cursor: "pointer",
+              transition: "transform 0.2s, box-shadow 0.2s",
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.transform = "scale(1.02)";
+              e.currentTarget.style.boxShadow = "0 6px 15px rgba(0,0,0,0.2)";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.transform = "scale(1)";
+              e.currentTarget.style.boxShadow = "none";
             }}
           >
             <p style={{ margin: 0, fontSize: 16 }}>Balance:</p>
@@ -408,7 +384,7 @@ export default function SettingsPage() {
             {/* Daily Reward */}
             <button
               onClick={(e) => {
-                e.stopPropagation(); // Prevent wallet click
+                e.stopPropagation(); // Prevent wallet navigation
                 handleDailyReward();
               }}
               disabled={loadingReward || alreadyClaimed}
