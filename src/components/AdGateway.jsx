@@ -1,22 +1,21 @@
 // src/components/AdGateway.jsx
-import { createContext, useContext, useEffect } from "react";
+import { createContext, useContext } from "react";
 
 const AdContext = createContext();
 export const useAd = () => useContext(AdContext);
 
 export default function AdGateway({ children }) {
-  // Monetag loads automatically from index.html
-  useEffect(() => {
-    console.log("AdGateway mounted — Monetag handled globally");
-  }, []);
+  // Stub for rewarded ads
+  const showRewarded = async (zoneId, duration, onComplete) => {
+    console.log(`Rewarded ad requested: zone=${zoneId}, duration=${duration}s`);
 
-  // Monetag does NOT support rewarded ads
-  // This is intentionally empty to avoid violations
-  const value = {};
+    // ✅ Simulate ad delay
+    await new Promise((resolve) => setTimeout(resolve, duration * 1000));
 
-  return (
-    <AdContext.Provider value={value}>
-      {children}
-    </AdContext.Provider>
-  );
+    console.log("Rewarded ad completed (simulated)");
+    if (onComplete) onComplete();
+  };
+
+  const value = { showRewarded };
+  return <AdContext.Provider value={value}>{children}</AdContext.Provider>;
 }
