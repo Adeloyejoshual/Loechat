@@ -5,8 +5,8 @@ import {
   doc,
   getDoc,
   setDoc,
-  onSnapshot,
   updateDoc,
+  onSnapshot,
   serverTimestamp,
 } from "firebase/firestore";
 import { signOut } from "firebase/auth";
@@ -55,7 +55,6 @@ export default function SettingsPage() {
   const [email, setEmail] = useState("");
   const [profilePic, setProfilePic] = useState(null);
   const [selectedFile, setSelectedFile] = useState(null);
-
   const [balance, setBalance] = useState(0);
   const animatedBalance = useAnimatedNumber(balance);
   const [transactions, setTransactions] = useState([]);
@@ -67,7 +66,7 @@ export default function SettingsPage() {
   const isDark = theme === "dark";
   const backend = "https://smart-talk-zlxe.onrender.com";
 
-  // ------------------ Load user & wallet ------------------
+  // ------------------ AUTH & LOAD USER ------------------
   useEffect(() => {
     const unsubAuth = auth.onAuthStateChanged(async (u) => {
       if (!u) return navigate("/");
@@ -75,9 +74,9 @@ export default function SettingsPage() {
       setUser(u);
       setEmail(u.email || "");
 
-      // Load user info
       const userRef = doc(db, "users", u.uid);
       const snap = await getDoc(userRef);
+
       if (!snap.exists()) {
         await setDoc(userRef, {
           name: u.displayName || "User",
@@ -97,7 +96,6 @@ export default function SettingsPage() {
         setProfilePic(data.profilePic || null);
       });
 
-      // Load wallet
       loadWallet(u.uid);
 
       return () => unsubSnap();
@@ -118,16 +116,14 @@ export default function SettingsPage() {
       if (res.ok) {
         setBalance(data.balance || 0);
         setTransactions(data.transactions || []);
-      } else {
-        showPopup(data.error || "Failed to load wallet.");
-      }
+      } else showPopup(data.error || "Failed to load wallet.");
     } catch (err) {
       console.error(err);
       showPopup("Failed to load wallet. Check console.");
     }
   };
 
-  // ------------------ Daily Reward ------------------
+  // ------------------ DAILY REWARD ------------------
   const alreadyClaimed = transactions.some((t) => {
     if (t.type !== "checkin") return false;
     const txDate = new Date(t.createdAt || t.date);
@@ -144,7 +140,7 @@ export default function SettingsPage() {
     setLoadingReward(true);
 
     try {
-      // 1️⃣ Show rewarded ad
+      // Show rewarded ad
       if (showRewarded) {
         const adSuccess = await new Promise((resolve) =>
           showRewarded(15, () => resolve(true))
@@ -156,7 +152,6 @@ export default function SettingsPage() {
         }
       }
 
-      // 2️⃣ Claim reward from backend
       const token = await getToken();
       const res = await fetch(`${backend}/api/wallet/daily`, {
         method: "POST",
@@ -166,21 +161,18 @@ export default function SettingsPage() {
         },
         body: JSON.stringify({ amount: 0.25 }),
       });
-
       const data = await res.json();
+
       if (res.ok) {
         setBalance(data.balance);
         setTransactions((prev) => [data.txn, ...prev]);
         showPopup("🎉 Daily reward claimed!");
-
-        // Confetti animation
         confetti({
           particleCount: 120,
           spread: 90,
           origin: { y: 0.5 },
           colors: ["#ffd700", "#ff9800", "#00e676", "#007bff"],
         });
-
         setFlashReward(true);
         setTimeout(() => setFlashReward(false), 600);
       } else if (data.error?.toLowerCase().includes("already claimed")) {
@@ -196,7 +188,7 @@ export default function SettingsPage() {
     }
   };
 
-  // ------------------ Cloudinary Upload ------------------
+  // ------------------ PROFILE UPLOAD ------------------
   const uploadToCloudinary = async (file) => {
     if (!CLOUDINARY_CLOUD || !CLOUDINARY_PRESET)
       throw new Error("Cloudinary environment not set");
@@ -210,7 +202,6 @@ export default function SettingsPage() {
       { method: "POST", body: fd }
     );
     if (!res.ok) throw new Error("Cloudinary upload failed");
-
     const data = await res.json();
     return data.secure_url || data.url;
   };
@@ -240,6 +231,35 @@ export default function SettingsPage() {
     navigate("/");
   };
 
+  // ------------------ MONETAG PASSIVE ADS ------------------
+  useEffect(() => {
+    if (!window.Monetag) {
+      const script = document.createElement("script");
+      script.src = "https://3nbf4.com/act/files/multitag.min.js";
+      script.async = true;
+      document.body.appendChild(script);
+      script.onload = () => renderAds();
+    } else renderAds();
+  }, []);
+
+  const adZones = [
+    { id: 10287798, container: "monetag-settings" }, // Passive zone for Settings
+  ];
+
+  const renderAds = () => {
+    if (!window.Monetag) return;
+    adZones.forEach(({ id, container }) => {
+      const el = document.getElementById(container);
+      if (el) {
+        try {
+          window.Monetag.loadZone({ zoneId: id, container });
+        } catch (err) {
+          console.error(`Failed to load Monetag zone ${id}:`, err);
+        }
+      }
+    });
+  };
+
   if (!user) return <p>Loading user...</p>;
 
   return (
@@ -251,6 +271,9 @@ export default function SettingsPage() {
         color: isDark ? "#fff" : "#000",
       }}
     >
+      {/* Passive Monetag Ad */}
+      <div id="monetag-settings" style={{ marginBottom: 16 }}></div>
+
       {/* Back */}
       <div
         style={{
@@ -270,7 +293,7 @@ export default function SettingsPage() {
 
       <h2 style={{ textAlign: "center", marginBottom: 20 }}>⚙️ Settings</h2>
 
-      {/* Profile Card */}
+      {/* Profile & Wallet Card */}
       <div
         style={{
           display: "flex",
@@ -284,15 +307,15 @@ export default function SettingsPage() {
           position: "relative",
         }}
       >
+        {/* Profile Pic */}
         <div
-          onClick={() => navigate("/edit-profile")}
+          onClick={() => profileInputRef.current?.click()}
           style={{
             width: 88,
             height: 88,
             borderRadius: 44,
             background: profilePic ? `url(${profilePic}) center/cover` : "#888",
             cursor: "pointer",
-            flexShrink: 0,
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
@@ -305,6 +328,7 @@ export default function SettingsPage() {
           {!profilePic && (name?.[0] || "U")}
         </div>
 
+        {/* User Info */}
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
             <h3 style={{ margin: 0, fontSize: 20 }}>{name || "Unnamed User"}</h3>
