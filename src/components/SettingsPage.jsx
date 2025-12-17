@@ -1,7 +1,14 @@
 // src/components/SettingsPage.jsx
 import React, { useEffect, useState, useContext, useRef } from "react";
 import { auth, db } from "../firebaseConfig";
-import { doc, getDoc, setDoc, onSnapshot, updateDoc, serverTimestamp } from "firebase/firestore";
+import {
+  doc,
+  getDoc,
+  setDoc,
+  onSnapshot,
+  updateDoc,
+  serverTimestamp,
+} from "firebase/firestore";
 import { signOut } from "firebase/auth";
 import { useNavigate } from "react-router-dom";
 import { ThemeContext } from "../context/ThemeContext";
@@ -13,7 +20,7 @@ import { useAd } from "../components/AdGateway";
 const CLOUDINARY_CLOUD = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME;
 const CLOUDINARY_PRESET = import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET;
 
-// ====== Hook for animated number ======
+// Animated number hook
 function useAnimatedNumber(target, duration = 800) {
   const [display, setDisplay] = useState(target);
   const raf = useRef();
@@ -36,24 +43,10 @@ function useAnimatedNumber(target, duration = 800) {
   return display;
 }
 
-// ====== Interstitial Ad Function (optional Google Adsense) ======
-const showInterstitialAd = () => {
-  const adContainer = document.createElement("ins");
-  adContainer.className = "adsbygoogle";
-  adContainer.style.display = "block";
-  adContainer.setAttribute("data-ad-client", "ca-pub-3218753156748504");
-  adContainer.setAttribute("data-ad-slot", "7639678257");
-  adContainer.setAttribute("data-ad-format", "auto");
-  adContainer.setAttribute("data-full-width-responsive", "true");
-
-  document.body.appendChild(adContainer);
-  (adsbygoogle = window.adsbygoogle || []).push({});
-};
-
 export default function SettingsPage() {
   const { theme } = useContext(ThemeContext);
   const { showPopup } = usePopup();
-  const { showRewarded } = useAd(); // 🔑 AdGateway integration
+  const { showRewarded } = useAd();
   const navigate = useNavigate();
 
   const [user, setUser] = useState(null);
@@ -64,7 +57,7 @@ export default function SettingsPage() {
   const [selectedFile, setSelectedFile] = useState(null);
 
   const [balance, setBalance] = useState(0);
-  const animatedBalance = useAnimatedNumber(balance, 800);
+  const animatedBalance = useAnimatedNumber(balance);
   const [transactions, setTransactions] = useState([]);
   const [loadingReward, setLoadingReward] = useState(false);
   const [flashReward, setFlashReward] = useState(false);
@@ -74,7 +67,7 @@ export default function SettingsPage() {
   const isDark = theme === "dark";
   const backend = "https://smart-talk-zlxe.onrender.com";
 
-  // ================== Load User + Wallet ==================
+  // ------------------ Load user & wallet ------------------
   useEffect(() => {
     const unsubAuth = auth.onAuthStateChanged(async (u) => {
       if (!u) return navigate("/");
@@ -83,8 +76,6 @@ export default function SettingsPage() {
       setEmail(u.email || "");
 
       const userRef = doc(db, "users", u.uid);
-
-      // Ensure user doc exists
       const snap = await getDoc(userRef);
       if (!snap.exists()) {
         await setDoc(userRef, {
@@ -97,7 +88,6 @@ export default function SettingsPage() {
         });
       }
 
-      // Live snapshot for profile
       const unsubSnap = onSnapshot(userRef, (s) => {
         if (!s.exists()) return;
         const data = s.data();
@@ -133,7 +123,7 @@ export default function SettingsPage() {
     }
   };
 
-  // ================== Daily Reward ==================
+  // ------------------ Daily Reward ------------------
   const launchConfetti = () => {
     confetti({
       particleCount: 120,
@@ -193,7 +183,7 @@ export default function SettingsPage() {
     });
   })();
 
-  // ================== Cloudinary Upload ==================
+  // ------------------ Cloudinary Upload ------------------
   const uploadToCloudinary = async (file) => {
     if (!CLOUDINARY_CLOUD || !CLOUDINARY_PRESET)
       throw new Error("Cloudinary environment not set");
@@ -248,7 +238,7 @@ export default function SettingsPage() {
         color: isDark ? "#fff" : "#000",
       }}
     >
-      {/* Back Arrow */}
+      {/* Back */}
       <div
         style={{
           display: "flex",
@@ -267,7 +257,7 @@ export default function SettingsPage() {
 
       <h2 style={{ textAlign: "center", marginBottom: 20 }}>⚙️ Settings</h2>
 
-      {/* ================= Profile Card ================= */}
+      {/* Profile Card */}
       <div
         style={{
           display: "flex",
@@ -281,7 +271,6 @@ export default function SettingsPage() {
           position: "relative",
         }}
       >
-        {/* Profile Picture */}
         <div
           onClick={() => navigate("/edit-profile")}
           style={{
@@ -303,7 +292,6 @@ export default function SettingsPage() {
           {!profilePic && (name?.[0] || "U")}
         </div>
 
-        {/* User Info */}
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
             <h3 style={{ margin: 0, fontSize: 20 }}>{name || "Unnamed User"}</h3>
@@ -361,18 +349,13 @@ export default function SettingsPage() {
             {email}
           </p>
 
-          {/* ================= Wallet Panel ================= */}
+          {/* Wallet Panel */}
           <div
             style={{
               padding: 16,
               background: isDark ? "#1f1f1f" : "#eef6ff",
               borderRadius: 12,
-              cursor: "pointer",
-              transition: "transform 0.2s",
             }}
-            onClick={() => navigate("/wallet")}
-            onMouseEnter={(e) => (e.currentTarget.style.transform = "scale(1.02)")}
-            onMouseLeave={(e) => (e.currentTarget.style.transform = "scale(1)")}
           >
             <p style={{ margin: 0, fontSize: 16 }}>Balance:</p>
             <strong
@@ -387,17 +370,9 @@ export default function SettingsPage() {
               ${animatedBalance.toFixed(2)}
             </strong>
 
-            {/* Daily Reward Button */}
+            {/* Daily Reward */}
             <button
-              onClick={async (e) => {
-                e.stopPropagation();
-                if (loadingReward || alreadyClaimed) return;
-
-                // 🔹 Show full-screen rewarded ad before claiming
-                showRewarded(10287794, 15, async () => {
-                  await handleDailyReward();
-                });
-              }}
+              onClick={handleDailyReward}
               disabled={loadingReward || alreadyClaimed}
               style={{
                 marginTop: 12,
@@ -428,7 +403,6 @@ export default function SettingsPage() {
         </div>
       </div>
 
-      {/* Hidden file input for Cloudinary */}
       <input
         ref={profileInputRef}
         type="file"
@@ -440,7 +414,6 @@ export default function SettingsPage() {
   );
 }
 
-/* Styles */
 const menuItemStyle = {
   display: "block",
   width: "100%",
