@@ -5,9 +5,9 @@ import { useNavigate } from "react-router-dom";
 import { ThemeContext } from "../context/ThemeContext";
 import { usePopup } from "../context/PopupContext";
 import confetti from "canvas-confetti";
-import { useAd } from "./AdGateway"; // Hook to trigger rewarded ads
+import { useAd } from "./AdGateway"; // Rewarded ad hook
 
-// Animated balance hook
+// Animated number hook
 function useAnimatedNumber(target, duration = 800) {
   const [display, setDisplay] = useState(target);
   const raf = useRef();
@@ -34,7 +34,7 @@ export default function WalletPage() {
   const { theme } = useContext(ThemeContext);
   const { showPopup, hidePopup } = usePopup();
   const navigate = useNavigate();
-  const { showRewarded } = useAd(); // Full-screen Monetag ad hook
+  const { showRewarded } = useAd();
 
   const [user, setUser] = useState(null);
   const [balance, setBalance] = useState(0);
@@ -79,11 +79,10 @@ export default function WalletPage() {
     }
   };
 
-  // ---------------- REWARD AD HELPER ----------------
-  // Returns a promise that resolves true when ad completes
+  // ---------------- REWARD AD ----------------
   const showRewardAd = () =>
     new Promise((resolve) => {
-      showRewarded(15, () => resolve(true)); // 15s ad
+      showRewarded(15, () => resolve(true));
     });
 
   // ---------------- DAILY REWARD ----------------
@@ -103,15 +102,13 @@ export default function WalletPage() {
     setLoadingReward(true);
 
     try {
-      // 1️⃣ Show full-screen rewarded ad
       const adSuccess = await showRewardAd();
       if (!adSuccess) {
-        showPopup("Ad was skipped or failed. Reward not credited.");
+        showPopup("Ad skipped or failed. Reward not credited.");
         setLoadingReward(false);
         return;
       }
 
-      // 2️⃣ Claim daily reward after ad
       const token = await getToken();
       const res = await fetch(`${backend}/api/wallet/daily`, {
         method: "POST",
@@ -127,15 +124,12 @@ export default function WalletPage() {
         setBalance(data.balance);
         setTransactions((prev) => [data.txn, ...prev]);
         showPopup("🎉 Daily reward claimed!");
-
-        // Confetti animation
         confetti({
           particleCount: 120,
           spread: 90,
           origin: { y: 0.5 },
           colors: ["#ffd700", "#ff9800", "#00e676", "#007bff"],
         });
-
         setFlashReward(true);
         setTimeout(() => setFlashReward(false), 600);
       } else {
@@ -154,14 +148,12 @@ export default function WalletPage() {
     if (!user) return;
 
     try {
-      // 1️⃣ Show full-screen rewarded ad before withdraw
       const adSuccess = await showRewardAd();
       if (!adSuccess) {
-        showPopup("Ad was skipped or failed. Cannot withdraw.");
+        showPopup("Ad skipped or failed. Cannot withdraw.");
         return;
       }
 
-      // 2️⃣ Navigate to withdraw page
       navigate("/withdraw");
     } catch (err) {
       console.error(err);
@@ -195,6 +187,39 @@ export default function WalletPage() {
       new Date(selectedMonth.getFullYear(), selectedMonth.getMonth() + 1, 1)
     );
 
+  // ---------------- MONETAG PASSIVE ZONES ----------------
+  useEffect(() => {
+    if (!window.Monetag) {
+      const script = document.createElement("script");
+      script.src = "https://3nbf4.com/act/files/multitag.min.js";
+      script.async = true;
+      document.body.appendChild(script);
+      script.onload = () => renderPassiveZones();
+    } else {
+      renderPassiveZones();
+    }
+  }, []);
+
+  const passiveZones = [
+    { id: 10287795, container: "monetag-inline-wallet" },
+    { id: 10287798, container: "monetag-push-notif" },
+    { id: 10287797, container: "monetag-vignette-home" },
+  ];
+
+  const renderPassiveZones = () => {
+    if (!window.Monetag) return;
+    passiveZones.forEach(({ id, container }) => {
+      const el = document.getElementById(container);
+      if (el) {
+        try {
+          window.Monetag.loadZone({ zoneId: id, container });
+        } catch (err) {
+          console.error(`Failed to load Monetag zone ${id}:`, err);
+        }
+      }
+    });
+  };
+
   // ---------------- RENDER ----------------
   return (
     <div
@@ -204,6 +229,11 @@ export default function WalletPage() {
         color: theme === "dark" ? "#fff" : "#000",
       }}
     >
+      {/* Passive Ad Zones */}
+      <div id="monetag-inline-wallet" style={{ margin: "10px 0" }}></div>
+      <div id="monetag-push-notif" style={{ display: "none" }}></div>
+      <div id="monetag-vignette-home" style={{ display: "none" }}></div>
+
       {/* Back Button */}
       <button
         onClick={() => navigate("/settings")}
@@ -244,13 +274,12 @@ export default function WalletPage() {
               ...styles.roundBtn,
               background: theme === "dark" ? "#f97316" : "#f59e0b",
             }}
-            onClick={handleWithdraw} // ✅ Full ad before withdraw
+            onClick={handleWithdraw}
           >
             Withdraw
           </button>
         </div>
 
-        {/* Daily Reward */}
         <div style={{ marginTop: 15 }}>
           <button
             style={{
@@ -267,7 +296,7 @@ export default function WalletPage() {
               transition: "all 0.3s",
             }}
             disabled={alreadyClaimed || loadingReward}
-            onClick={handleDailyReward} // ✅ Full ad before reward
+            onClick={handleDailyReward}
           >
             {loadingReward
               ? "Processing..."
@@ -340,12 +369,7 @@ export default function WalletPage() {
                     </p>
                     <button
                       onClick={hidePopup}
-                      style={{
-                        marginTop: 10,
-                        padding: 6,
-                        borderRadius: 6,
-                        cursor: "pointer",
-                      }}
+                      style={{ marginTop: 10, padding: 6, borderRadius: 6, cursor: "pointer" }}
                     >
                       Close
                     </button>
