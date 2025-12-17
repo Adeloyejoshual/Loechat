@@ -349,12 +349,23 @@ export default function SettingsPage() {
             {email}
           </p>
 
-          {/* Wallet Panel */}
+          {/* Wallet Panel - Fully Clickable */}
           <div
+            onClick={() => navigate("/wallet")}
             style={{
               padding: 16,
               background: isDark ? "#1f1f1f" : "#eef6ff",
               borderRadius: 12,
+              cursor: "pointer",
+              transition: "transform 0.2s, box-shadow 0.2s",
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.transform = "scale(1.02)";
+              e.currentTarget.style.boxShadow = "0 6px 15px rgba(0,0,0,0.2)";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.transform = "scale(1)";
+              e.currentTarget.style.boxShadow = "none";
             }}
           >
             <p style={{ margin: 0, fontSize: 16 }}>Balance:</p>
@@ -372,7 +383,10 @@ export default function SettingsPage() {
 
             {/* Daily Reward */}
             <button
-              onClick={handleDailyReward}
+              onClick={(e) => {
+                e.stopPropagation(); // Prevent wallet navigation
+                handleDailyReward();
+              }}
               disabled={loadingReward || alreadyClaimed}
               style={{
                 marginTop: 12,
