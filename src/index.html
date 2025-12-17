@@ -1,15 +1,31 @@
 // src/components/HomePage.jsx
-import React, { useContext } from "react";
+import React, { useContext, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { ThemeContext } from "../context/ThemeContext";
 
 export default function HomePage() {
   const { theme, wallpaper } = useContext(ThemeContext);
 
+  // Load Monetag banner/native when page mounts
+  useEffect(() => {
+    if (window.Monetag) {
+      try {
+        window.Monetag.loadZone({
+          zoneId: 10287796, // ✅ Native Banner / Interstitial
+          container: "monetag-home-banner",
+        });
+      } catch (e) {
+        console.error("Monetag load failed:", e);
+      }
+    }
+  }, []);
+
   return (
     <div
       className={`flex flex-col items-center justify-center min-h-screen text-center transition-all duration-300 ${
-        theme === "dark" ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-900"
+        theme === "dark"
+          ? "bg-gray-900 text-white"
+          : "bg-gray-100 text-gray-900"
       }`}
       style={{
         backgroundImage: wallpaper ? `url(${wallpaper})` : "none",
@@ -17,9 +33,10 @@ export default function HomePage() {
         backgroundPosition: "center",
       }}
     >
+      {/* Main Content */}
       <h1 className="text-4xl font-bold mb-8">Welcome to LoeChat</h1>
 
-      <div className="space-x-4">
+      <div className="space-x-4 mb-10">
         <Link
           to="/register"
           className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 rounded-lg transition"
@@ -33,6 +50,26 @@ export default function HomePage() {
         >
           Login
         </Link>
+      </div>
+
+      {/* ✅ AD SECTION (under content) */}
+      <div
+        id="monetag-home-banner"
+        style={{
+          width: "100%",
+          maxWidth: 360,
+          minHeight: 250,
+          marginTop: 20,
+          borderRadius: 12,
+          background: theme === "dark" ? "#1f2937" : "#e5e7eb",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          fontSize: 14,
+          opacity: 0.9,
+        }}
+      >
+        Loading Ad...
       </div>
     </div>
   );
