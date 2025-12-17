@@ -96,6 +96,9 @@ export default function SettingsPage() {
         setProfilePic(data.profilePic || null);
       });
 
+      // Load wallet
+      await loadWallet(u.uid);
+
       return () => unsubSnap();
     });
 
@@ -114,6 +117,8 @@ export default function SettingsPage() {
       if (res.ok) {
         setBalance(data.balance || 0);
         setTransactions(data.transactions || []);
+        setFlashReward(true);
+        setTimeout(() => setFlashReward(false), 600); // flash animation
       } else {
         showPopup(data.error || "Failed to load wallet.");
       }
@@ -133,43 +138,6 @@ export default function SettingsPage() {
     });
   };
 
-  const handleDailyReward = async () => {
-    if (!user || loadingReward) return;
-    setLoadingReward(true);
-
-    try {
-      const token = await getToken();
-      const res = await fetch(`${backend}/api/wallet/daily`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ amount: 0.25 }),
-      });
-      const data = await res.json();
-
-      if (res.ok) {
-        setBalance(data.balance);
-        setTransactions((prev) => [data.txn, ...prev]);
-        showPopup("🎉 Daily reward claimed!");
-        launchConfetti();
-
-        setFlashReward(true);
-        setTimeout(() => setFlashReward(false), 600);
-      } else if (data.error?.toLowerCase().includes("already claimed")) {
-        showPopup("✅ You already claimed today's reward!");
-      } else {
-        showPopup(data.error || "Failed to claim daily reward.");
-      }
-    } catch (err) {
-      console.error(err);
-      showPopup("Failed to claim daily reward. Check console.");
-    } finally {
-      setLoadingReward(false);
-    }
-  };
-
   const alreadyClaimed = (() => {
     if (!transactions || transactions.length === 0) return false;
     const today = new Date();
@@ -182,6 +150,48 @@ export default function SettingsPage() {
       return txDate.getTime() === today.getTime();
     });
   })();
+
+  const handleDailyReward = async () => {
+    if (!user || loadingReward || alreadyClaimed) return;
+    setLoadingReward(true);
+
+    try {
+      // Show rewarded ad first
+      const adSuccess = await showRewarded(15, () => true);
+      if (!adSuccess) {
+        showPopup("Ad skipped. Reward not credited.");
+        setLoadingReward(false);
+        return;
+      }
+
+      const token = await getToken();
+      const res = await fetch(`${backend}/api/wallet/daily`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ amount: 0.25 }),
+      });
+      const data = await res.json();
+
+      if (res.ok) {
+        // Refresh wallet after reward claim
+        await loadWallet(user.uid);
+        showPopup("🎉 Daily reward claimed!");
+        launchConfetti();
+      } else if (data.error?.toLowerCase().includes("already claimed")) {
+        showPopup("✅ You already claimed today's reward!");
+      } else {
+        showPopup(data.error || "Failed to claim daily reward.");
+      }
+    } catch (err) {
+      console.error(err);
+      showPopup("Failed to claim daily reward. Check console.");
+    } finally {
+      setLoadingReward(false);
+    }
+  };
 
   // ------------------ Cloudinary Upload ------------------
   const uploadToCloudinary = async (file) => {
@@ -376,6 +386,7 @@ export default function SettingsPage() {
                 display: "inline-block",
                 marginTop: 4,
                 transition: "all 0.5s",
+                transform: flashReward ? "scale(1.15)" : "scale(1)",
               }}
             >
               ${animatedBalance.toFixed(2)}
@@ -384,7 +395,7 @@ export default function SettingsPage() {
             {/* Daily Reward */}
             <button
               onClick={(e) => {
-                e.stopPropagation(); // Prevent wallet navigation
+                e.stopPropagation();
                 handleDailyReward();
               }}
               disabled={loadingReward || alreadyClaimed}
