@@ -1,7 +1,7 @@
 // src/context/ThemeContext.jsx
 import React, { createContext, useState, useEffect } from "react";
 import { db, auth } from "../firebaseConfig";
-import { doc, getDoc, setDoc } from "firebase/firestore";
+import { doc, setDoc, onSnapshot } from "firebase/firestore";
 
 export const ThemeContext = createContext();
 
@@ -9,52 +9,59 @@ export const ThemeProvider = ({ children }) => {
   const [theme, setTheme] = useState("light");
   const [wallpaper, setWallpaper] = useState("");
 
-  // Load settings when user logs in
+  // ---------------- LIVE LOAD FROM FIRESTORE ----------------
   useEffect(() => {
-    const loadSettings = async () => {
-      const user = auth.currentUser;
+    let unsubDoc = null;
+
+    const unsubAuth = auth.onAuthStateChanged((user) => {
       if (!user) return;
 
       const userRef = doc(db, "users", user.uid);
-      const snap = await getDoc(userRef);
 
-      if (snap.exists()) {
+      unsubDoc = onSnapshot(userRef, (snap) => {
+        if (!snap.exists()) return;
+
         const data = snap.data();
         if (data.theme) setTheme(data.theme);
-        if (data.wallpaper) setWallpaper(data.wallpaper);
-      }
-    };
+        if (data.wallpaper !== undefined) setWallpaper(data.wallpaper);
+      });
+    });
 
-    loadSettings();
+    return () => {
+      if (unsubDoc) unsubDoc();
+      unsubAuth();
+    };
   }, []);
 
-  // Save settings to Firebase
+  // ---------------- SAVE SETTINGS ----------------
   const updateSettings = async (newTheme, newWallpaper) => {
+    if (newTheme === theme && newWallpaper === wallpaper) return;
+
     setTheme(newTheme);
     setWallpaper(newWallpaper);
 
     const user = auth.currentUser;
-    if (user) {
-      const userRef = doc(db, "users", user.uid);
-      await setDoc(
-        userRef,
-        { theme: newTheme, wallpaper: newWallpaper },
-        { merge: true }
-      );
-    }
+    if (!user) return;
+
+    const userRef = doc(db, "users", user.uid);
+    await setDoc(
+      userRef,
+      {
+        theme: newTheme,
+        wallpaper: newWallpaper,
+        updatedAt: Date.now(),
+      },
+      { merge: true }
+    );
   };
 
-  // Apply theme class + wallpaper to document
+  // ---------------- APPLY TO DOCUMENT ----------------
   useEffect(() => {
     const root = document.documentElement;
 
-    // Remove old theme classes
     root.classList.remove("light-theme", "dark-theme");
-
-    // Apply new one
     root.classList.add(theme === "dark" ? "dark-theme" : "light-theme");
 
-    // Apply wallpaper if set
     if (wallpaper) {
       root.style.backgroundImage = `url(${wallpaper})`;
       root.style.backgroundSize = "cover";
