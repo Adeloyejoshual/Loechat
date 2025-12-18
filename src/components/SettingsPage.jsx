@@ -1,13 +1,6 @@
 import React, { useEffect, useState, useContext, useRef } from "react";
 import { auth, db } from "../firebaseConfig";
-import {
-  doc,
-  getDoc,
-  setDoc,
-  onSnapshot,
-  updateDoc,
-  serverTimestamp,
-} from "firebase/firestore";
+import { doc, getDoc, setDoc, onSnapshot, serverTimestamp } from "firebase/firestore";
 import { signOut } from "firebase/auth";
 import { useNavigate } from "react-router-dom";
 import confetti from "canvas-confetti";
@@ -17,7 +10,6 @@ import { usePopup } from "../context/PopupContext";
 import { useAd } from "../components/AdGateway";
 
 // Settings modules
-import AccountActionsSettings from "./SettingsPage/AccountActionsSettings";
 import ApplicationPreferencesSettings from "./SettingsPage/ApplicationPreferencesSettings";
 import DataAndStorageSettings from "./SettingsPage/DataAndStorageSettings";
 import NotificationSettings from "./SettingsPage/NotificationSettings";
@@ -54,7 +46,6 @@ function useAnimatedNumber(target, duration = 800) {
 }
 
 export default function SettingsPage() {
-  /* ------------------ Safe Contexts ------------------ */
   const themeCtx = useContext(ThemeContext);
   const theme = themeCtx?.theme || "light";
   const updateSettings = themeCtx?.updateSettings || (() => {});
@@ -63,13 +54,11 @@ export default function SettingsPage() {
   const showPopup = popupCtx?.showPopup || (() => {});
 
   const adCtx = useAd();
-  const showRewarded =
-    adCtx?.showRewarded || (async () => true);
+  const showRewarded = adCtx?.showRewarded || (async () => true);
 
   const navigate = useNavigate();
   const isDark = theme === "dark";
 
-  /* ------------------ State ------------------ */
   const [user, setUser] = useState(null);
   const [name, setName] = useState("");
   const [bio, setBio] = useState("");
@@ -101,10 +90,7 @@ export default function SettingsPage() {
           bio: "",
           email: u.email || "",
           profilePic: null,
-          preferences: {
-            notifications: true,
-            language: "en",
-          },
+          preferences: { notifications: true, language: "en" },
           createdAt: serverTimestamp(),
         });
       }
@@ -134,7 +120,6 @@ export default function SettingsPage() {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
-
       if (!res.ok) throw new Error(data.error);
 
       setBalance(data.balance || 0);
@@ -157,11 +142,7 @@ export default function SettingsPage() {
   });
 
   const launchConfetti = () => {
-    confetti({
-      particleCount: 120,
-      spread: 90,
-      origin: { y: 0.6 },
-    });
+    confetti({ particleCount: 120, spread: 90, origin: { y: 0.6 } });
   };
 
   const handleDailyReward = async () => {
@@ -194,7 +175,7 @@ export default function SettingsPage() {
     }
   };
 
-  /* ------------------ Upload ------------------ */
+  /* ------------------ Cloudinary Upload ------------------ */
   const uploadToCloudinary = async (file) => {
     const fd = new FormData();
     fd.append("file", file);
@@ -210,7 +191,6 @@ export default function SettingsPage() {
     return data.secure_url;
   };
 
-  /* ------------------ Logout ------------------ */
   const handleLogout = async () => {
     await signOut(auth);
     navigate("/");
@@ -235,29 +215,21 @@ export default function SettingsPage() {
 
       {/* Profile + Wallet */}
       <div style={card(isDark)}>
-        <div
-          onClick={() => navigate("/edit-profile")}
-          style={avatar(profilePic)}
-        >
+        <div onClick={() => navigate("/edit-profile")} style={avatar(profilePic)}>
           {!profilePic && (name?.[0] || "U")}
         </div>
 
         <div style={{ flex: 1 }}>
           <div style={{ display: "flex", alignItems: "center" }}>
             <h3>{name}</h3>
-            <button
-              onClick={() => setMenuOpen(!menuOpen)}
-              style={{ marginLeft: "auto" }}
-            >
+            <button onClick={() => setMenuOpen(!menuOpen)} style={{ marginLeft: "auto" }}>
               ⋮
             </button>
           </div>
 
           {menuOpen && (
             <div style={menu(isDark)}>
-              <button onClick={() => navigate("/edit-profile")}>
-                Edit Info
-              </button>
+              <button onClick={() => navigate("/edit-profile")}>Edit Info</button>
               <button onClick={handleLogout}>Log Out</button>
             </div>
           )}
@@ -291,9 +263,8 @@ export default function SettingsPage() {
         </div>
       </div>
 
-      {/* Modules */}
+      {/* Settings Modules */}
       <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-        <AccountActionsSettings userId={user.uid} />
         <ApplicationPreferencesSettings userId={user.uid} />
         <DataAndStorageSettings userId={user.uid} />
         <NotificationSettings userId={user.uid} />
