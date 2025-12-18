@@ -1,20 +1,21 @@
 // src/components/SettingsPage.jsx
 import React, { useEffect, useState, useContext, useRef } from "react";
 import { auth, db } from "../firebaseConfig";
-import {
-  doc,
-  getDoc,
-  setDoc,
-  onSnapshot,
-  updateDoc,
-  serverTimestamp,
-} from "firebase/firestore";
+import { doc, getDoc, setDoc, onSnapshot, updateDoc, serverTimestamp } from "firebase/firestore";
 import { signOut } from "firebase/auth";
 import { useNavigate } from "react-router-dom";
 import { ThemeContext } from "../context/ThemeContext";
 import { usePopup } from "../context/PopupContext";
 import confetti from "canvas-confetti";
 import { useAd } from "../components/AdGateway";
+
+// Split settings modules
+import AccountActionsSettings from "./SettingsPage/AccountActionsSettings";
+import ApplicationPreferencesSettings from "./SettingsPage/ApplicationPreferencesSettings";
+import DataAndStorageSettings from "./SettingsPage/DataAndStorageSettings";
+import NotificationSettings from "./SettingsPage/NotificationSettings";
+import PrivacyAndSecuritySettings from "./SettingsPage/PrivacyAndSecuritySettings";
+import SupportAndAboutSettings from "./SettingsPage/SupportAndAboutSettings";
 
 // Cloudinary env
 const CLOUDINARY_CLOUD = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME;
@@ -266,6 +267,7 @@ export default function SettingsPage() {
     if (user) {
       const userRef = doc(db, "users", user.uid);
       await updateDoc(userRef, { "preferences.language": lang });
+      showPopup(`Language changed to ${lang.toUpperCase()}`);
     }
   };
 
@@ -321,38 +323,14 @@ export default function SettingsPage() {
         </div>
       </div>
 
-      {/* ----------- Settings Toggles ----------- */}
-      <div style={{ background: isDark ? "#2b2b2b" : "#fff", borderRadius: 12, padding: 16, boxShadow: "0 2px 6px rgba(0,0,0,0.1)" }}>
-        <h3 style={{ marginBottom: 12 }}>Preferences</h3>
-
-        {/* Theme Toggle */}
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-          <span>Dark Mode</span>
-          <input type="checkbox" checked={isDark} onChange={() => updateSettings(isDark ? "light" : "dark", wallpaper)} />
-        </div>
-
-        {/* Wallpaper Upload */}
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-          <span>Change Wallpaper</span>
-          <button onClick={() => wallpaperInputRef.current.click()} style={{ padding: "6px 12px", borderRadius: 6 }}>Upload</button>
-          <input ref={wallpaperInputRef} type="file" accept="image/*" style={{ display: "none" }} onChange={onWallpaperChange} />
-        </div>
-
-        {/* Notifications Toggle */}
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-          <span>Notifications</span>
-          <input type="checkbox" checked={notifications} onChange={toggleNotifications} />
-        </div>
-
-        {/* Language Selection */}
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-          <span>Language</span>
-          <select value={language} onChange={(e) => changeLanguage(e.target.value)}>
-            <option value="en">English</option>
-            <option value="es">Spanish</option>
-            <option value="fr">French</option>
-          </select>
-        </div>
+      {/* ----------- Settings Modules ----------- */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+        <AccountActionsSettings userId={user.uid} />
+        <ApplicationPreferencesSettings userId={user.uid} />
+        <DataAndStorageSettings userId={user.uid} />
+        <NotificationSettings userId={user.uid} />
+        <PrivacyAndSecuritySettings userId={user.uid} />
+        <SupportAndAboutSettings />
       </div>
     </div>
   );
