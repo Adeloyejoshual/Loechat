@@ -1,4 +1,3 @@
-// src/App.jsx
 import React, { useEffect, useState } from "react";
 import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
 
@@ -7,6 +6,7 @@ import { ThemeProvider } from "./context/ThemeContext";
 import { WalletProvider } from "./context/WalletContext";
 import { UserProvider } from "./context/UserContext";
 import { PopupProvider } from "./context/PopupContext";
+import { SettingsProvider } from "./context/SettingsContext"; // NEW
 
 // Firebase
 import { auth, setUserPresence, db } from "./firebaseConfig";
@@ -43,9 +43,7 @@ export default function App() {
   useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged((u) => {
       setUser(u);
-
-      // Artificial delay for loading animation
-      setTimeout(() => setCheckingAuth(false), 800);
+      setTimeout(() => setCheckingAuth(false), 800); // loading animation
 
       if (u) {
         const cleanupPresence = setUserPresence(u.uid);
@@ -73,12 +71,8 @@ export default function App() {
       window.addEventListener("load", () => {
         navigator.serviceWorker
           .register("/monetag-sw.js")
-          .then((registration) => {
-            console.log("Monetag SW registered:", registration);
-          })
-          .catch((err) => {
-            console.error("Monetag SW registration failed:", err);
-          });
+          .then((reg) => console.log("Monetag SW registered:", reg))
+          .catch((err) => console.error("Monetag SW failed:", err));
       });
     }
   }, []);
@@ -135,151 +129,153 @@ export default function App() {
   // App Routes
   // -----------------------------
   return (
-    <ThemeProvider>
-      <WalletProvider>
-        <UserProvider>
-          <PopupProvider>
-            <AdGateway>
-              <Router>
-                <Routes>
-                  {/* Public Route */}
-                  <Route path="/" element={user ? <ChatPage /> : <HomePage />} />
+    <SettingsProvider>
+      <ThemeProvider>
+        <WalletProvider>
+          <UserProvider>
+            <PopupProvider>
+              <AdGateway>
+                <Router>
+                  <Routes>
+                    {/* Public Route */}
+                    <Route path="/" element={user ? <ChatPage /> : <HomePage />} />
 
-                  {/* Chat Routes */}
-                  <Route
-                    path="/chat"
-                    element={
-                      <ProtectedRoute>
-                        <ChatPage />
-                      </ProtectedRoute>
-                    }
-                  />
-                  <Route
-                    path="/chat/:chatId"
-                    element={
-                      <ProtectedRoute>
-                        <ChatConversationPage />
-                      </ProtectedRoute>
-                    }
-                  />
-                  <Route
-                    path="/chat/:chatId/media"
-                    element={
-                      <ProtectedRoute>
-                        <SharedMediaPage />
-                      </ProtectedRoute>
-                    }
-                  />
-                  <Route
-                    path="/archive"
-                    element={
-                      <ProtectedRoute>
-                        <ArchivePage />
-                      </ProtectedRoute>
-                    }
-                  />
+                    {/* Chat Routes */}
+                    <Route
+                      path="/chat"
+                      element={
+                        <ProtectedRoute>
+                          <ChatPage />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="/chat/:chatId"
+                      element={
+                        <ProtectedRoute>
+                          <ChatConversationPage />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="/chat/:chatId/media"
+                      element={
+                        <ProtectedRoute>
+                          <SharedMediaPage />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="/archive"
+                      element={
+                        <ProtectedRoute>
+                          <ArchivePage />
+                        </ProtectedRoute>
+                      }
+                    />
 
-                  {/* Voice / Video Calls */}
-                  <Route
-                    path="/voice-call/:chatId/:friendId"
-                    element={
-                      <ProtectedRoute>
-                        <VoiceCall />
-                      </ProtectedRoute>
-                    }
-                  />
-                  <Route
-                    path="/video-call/:chatId/:friendId"
-                    element={
-                      <ProtectedRoute>
-                        <VideoCall />
-                      </ProtectedRoute>
-                    }
-                  />
+                    {/* Voice / Video Calls */}
+                    <Route
+                      path="/voice-call/:chatId/:friendId"
+                      element={
+                        <ProtectedRoute>
+                          <VoiceCall />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="/video-call/:chatId/:friendId"
+                      element={
+                        <ProtectedRoute>
+                          <VideoCall />
+                        </ProtectedRoute>
+                      }
+                    />
 
-                  {/* Profile & Settings */}
-                  <Route
-                    path="/settings"
-                    element={
-                      <ProtectedRoute>
-                        <SettingsPage />
-                      </ProtectedRoute>
-                    }
-                  />
-                  <Route
-                    path="/edit-profile"
-                    element={
-                      <ProtectedRoute>
-                        <EditProfilePage />
-                      </ProtectedRoute>
-                    }
-                  />
-                  <Route
-                    path="/profile/:uid"
-                    element={
-                      <ProtectedRoute>
-                        <UserProfile />
-                      </ProtectedRoute>
-                    }
-                  />
-                  <Route
-                    path="/friend/:uid"
-                    element={
-                      <ProtectedRoute>
-                        <FriendProfilePage />
-                      </ProtectedRoute>
-                    }
-                  />
+                    {/* Profile & Settings */}
+                    <Route
+                      path="/settings"
+                      element={
+                        <ProtectedRoute>
+                          <SettingsPage />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="/edit-profile"
+                      element={
+                        <ProtectedRoute>
+                          <EditProfilePage />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="/profile/:uid"
+                      element={
+                        <ProtectedRoute>
+                          <UserProfile />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="/friend/:uid"
+                      element={
+                        <ProtectedRoute>
+                          <FriendProfilePage />
+                        </ProtectedRoute>
+                      }
+                    />
 
-                  {/* Wallet / Payments */}
-                  <Route
-                    path="/wallet"
-                    element={
-                      <ProtectedRoute>
-                        <WalletPage rewardCoins={rewardCoins} />
-                      </ProtectedRoute>
-                    }
-                  />
-                  <Route
-                    path="/daily-bonus"
-                    element={
-                      <ProtectedRoute>
-                        <HomePage rewardCoins={rewardCoins} />
-                      </ProtectedRoute>
-                    }
-                  />
-                  <Route
-                    path="/withdraw"
-                    element={
-                      <ProtectedRoute>
-                        <WithdrawPage rewardCoins={rewardCoins} />
-                      </ProtectedRoute>
-                    }
-                  />
-                  <Route
-                    path="/topup"
-                    element={
-                      <ProtectedRoute>
-                        <TopUpPage rewardCoins={rewardCoins} />
-                      </ProtectedRoute>
-                    }
-                  />
+                    {/* Wallet / Payments */}
+                    <Route
+                      path="/wallet"
+                      element={
+                        <ProtectedRoute>
+                          <WalletPage rewardCoins={rewardCoins} />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="/daily-bonus"
+                      element={
+                        <ProtectedRoute>
+                          <HomePage rewardCoins={rewardCoins} />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="/withdraw"
+                      element={
+                        <ProtectedRoute>
+                          <WithdrawPage rewardCoins={rewardCoins} />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="/topup"
+                      element={
+                        <ProtectedRoute>
+                          <TopUpPage rewardCoins={rewardCoins} />
+                        </ProtectedRoute>
+                      }
+                    />
 
-                  {/* Call History */}
-                  <Route
-                    path="/history"
-                    element={
-                      <ProtectedRoute>
-                        <CallHistoryPage />
-                      </ProtectedRoute>
-                    }
-                  />
-                </Routes>
-              </Router>
-            </AdGateway>
-          </PopupProvider>
-        </UserProvider>
-      </WalletProvider>
-    </ThemeProvider>
+                    {/* Call History */}
+                    <Route
+                      path="/history"
+                      element={
+                        <ProtectedRoute>
+                          <CallHistoryPage />
+                        </ProtectedRoute>
+                      }
+                    />
+                  </Routes>
+                </Router>
+              </AdGateway>
+            </PopupProvider>
+          </UserProvider>
+        </WalletProvider>
+      </ThemeProvider>
+    </SettingsProvider>
   );
 }
