@@ -1,15 +1,22 @@
-// src/components/SettingsPage.jsx
 import React, { useEffect, useState, useContext, useRef } from "react";
 import { auth, db } from "../firebaseConfig";
-import { doc, getDoc, setDoc, onSnapshot, updateDoc, serverTimestamp } from "firebase/firestore";
+import {
+  doc,
+  getDoc,
+  setDoc,
+  onSnapshot,
+  updateDoc,
+  serverTimestamp,
+} from "firebase/firestore";
 import { signOut } from "firebase/auth";
 import { useNavigate } from "react-router-dom";
+import confetti from "canvas-confetti";
+
 import { ThemeContext } from "../context/ThemeContext";
 import { usePopup } from "../context/PopupContext";
-import confetti from "canvas-confetti";
 import { useAd } from "../components/AdGateway";
 
-// Split settings modules
+// Settings modules
 import AccountActionsSettings from "./SettingsPage/AccountActionsSettings";
 import ApplicationPreferencesSettings from "./SettingsPage/ApplicationPreferencesSettings";
 import DataAndStorageSettings from "./SettingsPage/DataAndStorageSettings";
@@ -21,10 +28,12 @@ import SupportAndAboutSettings from "./SettingsPage/SupportAndAboutSettings";
 const CLOUDINARY_CLOUD = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME;
 const CLOUDINARY_PRESET = import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET;
 
-// Animated number hook
+const backend = "https://smart-talk-zlxe.onrender.com";
+
+/* ------------------ Animated Number ------------------ */
 function useAnimatedNumber(target, duration = 800) {
   const [display, setDisplay] = useState(target);
-  const raf = useRef();
+  const raf = useRef(null);
 
   useEffect(() => {
     const start = display;
@@ -45,36 +54,39 @@ function useAnimatedNumber(target, duration = 800) {
 }
 
 export default function SettingsPage() {
-  const { theme, updateSettings, wallpaper } = useContext(ThemeContext);
-  const { showPopup } = usePopup();
-  const { showRewarded } = useAd();
-  const navigate = useNavigate();
+  /* ------------------ Safe Contexts ------------------ */
+  const themeCtx = useContext(ThemeContext);
+  const theme = themeCtx?.theme || "light";
+  const updateSettings = themeCtx?.updateSettings || (() => {});
 
+  const popupCtx = usePopup();
+  const showPopup = popupCtx?.showPopup || (() => {});
+
+  const adCtx = useAd();
+  const showRewarded =
+    adCtx?.showRewarded || (async () => true);
+
+  const navigate = useNavigate();
+  const isDark = theme === "dark";
+
+  /* ------------------ State ------------------ */
   const [user, setUser] = useState(null);
   const [name, setName] = useState("");
   const [bio, setBio] = useState("");
   const [email, setEmail] = useState("");
   const [profilePic, setProfilePic] = useState(null);
-  const [selectedFile, setSelectedFile] = useState(null);
 
   const [balance, setBalance] = useState(0);
   const animatedBalance = useAnimatedNumber(balance);
   const [transactions, setTransactions] = useState([]);
+
   const [loadingReward, setLoadingReward] = useState(false);
   const [flashReward, setFlashReward] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
 
-  const [notifications, setNotifications] = useState(true);
-  const [language, setLanguage] = useState("en");
-
-  const profileInputRef = useRef(null);
-  const wallpaperInputRef = useRef(null);
-  const isDark = theme === "dark";
-  const backend = "https://smart-talk-zlxe.onrender.com";
-
-  // ------------------ Load user & wallet live ------------------
+  /* ------------------ Auth + User ------------------ */
   useEffect(() => {
-    const unsubAuth = auth.onAuthStateChanged(async (u) => {
+    const unsub = auth.onAuthStateChanged(async (u) => {
       if (!u) return navigate("/");
 
       setUser(u);
@@ -82,40 +94,39 @@ export default function SettingsPage() {
 
       const userRef = doc(db, "users", u.uid);
       const snap = await getDoc(userRef);
+
       if (!snap.exists()) {
         await setDoc(userRef, {
           name: u.displayName || "User",
           bio: "",
           email: u.email || "",
           profilePic: null,
-          preferences: { theme: "light", notifications: true, language: "en" },
+          preferences: {
+            notifications: true,
+            language: "en",
+          },
           createdAt: serverTimestamp(),
         });
       }
 
       const unsubSnap = onSnapshot(userRef, (s) => {
         if (!s.exists()) return;
-        const data = s.data();
-        setName(data.name || "");
-        setBio(data.bio || "");
-        setProfilePic(data.profilePic || null);
-        if (data.preferences) {
-          setNotifications(data.preferences.notifications ?? true);
-          setLanguage(data.preferences.language ?? "en");
-        }
+        const d = s.data();
+        setName(d.name || "");
+        setBio(d.bio || "");
+        setProfilePic(d.profilePic || null);
       });
 
       await loadWallet(u.uid);
-
       return () => unsubSnap();
     });
 
-    return () => unsubAuth();
+    return () => unsub();
   }, []);
 
-  const getToken = async () => auth.currentUser.getIdToken(true);
+  const getToken = async () => auth.currentUser?.getIdToken(true);
 
-  // ------------------ Wallet ------------------
+  /* ------------------ Wallet ------------------ */
   const loadWallet = async (uid) => {
     try {
       const token = await getToken();
@@ -123,54 +134,42 @@ export default function SettingsPage() {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
-      if (res.ok) {
-        setBalance(data.balance || 0);
-        setTransactions(data.transactions || []);
-        setFlashReward(true);
-        setTimeout(() => setFlashReward(false), 600);
-      } else {
-        showPopup(data.error || "Failed to load wallet.");
-      }
-    } catch (err) {
-      console.error(err);
-      showPopup("Failed to load wallet. Check console.");
+
+      if (!res.ok) throw new Error(data.error);
+
+      setBalance(data.balance || 0);
+      setTransactions(data.transactions || []);
+      setFlashReward(true);
+      setTimeout(() => setFlashReward(false), 600);
+    } catch {
+      showPopup("Failed to load wallet");
     }
   };
 
-  // ------------------ Daily Reward ------------------
+  /* ------------------ Daily Reward ------------------ */
+  const alreadyClaimed = transactions.some((t) => {
+    if (t.type !== "checkin") return false;
+    const d = new Date(t.createdAt || t.date);
+    const today = new Date();
+    d.setHours(0, 0, 0, 0);
+    today.setHours(0, 0, 0, 0);
+    return d.getTime() === today.getTime();
+  });
+
   const launchConfetti = () => {
     confetti({
       particleCount: 120,
       spread: 90,
-      origin: { y: 0.5 },
-      colors: ["#ffd700", "#ff9800", "#00e676", "#007bff"],
+      origin: { y: 0.6 },
     });
   };
 
-  const alreadyClaimed = (() => {
-    if (!transactions || transactions.length === 0) return false;
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
-    return transactions.some((t) => {
-      if (t.type !== "checkin") return false;
-      const txDate = new Date(t.createdAt || t.date);
-      txDate.setHours(0, 0, 0, 0);
-      return txDate.getTime() === today.getTime();
-    });
-  })();
-
   const handleDailyReward = async () => {
     if (!user || loadingReward || alreadyClaimed) return;
-    setLoadingReward(true);
 
+    setLoadingReward(true);
     try {
-      const adSuccess = await showRewarded(15, () => true);
-      if (!adSuccess) {
-        showPopup("Ad skipped. Reward not credited.");
-        setLoadingReward(false);
-        return;
-      }
+      await showRewarded("daily-reward", 15, () => true);
 
       const token = await getToken();
       const res = await fetch(`${backend}/api/wallet/daily`, {
@@ -181,30 +180,22 @@ export default function SettingsPage() {
         },
         body: JSON.stringify({ amount: 0.25 }),
       });
-      const data = await res.json();
 
-      if (res.ok) {
-        await loadWallet(user.uid);
-        showPopup("🎉 Daily reward claimed!");
-        launchConfetti();
-      } else if (data.error?.toLowerCase().includes("already claimed")) {
-        showPopup("✅ Already claimed today!");
-      } else {
-        showPopup(data.error || "Failed to claim daily reward.");
-      }
-    } catch (err) {
-      console.error(err);
-      showPopup("Failed to claim daily reward. Check console.");
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+
+      await loadWallet(user.uid);
+      showPopup("🎉 Daily reward claimed!");
+      launchConfetti();
+    } catch {
+      showPopup("Failed to claim daily reward");
     } finally {
       setLoadingReward(false);
     }
   };
 
-  // ------------------ Cloudinary Upload ------------------
+  /* ------------------ Upload ------------------ */
   const uploadToCloudinary = async (file) => {
-    if (!CLOUDINARY_CLOUD || !CLOUDINARY_PRESET)
-      throw new Error("Cloudinary environment not set");
-
     const fd = new FormData();
     fd.append("file", file);
     fd.append("upload_preset", CLOUDINARY_PRESET);
@@ -213,117 +204,94 @@ export default function SettingsPage() {
       `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD}/image/upload`,
       { method: "POST", body: fd }
     );
-    if (!res.ok) throw new Error("Cloudinary upload failed");
 
+    if (!res.ok) throw new Error();
     const data = await res.json();
-    return data.secure_url || data.url;
+    return data.secure_url;
   };
 
-  const onProfileFileChange = async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    setSelectedFile(file);
-    setProfilePic(URL.createObjectURL(file));
-
-    try {
-      const url = await uploadToCloudinary(file);
-      if (!user) return;
-      const userRef = doc(db, "users", user.uid);
-      await updateDoc(userRef, { profilePic: url, updatedAt: serverTimestamp() });
-      setProfilePic(url);
-      setSelectedFile(null);
-    } catch (err) {
-      console.error("Upload failed:", err);
-      showPopup("Failed to upload profile picture.");
-    }
-  };
-
-  const onWallpaperChange = async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    try {
-      const url = await uploadToCloudinary(file);
-      await updateSettings(theme, url);
-      showPopup("Wallpaper updated!");
-    } catch (err) {
-      console.error(err);
-      showPopup("Failed to update wallpaper.");
-    }
-  };
-
-  const toggleNotifications = async () => {
-    const newValue = !notifications;
-    setNotifications(newValue);
-    if (user) {
-      const userRef = doc(db, "users", user.uid);
-      await updateDoc(userRef, { "preferences.notifications": newValue });
-    }
-  };
-
-  const changeLanguage = async (lang) => {
-    setLanguage(lang);
-    if (user) {
-      const userRef = doc(db, "users", user.uid);
-      await updateDoc(userRef, { "preferences.language": lang });
-      showPopup(`Language changed to ${lang.toUpperCase()}`);
-    }
-  };
-
+  /* ------------------ Logout ------------------ */
   const handleLogout = async () => {
     await signOut(auth);
     navigate("/");
   };
 
-  if (!user) return <p>Loading user...</p>;
+  if (!user) return <p>Loading...</p>;
 
   return (
-    <div style={{ padding: 20, minHeight: "100vh", background: isDark ? "#1c1c1c" : "#f8f8f8", color: isDark ? "#fff" : "#000" }}>
-      {/* Back */}
-      <div onClick={() => navigate("/chat")} style={{ display: "flex", alignItems: "center", marginBottom: 16, cursor: "pointer", color: isDark ? "#fff" : "#000", fontSize: 20, fontWeight: "bold" }}>
+    <div
+      style={{
+        padding: 20,
+        minHeight: "100vh",
+        background: isDark ? "#1c1c1c" : "#f6f6f6",
+        color: isDark ? "#fff" : "#000",
+      }}
+    >
+      <div onClick={() => navigate("/chat")} style={{ cursor: "pointer" }}>
         ← Back
       </div>
 
-      <h2 style={{ textAlign: "center", marginBottom: 20 }}>⚙️ Settings</h2>
+      <h2 style={{ textAlign: "center" }}>⚙️ Settings</h2>
 
-      {/* Profile + Wallet Panel */}
-      <div style={{ display: "flex", alignItems: "center", gap: 16, background: isDark ? "#2b2b2b" : "#fff", padding: 16, borderRadius: 12, boxShadow: "0 2px 6px rgba(0,0,0,0.15)", marginBottom: 25, position: "relative" }}>
-        <div onClick={() => navigate("/edit-profile")} style={{ width: 88, height: 88, borderRadius: 44, background: profilePic ? `url(${profilePic}) center/cover` : "#888", cursor: "pointer", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 28, color: "#fff", fontWeight: "bold" }}>
+      {/* Profile + Wallet */}
+      <div style={card(isDark)}>
+        <div
+          onClick={() => navigate("/edit-profile")}
+          style={avatar(profilePic)}
+        >
           {!profilePic && (name?.[0] || "U")}
         </div>
 
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <h3 style={{ margin: 0, fontSize: 20 }}>{name || "Unnamed User"}</h3>
-            <div style={{ marginLeft: "auto", position: "relative" }}>
-              <button onClick={() => setMenuOpen((s) => !s)} style={{ border: "none", background: "transparent", color: isDark ? "#fff" : "#222", cursor: "pointer", fontSize: 20 }}>⋮</button>
-              {menuOpen && (
-                <div style={{ position: "absolute", right: 0, top: 34, background: isDark ? "#1a1a1a" : "#fff", color: isDark ? "#fff" : "#000", borderRadius: 8, boxShadow: "0 10px 30px rgba(0,0,0,0.12)", overflow: "hidden", zIndex: 60, minWidth: 150 }}>
-                  <button onClick={() => { navigate("/edit-profile"); setMenuOpen(false); }} style={menuItemStyle}>Edit Info</button>
-                  <button onClick={handleLogout} style={menuItemStyle}>Log Out</button>
-                </div>
-              )}
-            </div>
+        <div style={{ flex: 1 }}>
+          <div style={{ display: "flex", alignItems: "center" }}>
+            <h3>{name}</h3>
+            <button
+              onClick={() => setMenuOpen(!menuOpen)}
+              style={{ marginLeft: "auto" }}
+            >
+              ⋮
+            </button>
           </div>
 
-          <p style={{ margin: "6px 0", color: isDark ? "#ccc" : "#555" }}>{bio || "No bio yet — click ⋮ → Edit Info to add one."}</p>
-          <p style={{ margin: "0 0 12px", color: isDark ? "#bbb" : "#777", fontSize: 13 }}>{email}</p>
+          {menuOpen && (
+            <div style={menu(isDark)}>
+              <button onClick={() => navigate("/edit-profile")}>
+                Edit Info
+              </button>
+              <button onClick={handleLogout}>Log Out</button>
+            </div>
+          )}
 
-          {/* Wallet Panel */}
-          <div onClick={() => navigate("/wallet")} style={{ padding: 16, background: isDark ? "#1f1f1f" : "#eef6ff", borderRadius: 12, cursor: "pointer", transition: "transform 0.2s, box-shadow 0.2s" }}>
-            <p style={{ margin: 0, fontSize: 16 }}>Balance:</p>
-            <strong style={{ color: isDark ? "#00e676" : "#007bff", fontSize: 24, display: "inline-block", marginTop: 4, transition: "all 0.5s", transform: flashReward ? "scale(1.15)" : "scale(1)" }}>
+          <p style={{ opacity: 0.7 }}>{bio || "No bio yet"}</p>
+          <p style={{ fontSize: 13 }}>{email}</p>
+
+          <div onClick={() => navigate("/wallet")} style={wallet(isDark)}>
+            <p>Balance</p>
+            <strong
+              style={{
+                fontSize: 24,
+                transform: flashReward ? "scale(1.15)" : "scale(1)",
+                transition: "0.3s",
+              }}
+            >
               ${animatedBalance.toFixed(2)}
             </strong>
-            <button onClick={(e) => { e.stopPropagation(); handleDailyReward(); }} disabled={loadingReward || alreadyClaimed} style={{ marginTop: 12, width: "100%", padding: "12px", borderRadius: 10, border: "none", background: alreadyClaimed ? "#666" : "#ffd700", color: "#000", fontWeight: "bold", fontSize: 14, cursor: alreadyClaimed ? "not-allowed" : "pointer", boxShadow: alreadyClaimed ? "none" : flashReward ? "0 0 15px 5px #ffd700" : "0 4px 8px rgba(255, 215, 0, 0.3)", transition: "all 0.3s" }}>
-              {loadingReward ? "Processing..." : alreadyClaimed ? "✅ Already Claimed" : "🧩 Daily Reward (+$0.25)"}
+
+            <button
+              disabled={loadingReward || alreadyClaimed}
+              onClick={(e) => {
+                e.stopPropagation();
+                handleDailyReward();
+              }}
+              style={rewardBtn(alreadyClaimed)}
+            >
+              {alreadyClaimed ? "✅ Claimed" : "🧩 Daily Reward"}
             </button>
           </div>
         </div>
       </div>
 
-      {/* ----------- Settings Modules ----------- */}
+      {/* Modules */}
       <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
         <AccountActionsSettings userId={user.uid} />
         <ApplicationPreferencesSettings userId={user.uid} />
@@ -336,12 +304,50 @@ export default function SettingsPage() {
   );
 }
 
-const menuItemStyle = {
-  display: "block",
-  width: "100%",
-  padding: "10px 12px",
-  background: "transparent",
-  border: "none",
-  textAlign: "left",
+/* ------------------ Styles ------------------ */
+const card = (dark) => ({
+  display: "flex",
+  gap: 16,
+  padding: 16,
+  background: dark ? "#2a2a2a" : "#fff",
+  borderRadius: 12,
+  marginBottom: 24,
+});
+
+const avatar = (pic) => ({
+  width: 88,
+  height: 88,
+  borderRadius: "50%",
+  background: pic ? `url(${pic}) center/cover` : "#777",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  fontSize: 28,
+  color: "#fff",
   cursor: "pointer",
-};
+});
+
+const wallet = (dark) => ({
+  marginTop: 12,
+  padding: 12,
+  borderRadius: 10,
+  background: dark ? "#1f1f1f" : "#eef6ff",
+  cursor: "pointer",
+});
+
+const rewardBtn = (claimed) => ({
+  marginTop: 10,
+  width: "100%",
+  padding: 10,
+  borderRadius: 8,
+  border: "none",
+  background: claimed ? "#666" : "#ffd700",
+  cursor: claimed ? "not-allowed" : "pointer",
+});
+
+const menu = (dark) => ({
+  position: "absolute",
+  background: dark ? "#1c1c1c" : "#fff",
+  borderRadius: 8,
+  padding: 8,
+});
