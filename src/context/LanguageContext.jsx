@@ -9,21 +9,25 @@ export const LanguageProvider = ({ children }) => {
   const [language, setLanguage] = useState("en");
 
   useEffect(() => {
-    const unsubscribe = auth.onAuthStateChanged((user) => {
+    const unsub = auth.onAuthStateChanged((user) => {
       if (!user) return;
-
       const userRef = doc(db, "users", user.uid);
-      const unsubSnap = onSnapshot(userRef, (snap) => {
+
+      const unsubscribe = onSnapshot(userRef, (snap) => {
         if (!snap.exists()) return;
-        const prefs = snap.data()?.preferences || {};
-        if (prefs.language && prefs.language !== language) {
-          setLanguage(prefs.language);
-        }
+        const data = snap.data();
+        if (data.preferences?.language) setLanguage(data.preferences.language);
       });
 
-      return () => unsubSnap();
+      return () => unsubscribe();
     });
   }, []);
 
-  return <LanguageContext.Provider value={{ language, setLanguage }}>{children}</LanguageContext.Provider>;
+  const changeLanguage = (lang) => setLanguage(lang);
+
+  return (
+    <LanguageContext.Provider value={{ language, setLanguage: changeLanguage }}>
+      {children}
+    </LanguageContext.Provider>
+  );
 };
