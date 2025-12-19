@@ -17,42 +17,42 @@ import { auth, setUserPresence, db } from "./firebaseConfig";
 import { doc, updateDoc, increment } from "firebase/firestore";
 
 // --------------------
-// Route Guard
+// Protected Route
 // --------------------
 import ProtectedRoute from "./components/ProtectedRoute";
 
 // --------------------
 // Main Pages
 // --------------------
-import HomePage from "./components/HomePage";
-import ChatPage from "./components/ChatPage";
-import ChatConversationPage from "./components/ChatConversationPage";
-import SharedMediaPage from "./components/SharedMediaPage";
-import ArchivePage from "./components/ChatPage/ArchivePage";
-import VoiceCall from "./components/VoiceCall";
-import VideoCall from "./components/VideoCall";
-import SettingsPage from "./components/SettingsPage";
-import WalletPage from "./components/WalletPage";
-import WithdrawPage from "./components/WithdrawPage";
-import TopUpPage from "./components/TopUpPage";
-import CallHistoryPage from "./components/CallHistoryPage";
-import EditProfilePage from "./components/EditProfilePage";
-import UserProfile from "./components/UserProfile";
-import FriendProfilePage from "./components/FriendProfilePage";
+import HomePage from "./components/HomePage.jsx";
+import ChatPage from "./components/ChatPage.jsx";
+import ChatConversationPage from "./components/ChatConversationPage.jsx";
+import SharedMediaPage from "./components/SharedMediaPage.jsx";
+import ArchivePage from "./components/ChatPage/ArchivePage.jsx";
+import VoiceCall from "./components/VoiceCall.jsx";
+import VideoCall from "./components/VideoCall.jsx";
+import SettingsPage from "./components/SettingsPage.jsx";
+import WalletPage from "./components/WalletPage.jsx";
+import WithdrawPage from "./components/WithdrawPage.jsx";
+import TopUpPage from "./components/TopUpPage.jsx";
+import CallHistoryPage from "./components/CallHistoryPage.jsx";
+import EditProfilePage from "./components/EditProfilePage.jsx";
+import UserProfile from "./components/UserProfile.jsx";
+import FriendProfilePage from "./components/FriendProfilePage.jsx";
 
 // --------------------
-// Settings Sub Pages
+// Settings Pages
 // --------------------
-import ApplicationPreferencesSettings from "./components/settings/ApplicationPreferencesSettings";
-import DataAndStorageSettings from "./components/settings/DataAndStorageSettings";
-import NotificationSettings from "./components/settings/NotificationSettings";
-import PrivacyAndSecuritySettings from "./components/settings/PrivacyAndSecuritySettings";
-import SupportAndAboutSettings from "./components/settings/SupportAndAboutSettings";
+import ApplicationPreferencesSettings from "./components/settings/ApplicationPreferencesSettings.jsx";
+import DataAndStorageSettings from "./components/settings/DataAndStorageSettings.jsx";
+import NotificationSettings from "./components/settings/NotificationSettings.jsx";
+import PrivacyAndSecuritySettings from "./components/settings/PrivacyAndSecuritySettings.jsx";
+import SupportAndAboutSettings from "./components/settings/SupportAndAboutSettings.jsx";
 
 // --------------------
 // Ads
 // --------------------
-import AdGateway from "./components/AdGateway";
+import AdGateway from "./components/AdGateway.jsx";
 
 export default function App() {
   const [checkingAuth, setCheckingAuth] = useState(true);
@@ -65,13 +65,11 @@ export default function App() {
     const unsubscribe = auth.onAuthStateChanged((u) => {
       setUser(u);
       setTimeout(() => setCheckingAuth(false), 800);
-
       if (u) {
         const cleanup = setUserPresence(u.uid);
         return () => cleanup && cleanup();
       }
     });
-
     return () => unsubscribe();
   }, []);
 
@@ -90,7 +88,9 @@ export default function App() {
   useEffect(() => {
     if ("serviceWorker" in navigator) {
       window.addEventListener("load", () => {
-        navigator.serviceWorker.register("/monetag-sw.js").catch(() => {});
+        navigator.serviceWorker
+          .register("/monetag-sw.js")
+          .catch(() => {});
       });
     }
   }, []);
@@ -119,8 +119,7 @@ export default function App() {
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            background:
-              "linear-gradient(135deg,#3b82f6,#8b5cf6,#06b6d4,#2563eb)",
+            background: "linear-gradient(135deg,#3b82f6,#8b5cf6,#06b6d4,#2563eb)",
             backgroundSize: "300% 300%",
           }}
         >
@@ -143,7 +142,6 @@ export default function App() {
               <AdGateway>
                 <Router>
                   <Routes>
-
                     {/* Public */}
                     <Route path="/" element={user ? <ChatPage /> : <HomePage />} />
 
@@ -164,10 +162,10 @@ export default function App() {
 
                     {/* Settings */}
                     <Route path="/settings" element={<ProtectedRoute><SettingsPage /></ProtectedRoute>} />
-                    <Route path="/settings/app-preferences" element={<ProtectedRoute><ApplicationPreferencesSettings /></ProtectedRoute>} />
-                    <Route path="/settings/data-storage" element={<ProtectedRoute><DataAndStorageSettings /></ProtectedRoute>} />
-                    <Route path="/settings/notifications" element={<ProtectedRoute><NotificationSettings /></ProtectedRoute>} />
-                    <Route path="/settings/privacy-security" element={<ProtectedRoute><PrivacyAndSecuritySettings /></ProtectedRoute>} />
+                    <Route path="/settings/app-preferences" element={<ProtectedRoute><ApplicationPreferencesSettings userId={user?.uid} /></ProtectedRoute>} />
+                    <Route path="/settings/data-storage" element={<ProtectedRoute><DataAndStorageSettings userId={user?.uid} /></ProtectedRoute>} />
+                    <Route path="/settings/notifications" element={<ProtectedRoute><NotificationSettings userId={user?.uid} /></ProtectedRoute>} />
+                    <Route path="/settings/privacy-security" element={<ProtectedRoute><PrivacyAndSecuritySettings userId={user?.uid} /></ProtectedRoute>} />
                     <Route path="/settings/support" element={<ProtectedRoute><SupportAndAboutSettings /></ProtectedRoute>} />
 
                     {/* Wallet */}
@@ -176,9 +174,8 @@ export default function App() {
                     <Route path="/topup" element={<ProtectedRoute><TopUpPage rewardCoins={rewardCoins} /></ProtectedRoute>} />
                     <Route path="/daily-bonus" element={<ProtectedRoute><HomePage rewardCoins={rewardCoins} /></ProtectedRoute>} />
 
-                    {/* History */}
+                    {/* Call History */}
                     <Route path="/history" element={<ProtectedRoute><CallHistoryPage /></ProtectedRoute>} />
-
                   </Routes>
                 </Router>
               </AdGateway>
