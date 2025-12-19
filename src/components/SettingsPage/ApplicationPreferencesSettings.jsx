@@ -1,188 +1,94 @@
-import React, { useEffect, useState } from "react";
-import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
 
-// --------------------
-// Context Providers
-// --------------------
-import { ThemeProvider } from "./context/ThemeContext";
-import { WalletProvider } from "./context/WalletContext";
-import { UserProvider } from "./context/UserContext";
-import { PopupProvider } from "./context/PopupContext";
-import { SettingsProvider } from "./context/SettingsContext";
+import React, { useContext, useEffect, useState } from "react";
+import { ThemeContext } from "../../context/ThemeContext";
+import { useUserSettings } from "../../hooks/useUserSettings";
+import { usePopup } from "../../context/PopupContext";
+import { useNavigate } from "react-router-dom";
 
-// --------------------
-// Firebase
-// --------------------
-import { auth, setUserPresence, db } from "./firebaseConfig";
-import { doc, updateDoc, increment } from "firebase/firestore";
+const ApplicationPreferencesSettings = ({ userId }) => {
+  const { theme, updateSettings } = useContext(ThemeContext);
+  const [settings, updateSetting] = useUserSettings(userId);
+  const { showPopup } = usePopup();
+  const navigate = useNavigate();
 
-// --------------------
-// Protected Route
-// --------------------
-import ProtectedRoute from "./components/ProtectedRoute";
+  const [localTheme, setLocalTheme] = useState(theme || "light");
+  const [loading, setLoading] = useState(false);
 
-// --------------------
-// Main Pages
-// --------------------
-import HomePage from "./components/HomePage.jsx";
-import ChatPage from "./components/ChatPage.jsx";
-import ChatConversationPage from "./components/ChatConversationPage.jsx";
-import SharedMediaPage from "./components/SharedMediaPage.jsx";
-import ArchivePage from "./components/ChatPage/ArchivePage.jsx";
-import VoiceCall from "./components/VoiceCall.jsx";
-import VideoCall from "./components/VideoCall.jsx";
-import SettingsPage from "./components/SettingsPage.jsx";
-import WalletPage from "./components/WalletPage.jsx";
-import WithdrawPage from "./components/WithdrawPage.jsx";
-import TopUpPage from "./components/TopUpPage.jsx";
-import CallHistoryPage from "./components/CallHistoryPage.jsx";
-import EditProfilePage from "./components/EditProfilePage.jsx";
-import UserProfile from "./components/UserProfile.jsx";
-import FriendProfilePage from "./components/FriendProfilePage.jsx";
-
-// --------------------
-// Settings Pages
-// --------------------
-import ApplicationPreferencesSettings from "./components/settings/ApplicationPreferencesSettings.jsx";
-import DataAndStorageSettings from "./components/settings/DataAndStorageSettings.jsx";
-import NotificationSettings from "./components/settings/NotificationSettings.jsx";
-import PrivacyAndSecuritySettings from "./components/settings/PrivacyAndSecuritySettings.jsx";
-import SupportAndAboutSettings from "./components/settings/SupportAndAboutSettings.jsx";
-
-// --------------------
-// Ads
-// --------------------
-import AdGateway from "./components/AdGateway.jsx";
-
-export default function App() {
-  const [checkingAuth, setCheckingAuth] = useState(true);
-  const [user, setUser] = useState(null);
-
-  // -----------------------------
-  // Auth + Presence
-  // -----------------------------
+  // Sync local theme with global context
   useEffect(() => {
-    const unsubscribe = auth.onAuthStateChanged((u) => {
-      setUser(u);
-      setTimeout(() => setCheckingAuth(false), 800);
-      if (u) {
-        const cleanup = setUserPresence(u.uid);
-        return () => cleanup && cleanup();
-      }
-    });
-    return () => unsubscribe();
-  }, []);
+    if (settings.theme && settings.theme !== localTheme) {
+      setLocalTheme(settings.theme);
+    }
+  }, [settings.theme]);
 
-  // -----------------------------
-  // Reward Coins Helper
-  // -----------------------------
-  const rewardCoins = async (uid, amount) => {
-    if (!uid) return;
-    const ref = doc(db, "users", uid);
-    await updateDoc(ref, { coins: increment(amount) });
+  const toggleTheme = async () => {
+    setLoading(true);
+    const newTheme = localTheme === "light" ? "dark" : "light";
+
+    try {
+      setLocalTheme(newTheme);
+      updateSettings(newTheme, settings.wallpaper || ""); // Update global context
+      await updateSetting("theme", newTheme); // Persist to Firestore
+      showPopup(`Theme switched to ${newTheme.charAt(0).toUpperCase() + newTheme.slice(1)} mode`);
+    } catch (err) {
+      console.error("Failed to update theme:", err);
+      showPopup("Error switching theme. Please try again.");
+    } finally {
+      setLoading(false);
+    }
   };
 
-  // -----------------------------
-  // Monetag Service Worker
-  // -----------------------------
-  useEffect(() => {
-    if ("serviceWorker" in navigator) {
-      window.addEventListener("load", () => {
-        navigator.serviceWorker
-          .register("/monetag-sw.js")
-          .catch(() => {});
-      });
-    }
-  }, []);
+  const isDark = theme === "dark";
 
-  // -----------------------------
-  // Loading Screen
-  // -----------------------------
-  if (checkingAuth) {
-    return (
+  return (
+    <div className={`p-4 min-h-screen ${isDark ? "bg-[#1c1c1c]" : "bg-gray-100"}`}>
+      {/* Back Arrow */}
       <div
+        onClick={() => navigate("/settings")}
         style={{
-          height: "100vh",
-          background: "#000",
-          color: "#fff",
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-          justifyContent: "center",
+          cursor: "pointer",
+          marginBottom: 16,
+          fontSize: 20,
+          fontWeight: "bold",
+          color: isDark ? "#fff" : "#000",
         }}
       >
-        <div
-          style={{
-            width: 120,
-            height: 120,
-            borderRadius: "50%",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            background: "linear-gradient(135deg,#3b82f6,#8b5cf6,#06b6d4,#2563eb)",
-            backgroundSize: "300% 300%",
-          }}
-        >
-          <span style={{ fontSize: 36, fontWeight: "bold" }}>LC</span>
-        </div>
-        <p style={{ marginTop: 16, opacity: 0.8 }}>loechat is starting…</p>
+        ← Back to Settings
       </div>
-    );
-  }
 
-  // -----------------------------
-  // Routes
-  // -----------------------------
-  return (
-    <SettingsProvider>
-      <ThemeProvider>
-        <WalletProvider>
-          <UserProvider>
-            <PopupProvider>
-              <AdGateway>
-                <Router>
-                  <Routes>
-                    {/* Public */}
-                    <Route path="/" element={user ? <ChatPage /> : <HomePage />} />
+      <div className={`p-4 rounded-lg shadow-md ${isDark ? "bg-[#1f1f1f]" : "bg-white"}`}>
+        <h2 className={`text-xl font-semibold mb-4 ${isDark ? "text-gray-200" : "text-gray-800"}`}>
+          Application Preferences
+        </h2>
 
-                    {/* Chat */}
-                    <Route path="/chat" element={<ProtectedRoute><ChatPage /></ProtectedRoute>} />
-                    <Route path="/chat/:chatId" element={<ProtectedRoute><ChatConversationPage /></ProtectedRoute>} />
-                    <Route path="/chat/:chatId/media" element={<ProtectedRoute><SharedMediaPage /></ProtectedRoute>} />
-                    <Route path="/archive" element={<ProtectedRoute><ArchivePage /></ProtectedRoute>} />
+        {/* Theme Toggle */}
+        <div className="flex items-center justify-between mb-4">
+          <span className={isDark ? "text-gray-300" : "text-gray-700"}>App Theme</span>
+          <button
+            onClick={toggleTheme}
+            disabled={loading}
+            className={`px-4 py-2 rounded-lg font-medium transition ${
+              localTheme === "light"
+                ? "bg-blue-500 text-white hover:bg-blue-600"
+                : "bg-gray-700 text-white hover:bg-gray-800"
+            } ${loading ? "opacity-50 cursor-not-allowed" : ""}`}
+          >
+            {loading ? "Switching..." : `Switch to ${localTheme === "light" ? "Dark" : "Light"}`}
+          </button>
+        </div>
 
-                    {/* Calls */}
-                    <Route path="/voice-call/:chatId/:friendId" element={<ProtectedRoute><VoiceCall /></ProtectedRoute>} />
-                    <Route path="/video-call/:chatId/:friendId" element={<ProtectedRoute><VideoCall /></ProtectedRoute>} />
-
-                    {/* Profile */}
-                    <Route path="/edit-profile" element={<ProtectedRoute><EditProfilePage /></ProtectedRoute>} />
-                    <Route path="/profile/:uid" element={<ProtectedRoute><UserProfile /></ProtectedRoute>} />
-                    <Route path="/friend/:uid" element={<ProtectedRoute><FriendProfilePage /></ProtectedRoute>} />
-
-                    {/* Settings */}
-                    <Route path="/settings" element={<ProtectedRoute><SettingsPage /></ProtectedRoute>} />
-                    <Route path="/settings/app-preferences" element={<ProtectedRoute><ApplicationPreferencesSettings userId={user?.uid} /></ProtectedRoute>} />
-                    <Route path="/settings/data-storage" element={<ProtectedRoute><DataAndStorageSettings userId={user?.uid} /></ProtectedRoute>} />
-                    <Route path="/settings/notifications" element={<ProtectedRoute><NotificationSettings userId={user?.uid} /></ProtectedRoute>} />
-                    <Route path="/settings/privacy-security" element={<ProtectedRoute><PrivacyAndSecuritySettings userId={user?.uid} /></ProtectedRoute>} />
-                    <Route path="/settings/support" element={<ProtectedRoute><SupportAndAboutSettings /></ProtectedRoute>} />
-
-                    {/* Wallet */}
-                    <Route path="/wallet" element={<ProtectedRoute><WalletPage rewardCoins={rewardCoins} /></ProtectedRoute>} />
-                    <Route path="/withdraw" element={<ProtectedRoute><WithdrawPage rewardCoins={rewardCoins} /></ProtectedRoute>} />
-                    <Route path="/topup" element={<ProtectedRoute><TopUpPage rewardCoins={rewardCoins} /></ProtectedRoute>} />
-                    <Route path="/daily-bonus" element={<ProtectedRoute><HomePage rewardCoins={rewardCoins} /></ProtectedRoute>} />
-
-                    {/* Call History */}
-                    <Route path="/history" element={<ProtectedRoute><CallHistoryPage /></ProtectedRoute>} />
-                  </Routes>
-                </Router>
-              </AdGateway>
-            </PopupProvider>
-          </UserProvider>
-        </WalletProvider>
-      </ThemeProvider>
-    </SettingsProvider>
+        {/* Future Preferences Placeholder */}
+        <div className={isDark ? "text-gray-400 text-sm" : "text-gray-500 text-sm"}>
+          More application preferences can be added here, like:
+          <ul className="list-disc list-inside mt-1">
+            <li>Language</li>
+            <li>Font size</li>
+            <li>Animations</li>
+          </ul>
+        </div>
+      </div>
+    </div>
   );
-}
+};
+
+export default ApplicationPreferencesSettings;
