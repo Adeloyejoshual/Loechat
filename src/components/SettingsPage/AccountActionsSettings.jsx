@@ -16,11 +16,9 @@ export default function AccountActionsSettings({ userId }) {
     const confirmed = window.confirm(
       "⚠️ This will permanently delete your account and data. Continue?"
     );
-
     if (!confirmed) return;
 
     setLoading(true);
-
     try {
       const user = auth.currentUser;
       if (!user) throw new Error("No authenticated user");
@@ -44,32 +42,47 @@ export default function AccountActionsSettings({ userId }) {
   };
 
   return (
-    <div
-      style={{
-        padding: 16,
-        borderRadius: 12,
-        background: "#ffebee",
-        border: "1px solid #ffcdd2",
-      }}
-    >
-      <h3 style={{ marginBottom: 8 }}>⚠️ Account Actions</h3>
-
-      <button
-        onClick={handleDeleteAccount}
-        disabled={loading}
+    <div style={{ padding: 16, minHeight: "100vh", background: "#fff" }}>
+      {/* Back Arrow */}
+      <div
+        onClick={() => navigate("/settings")}
         style={{
-          width: "100%",
-          padding: "12px",
-          borderRadius: 8,
-          border: "none",
-          background: "#d32f2f",
-          color: "#fff",
+          cursor: "pointer",
+          marginBottom: 16,
+          fontSize: 20,
           fontWeight: "bold",
-          cursor: loading ? "not-allowed" : "pointer",
         }}
       >
-        {loading ? "Deleting..." : "Delete Account"}
-      </button>
+        ← Back to Settings
+      </div>
+
+      <div
+        style={{
+          padding: 16,
+          borderRadius: 12,
+          background: "#ffebee",
+          border: "1px solid #ffcdd2",
+        }}
+      >
+        <h3 style={{ marginBottom: 8 }}>⚠️ Account Actions</h3>
+
+        <button
+          onClick={handleDeleteAccount}
+          disabled={loading}
+          style={{
+            width: "100%",
+            padding: "12px",
+            borderRadius: 8,
+            border: "none",
+            background: "#d32f2f",
+            color: "#fff",
+            fontWeight: "bold",
+            cursor: loading ? "not-allowed" : "pointer",
+          }}
+        >
+          {loading ? "Deleting..." : "Delete Account"}
+        </button>
+      </div>
     </div>
   );
 }
