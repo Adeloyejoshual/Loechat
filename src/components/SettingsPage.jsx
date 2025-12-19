@@ -1,31 +1,17 @@
-import React, { useEffect, useState, useContext, useRef } from "react";
+// src/components/SettingsPage.jsx
+import React, { useEffect, useState, useRef, useContext } from "react";
 import { auth, db } from "../firebaseConfig";
 import { doc, getDoc, setDoc, onSnapshot, serverTimestamp } from "firebase/firestore";
 import { signOut } from "firebase/auth";
 import { useNavigate } from "react-router-dom";
 import confetti from "canvas-confetti";
-
 import { ThemeContext } from "../context/ThemeContext";
 import { usePopup } from "../context/PopupContext";
-import { useAd } from "../components/AdGateway";
 
-// Settings modules
-import ApplicationPreferencesSettings from "./SettingsPage/ApplicationPreferencesSettings";
-import DataAndStorageSettings from "./SettingsPage/DataAndStorageSettings";
-import NotificationSettings from "./SettingsPage/NotificationSettings";
-import PrivacyAndSecuritySettings from "./SettingsPage/PrivacyAndSecuritySettings";
-import SupportAndAboutSettings from "./SettingsPage/SupportAndAboutSettings";
-
-// Cloudinary env
-const CLOUDINARY_CLOUD = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME;
-const CLOUDINARY_PRESET = import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET;
-
-const backend = "https://smart-talk-zlxe.onrender.com";
-
-/* ------------------ Animated Number ------------------ */
+// ------------------- Animated Number Hook -------------------
 function useAnimatedNumber(target, duration = 800) {
   const [display, setDisplay] = useState(target);
-  const raf = useRef(null);
+  const raf = useRef();
 
   useEffect(() => {
     const start = display;
@@ -45,17 +31,26 @@ function useAnimatedNumber(target, duration = 800) {
   return display;
 }
 
+// ------------------- Individual Setting Item -------------------
+const SettingItem = ({ title, subtitle, onClick, dark }) => (
+  <button
+    onClick={onClick}
+    className="w-full text-left px-4 py-3 rounded-lg transition flex flex-col"
+    style={{
+      background: dark ? "#2a2a2a" : "#fff",
+      color: dark ? "#fff" : "#000",
+      boxShadow: dark ? "0 1px 3px rgba(0,0,0,0.4)" : "0 1px 3px rgba(0,0,0,0.1)",
+    }}
+  >
+    <span style={{ fontWeight: "600" }}>{title}</span>
+    <small style={{ opacity: 0.7 }}>{subtitle}</small>
+  </button>
+);
+
+// ------------------- Settings Page -------------------
 export default function SettingsPage() {
-  const themeCtx = useContext(ThemeContext);
-  const theme = themeCtx?.theme || "light";
-  const updateSettings = themeCtx?.updateSettings || (() => {});
-
-  const popupCtx = usePopup();
-  const showPopup = popupCtx?.showPopup || (() => {});
-
-  const adCtx = useAd();
-  const showRewarded = adCtx?.showRewarded || (async () => true);
-
+  const { theme } = useContext(ThemeContext);
+  const { showPopup } = usePopup();
   const navigate = useNavigate();
   const isDark = theme === "dark";
 
@@ -68,51 +63,54 @@ export default function SettingsPage() {
   const [balance, setBalance] = useState(0);
   const animatedBalance = useAnimatedNumber(balance);
   const [transactions, setTransactions] = useState([]);
-
   const [loadingReward, setLoadingReward] = useState(false);
   const [flashReward, setFlashReward] = useState(false);
-  const [menuOpen, setMenuOpen] = useState(false);
 
-  /* ------------------ Auth + User ------------------ */
+  const backend = "https://smart-talk-zlxe.onrender.com";
+
+  // ------------------- Auth + User -------------------
   useEffect(() => {
-    const unsub = auth.onAuthStateChanged(async (u) => {
-      if (!u) return navigate("/");
+    const unsubAuth = auth.onAuthStateChanged(async (u) => {
+      if (!u) {
+        navigate("/");
+        return;
+      }
 
       setUser(u);
       setEmail(u.email || "");
 
       const userRef = doc(db, "users", u.uid);
-      const snap = await getDoc(userRef);
 
+      const snap = await getDoc(userRef);
       if (!snap.exists()) {
         await setDoc(userRef, {
           name: u.displayName || "User",
           bio: "",
           email: u.email || "",
           profilePic: null,
-          preferences: { notifications: true, language: "en" },
+          preferences: { theme: "light" },
           createdAt: serverTimestamp(),
         });
       }
 
       const unsubSnap = onSnapshot(userRef, (s) => {
         if (!s.exists()) return;
-        const d = s.data();
-        setName(d.name || "");
-        setBio(d.bio || "");
-        setProfilePic(d.profilePic || null);
+        const data = s.data();
+        setName(data.name || "");
+        setBio(data.bio || "");
+        setProfilePic(data.profilePic || null);
       });
 
-      await loadWallet(u.uid);
+      loadWallet(u.uid);
+
       return () => unsubSnap();
     });
 
-    return () => unsub();
+    return () => unsubAuth();
   }, []);
 
   const getToken = async () => auth.currentUser?.getIdToken(true);
 
-  /* ------------------ Wallet ------------------ */
   const loadWallet = async (uid) => {
     try {
       const token = await getToken();
@@ -120,75 +118,59 @@ export default function SettingsPage() {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
-
-      setBalance(data.balance || 0);
-      setTransactions(data.transactions || []);
-      setFlashReward(true);
-      setTimeout(() => setFlashReward(false), 600);
+      if (res.ok) {
+        setBalance(data.balance || 0);
+        setTransactions(data.transactions || []);
+        setFlashReward(true);
+        setTimeout(() => setFlashReward(false), 600);
+      } else showPopup(data.error || "Failed to load wallet.");
     } catch {
-      showPopup("Failed to load wallet");
+      showPopup("Failed to load wallet. Check console.");
     }
   };
 
-  /* ------------------ Daily Reward ------------------ */
+  // ------------------- Daily Reward -------------------
   const alreadyClaimed = transactions.some((t) => {
     if (t.type !== "checkin") return false;
-    const d = new Date(t.createdAt || t.date);
+    const txDate = new Date(t.createdAt || t.date);
     const today = new Date();
-    d.setHours(0, 0, 0, 0);
+    txDate.setHours(0, 0, 0, 0);
     today.setHours(0, 0, 0, 0);
-    return d.getTime() === today.getTime();
+    return txDate.getTime() === today.getTime();
   });
 
   const launchConfetti = () => {
-    confetti({ particleCount: 120, spread: 90, origin: { y: 0.6 } });
+    confetti({ particleCount: 120, spread: 90, origin: { y: 0.5 } });
   };
 
   const handleDailyReward = async () => {
     if (!user || loadingReward || alreadyClaimed) return;
-
     setLoadingReward(true);
     try {
-      await showRewarded("daily-reward", 15, () => true);
-
       const token = await getToken();
       const res = await fetch(`${backend}/api/wallet/daily`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({ amount: 0.25 }),
       });
-
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
-
-      await loadWallet(user.uid);
-      showPopup("🎉 Daily reward claimed!");
-      launchConfetti();
+      if (res.ok) {
+        setBalance(data.balance);
+        setTransactions((prev) => [data.txn, ...prev]);
+        showPopup("🎉 Daily reward claimed!");
+        launchConfetti();
+        setFlashReward(true);
+        setTimeout(() => setFlashReward(false), 600);
+      } else if (data.error?.toLowerCase().includes("already claimed")) {
+        showPopup("✅ You already claimed today's reward!");
+      } else {
+        showPopup(data.error || "Failed to claim daily reward.");
+      }
     } catch {
-      showPopup("Failed to claim daily reward");
+      showPopup("Failed to claim daily reward. Check console.");
     } finally {
       setLoadingReward(false);
     }
-  };
-
-  /* ------------------ Cloudinary Upload ------------------ */
-  const uploadToCloudinary = async (file) => {
-    const fd = new FormData();
-    fd.append("file", file);
-    fd.append("upload_preset", CLOUDINARY_PRESET);
-
-    const res = await fetch(
-      `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD}/image/upload`,
-      { method: "POST", body: fd }
-    );
-
-    if (!res.ok) throw new Error();
-    const data = await res.json();
-    return data.secure_url;
   };
 
   const handleLogout = async () => {
@@ -196,56 +178,65 @@ export default function SettingsPage() {
     navigate("/");
   };
 
-  if (!user) return <p>Loading...</p>;
+  if (!user) return <p>Loading user...</p>;
 
   return (
-    <div
-      style={{
-        padding: 20,
-        minHeight: "100vh",
-        background: isDark ? "#1c1c1c" : "#f6f6f6",
-        color: isDark ? "#fff" : "#000",
-      }}
-    >
-      <div onClick={() => navigate("/chat")} style={{ cursor: "pointer" }}>
+    <div style={{ padding: 20, minHeight: "100vh", background: isDark ? "#1c1c1c" : "#f8f8f8" }}>
+      {/* Back Button */}
+      <div
+        onClick={() => navigate("/chat")}
+        style={{ cursor: "pointer", marginBottom: 16, fontSize: 20 }}
+      >
         ← Back
       </div>
 
-      <h2 style={{ textAlign: "center" }}>⚙️ Settings</h2>
-
-      {/* Profile + Wallet */}
-      <div style={card(isDark)}>
-        <div onClick={() => navigate("/edit-profile")} style={avatar(profilePic)}>
+      {/* Profile + Wallet Panel */}
+      <div
+        style={{
+          display: "flex",
+          gap: 16,
+          padding: 16,
+          borderRadius: 12,
+          background: isDark ? "#2b2b2b" : "#fff",
+          marginBottom: 24,
+        }}
+      >
+        <div
+          onClick={() => navigate("/edit-profile")}
+          style={{
+            width: 88,
+            height: 88,
+            borderRadius: "50%",
+            background: profilePic ? `url(${profilePic}) center/cover` : "#888",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            color: "#fff",
+            fontSize: 28,
+            fontWeight: "bold",
+            cursor: "pointer",
+          }}
+        >
           {!profilePic && (name?.[0] || "U")}
         </div>
 
-        <div style={{ flex: 1 }}>
-          <div style={{ display: "flex", alignItems: "center" }}>
-            <h3>{name}</h3>
-            <button onClick={() => setMenuOpen(!menuOpen)} style={{ marginLeft: "auto" }}>
-              ⋮
-            </button>
-          </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <h3>{name || "Unnamed User"}</h3>
+          <p style={{ margin: "4px 0", opacity: 0.7 }}>{bio || "No bio yet"}</p>
+          <p style={{ margin: 0, fontSize: 13, opacity: 0.7 }}>{email}</p>
 
-          {menuOpen && (
-            <div style={menu(isDark)}>
-              <button onClick={() => navigate("/edit-profile")}>Edit Info</button>
-              <button onClick={handleLogout}>Log Out</button>
-            </div>
-          )}
-
-          <p style={{ opacity: 0.7 }}>{bio || "No bio yet"}</p>
-          <p style={{ fontSize: 13 }}>{email}</p>
-
-          <div onClick={() => navigate("/wallet")} style={wallet(isDark)}>
-            <p>Balance</p>
-            <strong
-              style={{
-                fontSize: 24,
-                transform: flashReward ? "scale(1.15)" : "scale(1)",
-                transition: "0.3s",
-              }}
-            >
+          <div
+            style={{
+              marginTop: 12,
+              padding: 12,
+              borderRadius: 10,
+              background: isDark ? "#1f1f1f" : "#eef6ff",
+              cursor: "pointer",
+            }}
+            onClick={() => navigate("/wallet")}
+          >
+            <p style={{ margin: 0 }}>Balance</p>
+            <strong style={{ fontSize: 24, color: isDark ? "#00e676" : "#007bff" }}>
               ${animatedBalance.toFixed(2)}
             </strong>
 
@@ -255,70 +246,56 @@ export default function SettingsPage() {
                 e.stopPropagation();
                 handleDailyReward();
               }}
-              style={rewardBtn(alreadyClaimed)}
+              style={{
+                marginTop: 8,
+                width: "100%",
+                padding: "8px 12px",
+                borderRadius: 8,
+                border: "none",
+                background: alreadyClaimed ? "#666" : "#ffd700",
+                cursor: alreadyClaimed ? "not-allowed" : "pointer",
+                fontWeight: "bold",
+              }}
             >
-              {alreadyClaimed ? "✅ Claimed" : "🧩 Daily Reward"}
+              {alreadyClaimed ? "✅ Claimed" : "🧩 Daily Reward (+$0.25)"}
             </button>
           </div>
         </div>
       </div>
 
-      {/* Settings Modules */}
-      <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-        <ApplicationPreferencesSettings userId={user.uid} />
-        <DataAndStorageSettings userId={user.uid} />
-        <NotificationSettings userId={user.uid} />
-        <PrivacyAndSecuritySettings userId={user.uid} />
-        <SupportAndAboutSettings />
+      {/* Settings Navigation */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <SettingItem
+          title="Application Preferences"
+          subtitle="Theme, language, app behavior"
+          onClick={() => navigate("/settings/app-preferences")}
+          dark={isDark}
+        />
+        <SettingItem
+          title="Data & Storage"
+          subtitle="Cache, downloads, usage"
+          onClick={() => navigate("/settings/data-storage")}
+          dark={isDark}
+        />
+        <SettingItem
+          title="Notifications"
+          subtitle="Sounds, messages, alerts"
+          onClick={() => navigate("/settings/notifications")}
+          dark={isDark}
+        />
+        <SettingItem
+          title="Privacy & Security"
+          subtitle="Blocked users, security"
+          onClick={() => navigate("/settings/privacy-security")}
+          dark={isDark}
+        />
+        <SettingItem
+          title="Support & About"
+          subtitle="Help, app info"
+          onClick={() => navigate("/settings/support")}
+          dark={isDark}
+        />
       </div>
     </div>
   );
 }
-
-/* ------------------ Styles ------------------ */
-const card = (dark) => ({
-  display: "flex",
-  gap: 16,
-  padding: 16,
-  background: dark ? "#2a2a2a" : "#fff",
-  borderRadius: 12,
-  marginBottom: 24,
-});
-
-const avatar = (pic) => ({
-  width: 88,
-  height: 88,
-  borderRadius: "50%",
-  background: pic ? `url(${pic}) center/cover` : "#777",
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  fontSize: 28,
-  color: "#fff",
-  cursor: "pointer",
-});
-
-const wallet = (dark) => ({
-  marginTop: 12,
-  padding: 12,
-  borderRadius: 10,
-  background: dark ? "#1f1f1f" : "#eef6ff",
-  cursor: "pointer",
-});
-
-const rewardBtn = (claimed) => ({
-  marginTop: 10,
-  width: "100%",
-  padding: 10,
-  borderRadius: 8,
-  border: "none",
-  background: claimed ? "#666" : "#ffd700",
-  cursor: claimed ? "not-allowed" : "pointer",
-});
-
-const menu = (dark) => ({
-  position: "absolute",
-  background: dark ? "#1c1c1c" : "#fff",
-  borderRadius: 8,
-  padding: 8,
-});
