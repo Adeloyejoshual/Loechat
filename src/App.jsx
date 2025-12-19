@@ -43,7 +43,6 @@ import FriendProfilePage from "./components/FriendProfilePage.jsx";
 // --------------------
 // Settings Pages
 // --------------------
-import ApplicationPreferencesSettings from "./components/settings/ApplicationPreferencesSettings.jsx";
 import DataAndStorageSettings from "./components/settings/DataAndStorageSettings.jsx";
 import NotificationSettings from "./components/settings/NotificationSettings.jsx";
 import PrivacyAndSecuritySettings from "./components/settings/PrivacyAndSecuritySettings.jsx";
@@ -162,7 +161,7 @@ export default function App() {
 
                     {/* Settings */}
                     <Route path="/settings" element={<ProtectedRoute><SettingsPage /></ProtectedRoute>} />
-                    <Route path="/settings/app-preferences" element={<ProtectedRoute><ApplicationPreferencesSettings userId={user?.uid} /></ProtectedRoute>} />
+                    
                     <Route path="/settings/data-storage" element={<ProtectedRoute><DataAndStorageSettings userId={user?.uid} /></ProtectedRoute>} />
                     <Route path="/settings/notifications" element={<ProtectedRoute><NotificationSettings userId={user?.uid} /></ProtectedRoute>} />
                     <Route path="/settings/privacy-security" element={<ProtectedRoute><PrivacyAndSecuritySettings userId={user?.uid} /></ProtectedRoute>} />
