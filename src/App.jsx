@@ -43,11 +43,11 @@ import FriendProfilePage from "./components/FriendProfilePage";
 // --------------------
 // Settings Sub Pages
 // --------------------
-import ApplicationPreferencesPage from "./components/settings/ApplicationPreferencesPage";
-import DataAndStoragePage from "./components/settings/DataAndStoragePage";
-import NotificationSettingsPage from "./components/settings/NotificationSettingsPage";
-import PrivacyAndSecurityPage from "./components/settings/PrivacyAndSecurityPage";
-import SupportAndAboutPage from "./components/settings/SupportAndAboutPage";
+import ApplicationPreferencesSettings from "./components/settings/ApplicationPreferencesSettings";
+import DataAndStorageSettings from "./components/settings/DataAndStorageSettings";
+import NotificationSettings from "./components/settings/NotificationSettings";
+import PrivacyAndSecuritySettings from "./components/settings/PrivacyAndSecuritySettings";
+import SupportAndAboutSettings from "./components/settings/SupportAndAboutSettings";
 
 // --------------------
 // Ads
@@ -90,9 +90,7 @@ export default function App() {
   useEffect(() => {
     if ("serviceWorker" in navigator) {
       window.addEventListener("load", () => {
-        navigator.serviceWorker
-          .register("/monetag-sw.js")
-          .catch(() => {});
+        navigator.serviceWorker.register("/monetag-sw.js").catch(() => {});
       });
     }
   }, []);
@@ -166,11 +164,11 @@ export default function App() {
 
                     {/* Settings */}
                     <Route path="/settings" element={<ProtectedRoute><SettingsPage /></ProtectedRoute>} />
-                    <Route path="/settings/app-preferences" element={<ProtectedRoute><ApplicationPreferencesPage /></ProtectedRoute>} />
-                    <Route path="/settings/data-storage" element={<ProtectedRoute><DataAndStoragePage /></ProtectedRoute>} />
-                    <Route path="/settings/notifications" element={<ProtectedRoute><NotificationSettingsPage /></ProtectedRoute>} />
-                    <Route path="/settings/privacy-security" element={<ProtectedRoute><PrivacyAndSecurityPage /></ProtectedRoute>} />
-                    <Route path="/settings/support" element={<ProtectedRoute><SupportAndAboutPage /></ProtectedRoute>} />
+                    <Route path="/settings/app-preferences" element={<ProtectedRoute><ApplicationPreferencesSettings /></ProtectedRoute>} />
+                    <Route path="/settings/data-storage" element={<ProtectedRoute><DataAndStorageSettings /></ProtectedRoute>} />
+                    <Route path="/settings/notifications" element={<ProtectedRoute><NotificationSettings /></ProtectedRoute>} />
+                    <Route path="/settings/privacy-security" element={<ProtectedRoute><PrivacyAndSecuritySettings /></ProtectedRoute>} />
+                    <Route path="/settings/support" element={<ProtectedRoute><SupportAndAboutSettings /></ProtectedRoute>} />
 
                     {/* Wallet */}
                     <Route path="/wallet" element={<ProtectedRoute><WalletPage rewardCoins={rewardCoins} /></ProtectedRoute>} />
