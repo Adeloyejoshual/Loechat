@@ -1,102 +1,87 @@
 import React, { useEffect, useState } from "react";
 import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
 
-// --------------------
-// Context Providers
-// --------------------
+/* ================= CONTEXT PROVIDERS ================= */
 import { ThemeProvider } from "./context/ThemeContext";
 import { WalletProvider } from "./context/WalletContext";
 import { UserProvider } from "./context/UserContext";
 import { PopupProvider } from "./context/PopupContext";
 import { SettingsProvider } from "./context/SettingsContext";
 
-// --------------------
-// Firebase
-// --------------------
+/* ================= FIREBASE ================= */
 import { auth, setUserPresence, db } from "./firebaseConfig";
 import { doc, updateDoc, increment } from "firebase/firestore";
 
-// --------------------
-// Protected Route
-// --------------------
+/* ================= ROUTE GUARD ================= */
 import ProtectedRoute from "./components/ProtectedRoute";
 
-// --------------------
-// Main Pages
-// --------------------
-import HomePage from "./components/HomePage.jsx";
-import ChatPage from "./components/ChatPage.jsx";
-import ChatConversationPage from "./components/ChatConversationPage.jsx";
-import SharedMediaPage from "./components/SharedMediaPage.jsx";
-import ArchivePage from "./components/ChatPage/ArchivePage.jsx";
-import VoiceCall from "./components/VoiceCall.jsx";
-import VideoCall from "./components/VideoCall.jsx";
-import SettingsPage from "./components/SettingsPage.jsx";
-import WalletPage from "./components/WalletPage.jsx";
-import WithdrawPage from "./components/WithdrawPage.jsx";
-import TopUpPage from "./components/TopUpPage.jsx";
-import CallHistoryPage from "./components/CallHistoryPage.jsx";
-import EditProfilePage from "./components/EditProfilePage.jsx";
-import UserProfile from "./components/UserProfile.jsx";
-import FriendProfilePage from "./components/FriendProfilePage.jsx";
+/* ================= MAIN PAGES ================= */
+import HomePage from "./components/HomePage";
+import ChatPage from "./components/ChatPage";
+import ChatConversationPage from "./components/ChatConversationPage";
+import SharedMediaPage from "./components/SharedMediaPage";
+import ArchivePage from "./components/ChatPage/ArchivePage";
+import VoiceCall from "./components/VoiceCall";
+import VideoCall from "./components/VideoCall";
+import SettingsPage from "./components/SettingsPage";
+import WalletPage from "./components/WalletPage";
+import WithdrawPage from "./components/WithdrawPage";
+import TopUpPage from "./components/TopUpPage";
+import CallHistoryPage from "./components/CallHistoryPage";
+import EditProfilePage from "./components/EditProfilePage";
+import UserProfile from "./components/UserProfile";
+import FriendProfilePage from "./components/FriendProfilePage";
 
-// --------------------
-// Settings Pages
-// --------------------
-import DataAndStorageSettings from "./components/settings/DataAndStorageSettings.jsx";
-import NotificationSettings from "./components/settings/NotificationSettings.jsx";
-import PrivacyAndSecuritySettings from "./components/settings/PrivacyAndSecuritySettings.jsx";
-import SupportAndAboutSettings from "./components/settings/SupportAndAboutSettings.jsx";
+/* ================= SETTINGS SUB-PAGES ================= */
+import PrivacySettingsPage from "./pages/PrivacySettingsPage";
+import NotificationSettingsPage from "./pages/NotificationSettingsPage";
+import PreferencesSettingsPage from "./pages/PreferencesSettingsPage";
+import DataSettingsPage from "./pages/DataSettingsPage";
+import SupportSettingsPage from "./pages/SupportSettingsPage";
+import AccountSettingsPage from "./pages/AccountSettingsPage";
 
-// --------------------
-// Ads
-// --------------------
-import AdGateway from "./components/AdGateway.jsx";
+/* ================= ADS ================= */
+import AdGateway from "./components/AdGateway";
 
 export default function App() {
   const [checkingAuth, setCheckingAuth] = useState(true);
   const [user, setUser] = useState(null);
 
-  // -----------------------------
-  // Auth + Presence
-  // -----------------------------
+  /* ================= AUTH + PRESENCE ================= */
   useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged((u) => {
       setUser(u);
       setTimeout(() => setCheckingAuth(false), 800);
+
       if (u) {
         const cleanup = setUserPresence(u.uid);
         return () => cleanup && cleanup();
       }
     });
+
     return () => unsubscribe();
   }, []);
 
-  // -----------------------------
-  // Reward Coins Helper
-  // -----------------------------
+  /* ================= WALLET REWARD HELPER ================= */
   const rewardCoins = async (uid, amount) => {
     if (!uid) return;
     const ref = doc(db, "users", uid);
     await updateDoc(ref, { coins: increment(amount) });
   };
 
-  // -----------------------------
-  // Monetag Service Worker
-  // -----------------------------
+  /* ================= SERVICE WORKER ================= */
   useEffect(() => {
     if ("serviceWorker" in navigator) {
       window.addEventListener("load", () => {
         navigator.serviceWorker
           .register("/monetag-sw.js")
-          .catch(() => {});
+          .then((reg) => console.log("Monetag SW registered:", reg))
+          .catch((err) => console.error("Monetag SW failed:", err));
       });
     }
   }, []);
 
-  // -----------------------------
-  // Loading Screen
-  // -----------------------------
+  /* ================= LOADING SCREEN ================= */
   if (checkingAuth) {
     return (
       <div
@@ -118,20 +103,28 @@ export default function App() {
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            background: "linear-gradient(135deg,#3b82f6,#8b5cf6,#06b6d4,#2563eb)",
+            background:
+              "linear-gradient(135deg,#3b82f6,#8b5cf6,#06b6d4,#2563eb)",
             backgroundSize: "300% 300%",
+            animation: "pulseGlow 2s ease-in-out infinite",
           }}
         >
-          <span style={{ fontSize: 36, fontWeight: "bold" }}>LC</span>
+          <span
+            style={{
+              fontSize: 36,
+              fontWeight: "bold",
+              textShadow: "0 0 12px rgba(255,255,255,.8)",
+            }}
+          >
+            LC
+          </span>
         </div>
         <p style={{ marginTop: 16, opacity: 0.8 }}>loechat is starting…</p>
       </div>
     );
   }
 
-  // -----------------------------
-  // Routes
-  // -----------------------------
+  /* ================= ROUTES ================= */
   return (
     <SettingsProvider>
       <ThemeProvider>
@@ -141,40 +134,180 @@ export default function App() {
               <AdGateway>
                 <Router>
                   <Routes>
-                    {/* Public */}
+                    {/* PUBLIC */}
                     <Route path="/" element={user ? <ChatPage /> : <HomePage />} />
 
-                    {/* Chat */}
-                    <Route path="/chat" element={<ProtectedRoute><ChatPage /></ProtectedRoute>} />
-                    <Route path="/chat/:chatId" element={<ProtectedRoute><ChatConversationPage /></ProtectedRoute>} />
-                    <Route path="/chat/:chatId/media" element={<ProtectedRoute><SharedMediaPage /></ProtectedRoute>} />
-                    <Route path="/archive" element={<ProtectedRoute><ArchivePage /></ProtectedRoute>} />
+                    {/* CHAT */}
+                    <Route
+                      path="/chat"
+                      element={
+                        <ProtectedRoute>
+                          <ChatPage />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="/chat/:chatId"
+                      element={
+                        <ProtectedRoute>
+                          <ChatConversationPage />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="/chat/:chatId/media"
+                      element={
+                        <ProtectedRoute>
+                          <SharedMediaPage />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="/archive"
+                      element={
+                        <ProtectedRoute>
+                          <ArchivePage />
+                        </ProtectedRoute>
+                      }
+                    />
 
-                    {/* Calls */}
-                    <Route path="/voice-call/:chatId/:friendId" element={<ProtectedRoute><VoiceCall /></ProtectedRoute>} />
-                    <Route path="/video-call/:chatId/:friendId" element={<ProtectedRoute><VideoCall /></ProtectedRoute>} />
+                    {/* CALLS */}
+                    <Route
+                      path="/voice-call/:chatId/:friendId"
+                      element={
+                        <ProtectedRoute>
+                          <VoiceCall />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="/video-call/:chatId/:friendId"
+                      element={
+                        <ProtectedRoute>
+                          <VideoCall />
+                        </ProtectedRoute>
+                      }
+                    />
 
-                    {/* Profile */}
-                    <Route path="/edit-profile" element={<ProtectedRoute><EditProfilePage /></ProtectedRoute>} />
-                    <Route path="/profile/:uid" element={<ProtectedRoute><UserProfile /></ProtectedRoute>} />
-                    <Route path="/friend/:uid" element={<ProtectedRoute><FriendProfilePage /></ProtectedRoute>} />
+                    {/* SETTINGS */}
+                    <Route
+                      path="/settings"
+                      element={
+                        <ProtectedRoute>
+                          <SettingsPage />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="/settings/privacy"
+                      element={
+                        <ProtectedRoute>
+                          <PrivacySettingsPage />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="/settings/notifications"
+                      element={
+                        <ProtectedRoute>
+                          <NotificationSettingsPage />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="/settings/preferences"
+                      element={
+                        <ProtectedRoute>
+                          <PreferencesSettingsPage />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="/settings/data"
+                      element={
+                        <ProtectedRoute>
+                          <DataSettingsPage />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="/settings/support"
+                      element={
+                        <ProtectedRoute>
+                          <SupportSettingsPage />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="/settings/account"
+                      element={
+                        <ProtectedRoute>
+                          <AccountSettingsPage />
+                        </ProtectedRoute>
+                      }
+                    />
 
-                    {/* Settings */}
-                    <Route path="/settings" element={<ProtectedRoute><SettingsPage /></ProtectedRoute>} />
-                    
-                    <Route path="/settings/data-storage" element={<ProtectedRoute><DataAndStorageSettings userId={user?.uid} /></ProtectedRoute>} />
-                    <Route path="/settings/notifications" element={<ProtectedRoute><NotificationSettings userId={user?.uid} /></ProtectedRoute>} />
-                    <Route path="/settings/privacy-security" element={<ProtectedRoute><PrivacyAndSecuritySettings userId={user?.uid} /></ProtectedRoute>} />
-                    <Route path="/settings/support" element={<ProtectedRoute><SupportAndAboutSettings /></ProtectedRoute>} />
+                    {/* PROFILE */}
+                    <Route
+                      path="/edit-profile"
+                      element={
+                        <ProtectedRoute>
+                          <EditProfilePage />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="/profile/:uid"
+                      element={
+                        <ProtectedRoute>
+                          <UserProfile />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="/friend/:uid"
+                      element={
+                        <ProtectedRoute>
+                          <FriendProfilePage />
+                        </ProtectedRoute>
+                      }
+                    />
 
-                    {/* Wallet */}
-                    <Route path="/wallet" element={<ProtectedRoute><WalletPage rewardCoins={rewardCoins} /></ProtectedRoute>} />
-                    <Route path="/withdraw" element={<ProtectedRoute><WithdrawPage rewardCoins={rewardCoins} /></ProtectedRoute>} />
-                    <Route path="/topup" element={<ProtectedRoute><TopUpPage rewardCoins={rewardCoins} /></ProtectedRoute>} />
-                    <Route path="/daily-bonus" element={<ProtectedRoute><HomePage rewardCoins={rewardCoins} /></ProtectedRoute>} />
+                    {/* WALLET */}
+                    <Route
+                      path="/wallet"
+                      element={
+                        <ProtectedRoute>
+                          <WalletPage rewardCoins={rewardCoins} />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="/withdraw"
+                      element={
+                        <ProtectedRoute>
+                          <WithdrawPage rewardCoins={rewardCoins} />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="/topup"
+                      element={
+                        <ProtectedRoute>
+                          <TopUpPage rewardCoins={rewardCoins} />
+                        </ProtectedRoute>
+                      }
+                    />
 
-                    {/* Call History */}
-                    <Route path="/history" element={<ProtectedRoute><CallHistoryPage /></ProtectedRoute>} />
+                    {/* HISTORY */}
+                    <Route
+                      path="/history"
+                      element={
+                        <ProtectedRoute>
+                          <CallHistoryPage />
+                        </ProtectedRoute>
+                      }
+                    />
                   </Routes>
                 </Router>
               </AdGateway>
