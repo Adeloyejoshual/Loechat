@@ -1,11 +1,10 @@
 import React from "react";
-import SettingsLayout from "./SettingsLayout";
-import NotificationSettings from "../NotificationSettings";
 
-export default function NotificationSettingsPage() {
+export default function PreferencesSettingsPage() {
   return (
-    <SettingsLayout title="Notifications">
-      <NotificationSettings />
-    </SettingsLayout>
+    <div style={{ padding: 30 }}>
+      <h1>Preferences</h1>
+      <p>Manage your preferences here.</p>
+    </div>
   );
 }
