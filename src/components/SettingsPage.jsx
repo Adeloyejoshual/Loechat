@@ -7,7 +7,7 @@ export default function SettingsPage() {
       {/* Sidebar */}
       <SettingsSidebar />
 
-      {/* Main Content Placeholder */}
+      {/* Main Content */}
       <div style={{ flex: 1, padding: 30 }}>
         <h2>Settings</h2>
         <p>Select a setting from the sidebar to manage your preferences.</p>
