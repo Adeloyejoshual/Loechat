@@ -1,172 +1,92 @@
-import React, { useContext, useEffect, useState } from "react";
+// src/components/SettingsPage.jsx
+import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { auth, db } from "../firebaseConfig";
-import { doc, getDoc } from "firebase/firestore";
-import { ThemeContext } from "../context/ThemeContext";
-
-// Icons
 import {
-  ArrowLeftIcon,
   LockClosedIcon,
   BellIcon,
   Cog6ToothIcon,
   CloudArrowDownIcon,
   QuestionMarkCircleIcon,
   ExclamationTriangleIcon,
-  ChevronRightIcon,
 } from "@heroicons/react/24/outline";
+
+import PrivacyAndSecuritySettings from "./PrivacyAndSecuritySettings";
+import NotificationSettings from "./NotificationSettings";
+import ApplicationPreferencesSettings from "./ApplicationPreferencesSettings";
+import DataAndStorageSettings from "./DataAndStorageSettings";
+import SupportAndAboutSettings from "./SupportAndAboutSettings";
+import AccountActionsSettings from "./AccountActionsSettings";
+import { auth } from "../firebaseConfig";
+
+const sections = [
+  { id: "privacy", label: "Privacy & Security", icon: <LockClosedIcon className="w-5 h-5 mr-2" /> },
+  { id: "notifications", label: "Notifications", icon: <BellIcon className="w-5 h-5 mr-2" /> },
+  { id: "preferences", label: "Application Preferences", icon: <Cog6ToothIcon className="w-5 h-5 mr-2" /> },
+  { id: "data", label: "Data & Storage", icon: <CloudArrowDownIcon className="w-5 h-5 mr-2" /> },
+  { id: "support", label: "Support & About", icon: <QuestionMarkCircleIcon className="w-5 h-5 mr-2" /> },
+  { id: "account", label: "Account Actions", icon: <ExclamationTriangleIcon className="w-5 h-5 mr-2" /> },
+];
 
 export default function SettingsPage() {
   const navigate = useNavigate();
-  const { theme } = useContext(ThemeContext);
-  const isDark = theme === "dark";
+  const userId = auth.currentUser?.uid;
+  const [activeSection, setActiveSection] = useState("privacy");
 
-  const [userData, setUserData] = useState(null);
-
-  // ---------------- LOAD USER ----------------
-  useEffect(() => {
-    const user = auth.currentUser;
-    if (!user) return;
-
-    const ref = doc(db, "users", user.uid);
-    getDoc(ref).then((snap) => {
-      if (snap.exists()) setUserData(snap.data());
-    });
-  }, []);
-
-  // ---------------- MENU ----------------
-  const menuItems = [
-    {
-      label: "Privacy & Security",
-      icon: LockClosedIcon,
-      path: "/settings/privacy",
-    },
-    {
-      label: "Notifications",
-      icon: BellIcon,
-      path: "/settings/notifications",
-    },
-    {
-      label: "Application Preferences",
-      icon: Cog6ToothIcon,
-      path: "/settings/preferences",
-    },
-    {
-      label: "Data & Storage",
-      icon: CloudArrowDownIcon,
-      path: "/settings/data",
-    },
-    {
-      label: "Support & About",
-      icon: QuestionMarkCircleIcon,
-      path: "/settings/support",
-    },
-    {
-      label: "Account Actions",
-      icon: ExclamationTriangleIcon,
-      path: "/settings/account",
-    },
-  ];
+  const renderSection = () => {
+    switch (activeSection) {
+      case "privacy":
+        return <PrivacyAndSecuritySettings userId={userId} />;
+      case "notifications":
+        return <NotificationSettings userId={userId} />;
+      case "preferences":
+        return <ApplicationPreferencesSettings />;
+      case "data":
+        return <DataAndStorageSettings userId={userId} />;
+      case "support":
+        return <SupportAndAboutSettings />;
+      case "account":
+        return <AccountActionsSettings userId={userId} />;
+      default:
+        return null;
+    }
+  };
 
   return (
-    <div
-      style={{
-        minHeight: "100vh",
-        background: isDark ? "#18181b" : "#f3f4f6",
-        color: isDark ? "#fff" : "#000",
-      }}
-    >
-      {/* Header */}
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 12,
-          padding: "16px",
-        }}
-      >
-        <ArrowLeftIcon
-          onClick={() => navigate("/chat")}
-          style={{ width: 24, height: 24, cursor: "pointer" }}
-        />
-        <h1 style={{ fontSize: 22, fontWeight: "bold" }}>Settings</h1>
-      </div>
-
-      {/* Profile Preview */}
-      <div
-        onClick={() => navigate("/edit-profile")}
-        style={{
-          margin: "0 16px 20px",
-          background: isDark ? "#27272a" : "#fff",
-          borderRadius: 14,
-          padding: 16,
-          display: "flex",
-          alignItems: "center",
-          gap: 14,
-          cursor: "pointer",
-          boxShadow: "0 2px 6px rgba(0,0,0,.15)",
-        }}
-      >
-        <div
-          style={{
-            width: 64,
-            height: 64,
-            borderRadius: "50%",
-            background: userData?.profilePic
-              ? `url(${userData.profilePic}) center/cover`
-              : "#3b82f6",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            fontSize: 22,
-            fontWeight: "bold",
-            color: "#fff",
-          }}
+    <div className="min-h-screen bg-gray-100 dark:bg-zinc-900 p-6 sm:p-10 flex flex-col lg:flex-row">
+      {/* Sidebar */}
+      <aside className="w-full lg:w-1/4 mb-6 lg:mb-0">
+        {/* Back button */}
+        <button
+          onClick={() => navigate(-1)}
+          className="mb-4 flex items-center gap-2 text-gray-700 dark:text-gray-200 hover:underline"
         >
-          {!userData?.profilePic && userData?.name?.[0]}
-        </div>
+          ← Back
+        </button>
 
-        <div style={{ flex: 1 }}>
-          <p style={{ fontSize: 18, fontWeight: 600 }}>
-            {userData?.name || "User"}
-          </p>
-          <p style={{ fontSize: 13, opacity: 0.7 }}>
-            Tap to edit profile
-          </p>
-        </div>
+        <h1 className="text-3xl font-bold mb-6 text-gray-800 dark:text-white">Settings</h1>
+        <ul className="space-y-3">
+          {sections.map((section) => (
+            <li key={section.id}>
+              <button
+                className={`flex items-center w-full text-left px-4 py-2 rounded-lg transition ${
+                  activeSection === section.id
+                    ? "bg-blue-500 text-white"
+                    : "bg-white dark:bg-zinc-800 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-zinc-700"
+                }`}
+                onClick={() => setActiveSection(section.id)}
+              >
+                {section.icon}
+                {section.label}
+              </button>
+            </li>
+          ))}
+        </ul>
+      </aside>
 
-        <ChevronRightIcon style={{ width: 20, height: 20, opacity: 0.6 }} />
-      </div>
-
-      {/* Settings Menu */}
-      <div style={{ margin: "0 16px" }}>
-        {menuItems.map((item) => (
-          <button
-            key={item.path}
-            onClick={() => navigate(item.path)}
-            style={{
-              width: "100%",
-              border: "none",
-              background: isDark ? "#27272a" : "#fff",
-              borderRadius: 14,
-              padding: "14px 16px",
-              marginBottom: 12,
-              display: "flex",
-              alignItems: "center",
-              gap: 14,
-              cursor: "pointer",
-              boxShadow: "0 1px 4px rgba(0,0,0,.12)",
-              color: isDark ? "#fff" : "#000",
-            }}
-          >
-            <item.icon style={{ width: 22, height: 22, opacity: 0.8 }} />
-            <span style={{ flex: 1, textAlign: "left", fontSize: 15 }}>
-              {item.label}
-            </span>
-            <ChevronRightIcon style={{ width: 18, height: 18, opacity: 0.5 }} />
-          </button>
-        ))}
-      </div>
+      {/* Main content */}
+      <main className="flex-1 bg-white dark:bg-zinc-800 rounded-2xl shadow-md p-6 transition-all duration-300">
+        {renderSection()}
+      </main>
     </div>
   );
 }
