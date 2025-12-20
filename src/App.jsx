@@ -23,7 +23,7 @@ import SharedMediaPage from "./components/SharedMediaPage";
 import ArchivePage from "./components/ChatPage/ArchivePage";
 import VoiceCall from "./components/VoiceCall";
 import VideoCall from "./components/VideoCall";
-import SettingsPage from "./components/SettingsPage";
+import SettingsPage from "./components/SettingsPage/SettingsPage";
 import WalletPage from "./components/WalletPage";
 import WithdrawPage from "./components/WithdrawPage";
 import TopUpPage from "./components/TopUpPage";
@@ -33,12 +33,12 @@ import UserProfile from "./components/UserProfile";
 import FriendProfilePage from "./components/FriendProfilePage";
 
 /* ================= SETTINGS SUB-PAGES ================= */
-import PrivacySettingsPage from "./pages/PrivacySettingsPage";
-import NotificationSettingsPage from "./pages/NotificationSettingsPage";
-import PreferencesSettingsPage from "./pages/PreferencesSettingsPage";
-import DataSettingsPage from "./pages/DataSettingsPage";
-import SupportSettingsPage from "./pages/SupportSettingsPage";
-import AccountSettingsPage from "./pages/AccountSettingsPage";
+import PrivacySettingsPage from "./components/SettingsPage/Privacy/PrivacySettingsPage";
+import NotificationSettingsPage from "./components/SettingsPage/Notifications/NotificationSettingsPage";
+import PreferencesSettingsPage from "./components/SettingsPage/Preferences/PreferencesSettingsPage";
+import DataSettingsPage from "./components/SettingsPage/Data/DataSettingsPage";
+import SupportSettingsPage from "./components/SettingsPage/Support/SupportSettingsPage";
+import AccountSettingsPage from "./components/SettingsPage/Account/AccountSettingsPage";
 
 /* ================= ADS ================= */
 import AdGateway from "./components/AdGateway";
