@@ -23,7 +23,7 @@ import SharedMediaPage from "./components/SharedMediaPage";
 import ArchivePage from "./components/ChatPage/ArchivePage";
 import VoiceCall from "./components/VoiceCall";
 import VideoCall from "./components/VideoCall";
-import SettingsPage from "./components/SettingsPage/SettingsPage";
+import SettingsPage from "./components/SettingsPage";
 import WalletPage from "./components/WalletPage";
 import WithdrawPage from "./components/WithdrawPage";
 import TopUpPage from "./components/TopUpPage";
