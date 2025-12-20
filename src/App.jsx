@@ -33,12 +33,12 @@ import UserProfile from "./components/UserProfile";
 import FriendProfilePage from "./components/FriendProfilePage";
 
 /* ================= SETTINGS SUB-PAGES ================= */
-import PrivacySettingsPage from "./components/SettingsPage/Privacy/PrivacySettingsPage";
-import NotificationSettingsPage from "./components/SettingsPage/Notifications/NotificationSettingsPage";
-import PreferencesSettingsPage from "./components/SettingsPage/Preferences/PreferencesSettingsPage";
-import DataSettingsPage from "./components/SettingsPage/Data/DataSettingsPage";
-import SupportSettingsPage from "./components/SettingsPage/Support/SupportSettingsPage";
-import AccountSettingsPage from "./components/SettingsPage/Account/AccountSettingsPage";
+import PrivacySettingsPage from "./components/SettingsPage/PrivacySettingsPage";
+import NotificationSettingsPage from "./components/SettingsPage/NotificationSettingsPage";
+import PreferencesSettingsPage from "./components/SettingsPage/PreferencesSettingsPage";
+import DataSettingsPage from "./components/SettingsPage/DataSettingsPage";
+import SupportSettingsPage from "./components/SettingsPage/SupportSettingsPage";
+import AccountSettingsPage from "./components/SettingsPage/AccountSettingsPage";
 
 /* ================= ADS ================= */
 import AdGateway from "./components/AdGateway";
