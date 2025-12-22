@@ -133,91 +133,88 @@ export default function SettingsPage() {
   if (!user) return <p>Loading user...</p>;
 
   return (
-    <div style={{ display: "flex", minHeight: "100vh", background: isDark ? "#1c1c1c" : "#f8f8f8" }}>
-      {/* Sidebar / Settings Navigation */}
+    <div
+      style={{
+        padding: 20,
+        minHeight: "100vh",
+        background: isDark ? "#1c1c1c" : "#f8f8f8",
+        color: isDark ? "#fff" : "#000",
+        display: "flex",
+        flexDirection: "column",
+        gap: 24,
+      }}
+    >
+      {/* Profile Card */}
       <div
         style={{
-          width: 220,
-          padding: 20,
-          borderRight: isDark ? "1px solid #333" : "1px solid #ccc",
           display: "flex",
-          flexDirection: "column",
+          alignItems: "center",
           gap: 16,
+          background: isDark ? "#2b2b2b" : "#fff",
+          padding: 16,
+          borderRadius: 12,
+          flexDirection: "column",
         }}
       >
-        {/* Profile Card */}
         <div
+          onClick={() => navigate("/edit-profile")}
           style={{
+            width: 88,
+            height: 88,
+            borderRadius: 44,
+            background: profilePic ? `url(${profilePic}) center/cover` : "#888",
+            cursor: "pointer",
             display: "flex",
             alignItems: "center",
-            gap: 12,
-            flexDirection: "column",
-            background: isDark ? "#2b2b2b" : "#fff",
-            padding: 16,
-            borderRadius: 12,
+            justifyContent: "center",
+            fontSize: 28,
+            color: "#fff",
+            fontWeight: "bold",
+          }}
+          title="Click to edit profile"
+        >
+          {!profilePic && (name?.[0] || "U")}
+        </div>
+        <h3 style={{ margin: 8 }}>{name}</h3>
+        <p style={{ fontSize: 12, textAlign: "center" }}>{email}</p>
+        <div
+          style={{
+            marginTop: 8,
+            padding: 8,
+            background: isDark ? "#1f1f1f" : "#eef6ff",
+            borderRadius: 8,
+            width: "100%",
+            textAlign: "center",
           }}
         >
-          <div
-            onClick={() => navigate("/edit-profile")}
-            style={{
-              width: 88,
-              height: 88,
-              borderRadius: 44,
-              background: profilePic ? `url(${profilePic}) center/cover` : "#888",
-              cursor: "pointer",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              fontSize: 28,
-              color: "#fff",
-              fontWeight: "bold",
-            }}
-            title="Click to edit profile"
-          >
-            {!profilePic && (name?.[0] || "U")}
-          </div>
-          <h3 style={{ margin: 8 }}>{name}</h3>
-          <p style={{ fontSize: 12, textAlign: "center" }}>{email}</p>
-          <div
-            style={{
-              marginTop: 8,
-              padding: 8,
-              background: isDark ? "#1f1f1f" : "#eef6ff",
-              borderRadius: 8,
-              width: "100%",
-              textAlign: "center",
-            }}
-          >
-            Balance: <strong>${animatedBalance.toFixed(2)}</strong>
-          </div>
-        </div>
-
-        {/* Settings Links */}
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          {settingsLinks.map((item) => (
-            <button
-              key={item.name}
-              onClick={() => navigate(item.path)}
-              style={{
-                padding: "10px 14px",
-                textAlign: "left",
-                borderRadius: 8,
-                border: "none",
-                background: isDark ? "#2b2b2b" : "#fff",
-                color: isDark ? "#fff" : "#000",
-                cursor: "pointer",
-                fontWeight: "500",
-                boxShadow: "0 1px 3px rgba(0,0,0,0.1)",
-              }}
-            >
-              {item.name}
-            </button>
-          ))}
+          Balance: <strong>${animatedBalance.toFixed(2)}</strong>
         </div>
       </div>
 
-      {/* Main Content / Outlet */}
-      <div style={{ flex: 1, padding: 24 }}>
+      {/* Settings Links */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        {settingsLinks.map((item) => (
+          <button
+            key={item.name}
+            onClick={() => navigate(item.path)}
+            style={{
+              padding: "12px",
+              textAlign: "left",
+              borderRadius: 8,
+              border: "none",
+              background: isDark ? "#2b2b2b" : "#fff",
+              color: isDark ? "#fff" : "#000",
+              cursor: "pointer",
+              fontWeight: "500",
+            }}
+          >
+            {item.name}
+          </button>
+        ))}
+      </div>
+
+      {/* Render sub-pages */}
+      <div style={{ marginTop: 24 }}>
         <Outlet />
       </div>
     </div>
