@@ -1,4 +1,4 @@
-// src/components/SettingsPage/SettingsSidebar.jsx
+// src/components/SettingsSidebar.jsx
 
 import React from "react";
 import { useNavigate, useLocation } from "react-router-dom";
