@@ -6,8 +6,8 @@ import {
   getDoc,
   setDoc,
   onSnapshot,
-  updateDoc,
   serverTimestamp,
+  updateDoc,
 } from "firebase/firestore";
 import { signOut } from "firebase/auth";
 import { useNavigate, Outlet } from "react-router-dom";
@@ -142,45 +142,21 @@ export default function SettingsPage() {
           borderRight: isDark ? "1px solid #333" : "1px solid #ccc",
           display: "flex",
           flexDirection: "column",
-          gap: 12,
+          gap: 16,
         }}
       >
-        {settingsLinks.map((item) => (
-          <button
-            key={item.name}
-            onClick={() => navigate(item.path)}
-            style={{
-              padding: "10px 14px",
-              textAlign: "left",
-              borderRadius: 8,
-              border: "none",
-              background: isDark ? "#2b2b2b" : "#fff",
-              color: isDark ? "#fff" : "#000",
-              cursor: "pointer",
-              fontWeight: "500",
-              boxShadow: "0 1px 3px rgba(0,0,0,0.1)",
-            }}
-          >
-            {item.name}
-          </button>
-        ))}
-      </div>
-
-      {/* Main Content */}
-      <div style={{ flex: 1, padding: 24 }}>
-        {/* Your existing profile + wallet card */}
+        {/* Profile Card */}
         <div
           style={{
             display: "flex",
             alignItems: "center",
-            gap: 16,
+            gap: 12,
+            flexDirection: "column",
             background: isDark ? "#2b2b2b" : "#fff",
             padding: 16,
             borderRadius: 12,
-            marginBottom: 25,
           }}
         >
-          {/* Profile Picture */}
           <div
             onClick={() => navigate("/edit-profile")}
             style={{
@@ -200,29 +176,48 @@ export default function SettingsPage() {
           >
             {!profilePic && (name?.[0] || "U")}
           </div>
-
-          {/* User Info */}
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <h3>{name}</h3>
-            <p>{bio || "No bio yet"}</p>
-            <p style={{ fontSize: 13 }}>{email}</p>
-
-            {/* Wallet */}
-            <div
-              style={{
-                marginTop: 12,
-                padding: 12,
-                background: isDark ? "#1f1f1f" : "#eef6ff",
-                borderRadius: 10,
-              }}
-            >
-              <p>Balance:</p>
-              <strong>${animatedBalance.toFixed(2)}</strong>
-            </div>
+          <h3 style={{ margin: 8 }}>{name}</h3>
+          <p style={{ fontSize: 12, textAlign: "center" }}>{email}</p>
+          <div
+            style={{
+              marginTop: 8,
+              padding: 8,
+              background: isDark ? "#1f1f1f" : "#eef6ff",
+              borderRadius: 8,
+              width: "100%",
+              textAlign: "center",
+            }}
+          >
+            Balance: <strong>${animatedBalance.toFixed(2)}</strong>
           </div>
         </div>
 
-        {/* Outlet for sub-pages */}
+        {/* Settings Links */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {settingsLinks.map((item) => (
+            <button
+              key={item.name}
+              onClick={() => navigate(item.path)}
+              style={{
+                padding: "10px 14px",
+                textAlign: "left",
+                borderRadius: 8,
+                border: "none",
+                background: isDark ? "#2b2b2b" : "#fff",
+                color: isDark ? "#fff" : "#000",
+                cursor: "pointer",
+                fontWeight: "500",
+                boxShadow: "0 1px 3px rgba(0,0,0,0.1)",
+              }}
+            >
+              {item.name}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Main Content / Outlet */}
+      <div style={{ flex: 1, padding: 24 }}>
         <Outlet />
       </div>
     </div>
