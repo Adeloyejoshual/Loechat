@@ -1,7 +1,19 @@
 import React, { useState, useEffect, useRef } from "react";
 import { auth, db } from "../../firebaseConfig";
-import { doc, deleteDoc, collection, onSnapshot, serverTimestamp, setDoc } from "firebase/firestore";
-import { deleteUser, updatePassword, reauthenticateWithCredential, EmailAuthProvider } from "firebase/auth";
+import {
+  doc,
+  deleteDoc,
+  collection,
+  onSnapshot,
+  serverTimestamp,
+  setDoc,
+} from "firebase/firestore";
+import {
+  deleteUser,
+  updatePassword,
+  reauthenticateWithCredential,
+  EmailAuthProvider,
+} from "firebase/auth";
 import { useNavigate } from "react-router-dom";
 import { usePopup } from "../../context/PopupContext";
 import { useTheme } from "../../hooks/useTheme";
@@ -28,10 +40,12 @@ export default function AccountSettingsPage({ userId }) {
   const endX = useRef(0);
   const [isExiting, setIsExiting] = useState(false);
 
-  // =================== SWIPE TO GO BACK ===================
+  // =================== SWIPE TO GO BACK WITH DELAY ===================
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
+
+    let swipeTimeout = null;
 
     const handleTouchStart = (e) => {
       startX.current = e.touches[0].clientX;
@@ -43,10 +57,11 @@ export default function AccountSettingsPage({ userId }) {
 
     const handleTouchEnd = () => {
       const deltaX = endX.current - startX.current;
-      if (deltaX > 100) {
-        // Trigger exit animation
-        setIsExiting(true);
-        setTimeout(() => navigate("/settings"), 250);
+      if (deltaX > 80) { // minimum swipe distance
+        swipeTimeout = setTimeout(() => {
+          setIsExiting(true);
+          navigate("/settings");
+        }, 250); // 250ms delay for smooth feel
       }
     };
 
@@ -58,6 +73,7 @@ export default function AccountSettingsPage({ userId }) {
       container.removeEventListener("touchstart", handleTouchStart);
       container.removeEventListener("touchmove", handleTouchMove);
       container.removeEventListener("touchend", handleTouchEnd);
+      if (swipeTimeout) clearTimeout(swipeTimeout);
     };
   }, [navigate]);
 
@@ -104,7 +120,8 @@ export default function AccountSettingsPage({ userId }) {
 
   // =================== PASSWORD & ACCOUNT ===================
   const handleChangePassword = async () => {
-    if (!user || !password || !newPassword) return showPopup("❌ Fill all password fields");
+    if (!user || !password || !newPassword)
+      return showPopup("❌ Fill all password fields");
     setLoading(true);
     try {
       const credential = EmailAuthProvider.credential(user.email, password);
@@ -170,7 +187,13 @@ export default function AccountSettingsPage({ userId }) {
               setIsExiting(true);
               setTimeout(() => navigate("/settings"), 250);
             }}
-            style={{ alignSelf: "flex-start", cursor: "pointer", marginBottom: 24, fontSize: 20, fontWeight: "bold" }}
+            style={{
+              alignSelf: "flex-start",
+              cursor: "pointer",
+              marginBottom: 24,
+              fontSize: 20,
+              fontWeight: "bold",
+            }}
           >
             ← Back to Settings
           </div>
@@ -183,9 +206,25 @@ export default function AccountSettingsPage({ userId }) {
             style={panelStyle(isDark)}
           >
             <h2>🔒 Password & Security</h2>
-            <input type="password" placeholder="Current password" value={password} onChange={(e) => setPassword(e.target.value)} style={inputStyle(isDark)} />
-            <input type="password" placeholder="New password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} style={inputStyle(isDark)} />
-            <button onClick={handleChangePassword} disabled={loading} style={actionBtn(isDark, "#00e676")}>
+            <input
+              type="password"
+              placeholder="Current password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              style={inputStyle(isDark)}
+            />
+            <input
+              type="password"
+              placeholder="New password"
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+              style={inputStyle(isDark)}
+            />
+            <button
+              onClick={handleChangePassword}
+              disabled={loading}
+              style={actionBtn(isDark, "#00e676")}
+            >
               {loading ? "Updating..." : "Update Password"}
             </button>
           </motion.div>
@@ -201,7 +240,12 @@ export default function AccountSettingsPage({ userId }) {
             {sessions.map((s) => (
               <div key={s.id} style={sessionItem(isDark)}>
                 <span>{s.deviceName}</span>
-                <button onClick={() => handleLogoutSession(s.id)} style={sessionBtn}>{s.id === sessionId ? "Current" : "Log out"}</button>
+                <button
+                  onClick={() => handleLogoutSession(s.id)}
+                  style={sessionBtn}
+                >
+                  {s.id === sessionId ? "Current" : "Log out"}
+                </button>
               </div>
             ))}
           </motion.div>
@@ -214,12 +258,33 @@ export default function AccountSettingsPage({ userId }) {
             style={{ ...panelStyle(isDark), border: "2px solid #d32f2f" }}
           >
             <h2 style={{ color: "#d32f2f" }}>⚠️ Danger Zone</h2>
-            <label style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16 }}>
-              <input type="checkbox" checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} />
+            <label
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                marginBottom: 16,
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={confirmed}
+                onChange={(e) => setConfirmed(e.target.checked)}
+              />
               I understand this action is permanent
             </label>
-            <input type="password" placeholder="Enter password to confirm" value={password} onChange={(e) => setPassword(e.target.value)} style={inputStyle(isDark)} />
-            <button onClick={handleDeleteAccount} disabled={loading} style={actionBtn(isDark, "#d32f2f")}>
+            <input
+              type="password"
+              placeholder="Enter password to confirm"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              style={inputStyle(isDark)}
+            />
+            <button
+              onClick={handleDeleteAccount}
+              disabled={loading}
+              style={actionBtn(isDark, "#d32f2f")}
+            >
               {loading ? "Deleting..." : "Delete My Account"}
             </button>
           </motion.div>
