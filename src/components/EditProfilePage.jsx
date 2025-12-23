@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useContext, useRef } from "react";
 import { auth, db } from "../firebaseConfig";
-import { doc, getDoc, updateDoc, deleteDoc, serverTimestamp } from "firebase/firestore";
-import { deleteUser, reauthenticateWithCredential, EmailAuthProvider } from "firebase/auth";
+import { doc, getDoc, updateDoc, serverTimestamp } from "firebase/firestore";
+import { signOut } from "firebase/auth";
 import { useNavigate } from "react-router-dom";
 import { ThemeContext } from "../context/ThemeContext";
 import { usePopup } from "../context/PopupContext";
@@ -22,43 +22,33 @@ export default function EditProfilePage() {
   const [profilePic, setProfilePic] = useState(null);
   const [saving, setSaving] = useState(false);
 
-  // Delete account
-  const [confirmPassword, setConfirmPassword] = useState("");
-  const [deleting, setDeleting] = useState(false);
-
   const fileInputRef = useRef(null);
 
-  // ---------------- AUTH + LOAD PROFILE ----------------
-  useEffect(() => {
-    const unsubAuth = auth.onAuthStateChanged((u) => {
-      if (!u) {
-        navigate("/");
-        return;
-      }
+  /* ================= SWIPE STATE ================= */
+  const [startX, setStartX] = useState(null);
+  const [slideX, setSlideX] = useState(0);
+  const [isDragging, setIsDragging] = useState(false);
 
+  /* ================= AUTH + LOAD ================= */
+  useEffect(() => {
+    const unsub = auth.onAuthStateChanged(async (u) => {
+      if (!u) return navigate("/settings");
       setUser(u);
 
-      const userRef = doc(db, "users", u.uid);
-
-      (async () => {
-        const snap = await getDoc(userRef);
-        if (snap.exists()) {
-          const data = snap.data();
-          setName(data.name || "");
-          setBio(data.bio || "");
-          setProfilePic(data.profilePic || null);
-        }
-      })();
+      const snap = await getDoc(doc(db, "users", u.uid));
+      if (snap.exists()) {
+        const d = snap.data();
+        setName(d.name || "");
+        setBio(d.bio || "");
+        setProfilePic(d.profilePic || null);
+      }
     });
 
-    return () => unsubAuth();
+    return () => unsub();
   }, []);
 
-  // ---------------- CLOUDINARY ----------------
+  /* ================= CLOUDINARY ================= */
   const uploadToCloudinary = async (file) => {
-    if (!CLOUDINARY_CLOUD || !CLOUDINARY_PRESET)
-      throw new Error("Cloudinary environment not set");
-
     const fd = new FormData();
     fd.append("file", file);
     fd.append("upload_preset", CLOUDINARY_PRESET);
@@ -69,9 +59,8 @@ export default function EditProfilePage() {
     );
 
     if (!res.ok) throw new Error("Upload failed");
-
     const data = await res.json();
-    return data.secure_url || data.url;
+    return data.secure_url;
   };
 
   const handleImageChange = async (e) => {
@@ -82,8 +71,7 @@ export default function EditProfilePage() {
 
     try {
       const url = await uploadToCloudinary(file);
-      const userRef = doc(db, "users", user.uid);
-      await updateDoc(userRef, {
+      await updateDoc(doc(db, "users", user.uid), {
         profilePic: url,
         updatedAt: serverTimestamp(),
       });
@@ -94,15 +82,13 @@ export default function EditProfilePage() {
     }
   };
 
-  // ---------------- SAVE PROFILE ----------------
+  /* ================= SAVE ================= */
   const handleSave = async () => {
     if (!user) return;
     setSaving(true);
 
     try {
-      const userRef = doc(db, "users", user.uid);
-
-      await updateDoc(userRef, {
+      await updateDoc(doc(db, "users", user.uid), {
         name,
         bio,
         updatedAt: serverTimestamp(),
@@ -117,121 +103,153 @@ export default function EditProfilePage() {
     }
   };
 
-  // ---------------- DELETE ACCOUNT ----------------
-  const handleDeleteAccount = async () => {
-    if (!confirmPassword) {
-      return showPopup("❌ Enter your password to confirm");
+  /* ================= LOGOUT ================= */
+  const handleLogout = async () => {
+    await signOut(auth);
+    navigate("/chat");
+  };
+
+  /* ================= SWIPE HANDLERS ================= */
+  const onTouchStart = (e) => {
+    setStartX(e.touches[0].clientX);
+    setIsDragging(true);
+  };
+
+  const onTouchMove = (e) => {
+    if (startX === null) return;
+
+    const delta = e.touches[0].clientX - startX;
+    if (delta < 0) setSlideX(delta); // RIGHT → LEFT only
+  };
+
+  const onTouchEnd = () => {
+    setIsDragging(false);
+
+    if (Math.abs(slideX) > window.innerWidth * 0.35) {
+      navigate("/settings");
+    } else {
+      setSlideX(0);
     }
-
-    try {
-      setDeleting(true);
-
-      const credential = EmailAuthProvider.credential(
-        user.email,
-        confirmPassword
-      );
-
-      await reauthenticateWithCredential(user, credential);
-
-      await deleteDoc(doc(db, "users", user.uid)); // Firestore
-      await deleteUser(user); // Firebase Auth
-
-      showPopup("✅ Account deleted permanently");
-      navigate("/");
-    } catch {
-      showPopup("❌ Incorrect password or re-auth failed");
-    } finally {
-      setDeleting(false);
-    }
+    setStartX(null);
   };
 
   if (!user) return <p>Loading...</p>;
 
+  /* ================= PARALLEL EFFECT ================= */
+  const progress = Math.min(Math.abs(slideX) / window.innerWidth, 1);
+  const foregroundX = slideX;
+  const backgroundX = slideX * 0.3;
+  const blur = progress * 6;
+  const opacity = 1 - progress * 0.15;
+
   return (
-    <div
-      style={{
-        padding: 20,
-        minHeight: "100vh",
-        background: isDark ? "#1c1c1c" : "#f8f8f8",
-        color: isDark ? "#fff" : "#000",
-      }}
-    >
+    <>
+      {/* BACKGROUND LAYER */}
       <div
-        onClick={() => navigate("/settings")}
-        style={{ fontSize: 20, fontWeight: "bold", marginBottom: 16 }}
+        style={{
+          position: "fixed",
+          inset: 0,
+          background: isDark ? "#1c1c1c" : "#f8f8f8",
+          transform: `translateX(${backgroundX}px)`,
+          transition: isDragging ? "none" : "transform 0.3s ease-out",
+        }}
+      />
+
+      {/* FOREGROUND */}
+      <div
+        onTouchStart={onTouchStart}
+        onTouchMove={onTouchMove}
+        onTouchEnd={onTouchEnd}
+        style={{
+          position: "relative",
+          padding: 20,
+          minHeight: "100vh",
+          background: isDark ? "#1c1c1c" : "#f8f8f8",
+          color: isDark ? "#fff" : "#000",
+
+          transform: `translateX(${foregroundX}px)`,
+          filter: `blur(${blur}px)`,
+          opacity,
+
+          transition: isDragging
+            ? "none"
+            : "transform 0.3s ease-out, filter 0.3s ease-out, opacity 0.3s ease-out",
+
+          touchAction: "pan-y",
+        }}
       >
-        ← Back
-      </div>
-
-      <h2 style={{ textAlign: "center", marginBottom: 20 }}>✏️ Edit Profile</h2>
-
-      {/* Profile Image */}
-      <div style={{ textAlign: "center", marginBottom: 20 }}>
+        {/* BACK */}
         <div
-          onClick={() => fileInputRef.current.click()}
-          style={{
-            width: 100,
-            height: 100,
-            borderRadius: "50%",
-            margin: "0 auto",
-            background: profilePic ? `url(${profilePic}) center/cover` : "#888",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            fontSize: 32,
-            fontWeight: "bold",
-            color: "#fff",
-            cursor: "pointer",
-          }}
+          onClick={() => navigate("/settings")}
+          style={{ fontSize: 20, fontWeight: "bold", marginBottom: 16 }}
         >
-          {!profilePic && (name?.[0] || "U")}
+          ← Back
         </div>
 
-        <input
-          ref={fileInputRef}
-          type="file"
-          hidden
-          accept="image/*"
-          onChange={handleImageChange}
-        />
+        <h2 style={{ textAlign: "center", marginBottom: 20 }}>✏️ Edit Profile</h2>
+
+        {/* PROFILE IMAGE */}
+        <div style={{ textAlign: "center", marginBottom: 20 }}>
+          <div
+            onClick={() => fileInputRef.current.click()}
+            style={{
+              width: 100,
+              height: 100,
+              borderRadius: "50%",
+              margin: "0 auto",
+              background: profilePic
+                ? `url(${profilePic}) center/cover`
+                : "#888",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontSize: 32,
+              fontWeight: "bold",
+              color: "#fff",
+              cursor: "pointer",
+            }}
+          >
+            {!profilePic && (name?.[0] || "U")}
+          </div>
+
+          <input
+            ref={fileInputRef}
+            type="file"
+            hidden
+            accept="image/*"
+            onChange={handleImageChange}
+          />
+        </div>
+
+        {/* FORM */}
+        <div style={cardStyle}>
+          <label>Name</label>
+          <input value={name} onChange={(e) => setName(e.target.value)} style={inputStyle} />
+
+          <label>Bio</label>
+          <textarea
+            value={bio}
+            onChange={(e) => setBio(e.target.value)}
+            style={{ ...inputStyle, height: 80 }}
+          />
+
+          <button onClick={handleSave} style={saveBtn} disabled={saving}>
+            {saving ? "Saving..." : "✅ Save Changes"}
+          </button>
+        </div>
+
+        {/* LOG OUT */}
+        <div style={{ marginTop: 20 }}>
+          <button onClick={handleLogout} style={logoutBtn}>
+            🚪 Log Out
+          </button>
+        </div>
       </div>
-
-      <div style={cardStyle}>
-        <label>Name</label>
-        <input value={name} onChange={(e) => setName(e.target.value)} style={inputStyle} />
-
-        <label>Bio</label>
-        <textarea
-          value={bio}
-          onChange={(e) => setBio(e.target.value)}
-          style={{ ...inputStyle, height: 80 }}
-        />
-
-        <button onClick={handleSave} style={saveBtn} disabled={saving}>
-          {saving ? "Saving..." : "✅ Save Changes"}
-        </button>
-      </div>
-
-      {/* ===== DELETE ACCOUNT ===== */}
-      <div style={{ ...cardStyle, marginTop: 20, border: "2px solid red" }}>
-        <h3 style={{ color: "red" }}>⚠️ Delete Account</h3>
-        <input
-          type="password"
-          placeholder="Enter password to confirm"
-          value={confirmPassword}
-          onChange={(e) => setConfirmPassword(e.target.value)}
-          style={inputStyle}
-        />
-        <button onClick={handleDeleteAccount} style={deleteBtn} disabled={deleting}>
-          {deleting ? "Deleting..." : "❌ Delete My Account"}
-        </button>
-      </div>
-    </div>
+    </>
   );
 }
 
-// ================= STYLES =================
-
+/* ================= STYLES ================= */
 const inputStyle = {
   width: "100%",
   padding: 10,
@@ -256,12 +274,12 @@ const saveBtn = {
   fontWeight: "bold",
 };
 
-const deleteBtn = {
+const logoutBtn = {
   width: "100%",
   padding: 12,
   borderRadius: 10,
   border: "none",
-  background: "red",
+  background: "#ff5252",
   color: "#fff",
   fontWeight: "bold",
 };
