@@ -13,7 +13,7 @@ export default function LongPressMessageModal({
   isDark = false,
   onClose,
   setReplyTo,
-  setPinnedMessage,
+  setPinnedMessage, // 🔥 used to update header banner
   onDeleteMessage,
   onReactionChange,
 }) {
@@ -26,9 +26,7 @@ export default function LongPressMessageModal({
   // Close modal on outside click
   useEffect(() => {
     const handleClickOutside = (e) => {
-      if (modalRef.current && !modalRef.current.contains(e.target)) {
-        onClose?.();
-      }
+      if (modalRef.current && !modalRef.current.contains(e.target)) onClose?.();
     };
     document.addEventListener("mousedown", handleClickOutside);
     document.addEventListener("touchstart", handleClickOutside, { passive: true });
@@ -38,7 +36,6 @@ export default function LongPressMessageModal({
     };
   }, [onClose]);
 
-  // Toggle reaction in Firestore
   const toggleReaction = async (emoji) => {
     const msgRef = doc(db, "chats", message.chatId, "messages", message.id);
     const hasReacted = reactions[emoji]?.includes(myUid);
@@ -82,6 +79,20 @@ export default function LongPressMessageModal({
     } catch (err) {
       console.error(err);
       toast.error("Failed to delete message");
+    }
+  };
+
+  // 🔥 PIN MESSAGE
+  const handlePinMessage = async () => {
+    try {
+      const chatRef = doc(db, "chats", message.chatId);
+      await updateDoc(chatRef, { pinnedMessageId: message.id });
+      setPinnedMessage?.(message); // update header banner immediately
+      toast.success("Message pinned!");
+      onClose?.();
+    } catch (err) {
+      console.error(err);
+      toast.error("Failed to pin message");
     }
   };
 
@@ -143,18 +154,12 @@ export default function LongPressMessageModal({
           <ActionButton
             label="Reply"
             isDark={isDark}
-            onClick={() => {
-              setReplyTo?.(message);
-              onClose();
-            }}
+            onClick={() => { setReplyTo?.(message); onClose(); }}
           />
           <ActionButton
             label="Pin"
             isDark={isDark}
-            onClick={() => {
-              setPinnedMessage?.(message);
-              onClose();
-            }}
+            onClick={handlePinMessage} // 🔥 pin
           />
           <ActionButton label="Copy" isDark={isDark} onClick={handleCopy} />
           <ActionButton label="Delete" isDark={isDark} onClick={handleDelete} />
@@ -203,11 +208,9 @@ export default function LongPressMessageModal({
           </button>
         </div>
 
-        {/* Close button */}
         <ActionButton label="Close" isDark={isDark} onClick={onClose} />
       </div>
 
-      {/* Emoji Picker */}
       {showEmojiPicker && (
         <EmojiPicker
           open={showEmojiPicker}
