@@ -61,12 +61,9 @@ export default function ChatConversationPage() {
         onSnapshot(userRef, (s) => s.exists() && setFriendInfo({ id: s.id, ...s.data() }));
       }
 
-      // Load pinned message
       if (data.pinnedMessageId) {
         const pinnedRef = doc(db, "chats", chatId, "messages", data.pinnedMessageId);
         onSnapshot(pinnedRef, (s) => s.exists() && setPinnedMessage({ id: s.id, ...s.data() }));
-      } else {
-        setPinnedMessage(null);
       }
     });
 
@@ -127,14 +124,13 @@ export default function ChatConversationPage() {
     if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
   };
 
-  // -------------------- Send message --------------------
+  // -------------------- Send message (optimistic UI) --------------------
   const sendMessage = async (textMsg = "", files = []) => {
     if (isBlocked) return toast.error("You cannot send messages to this user");
     if (!textMsg && files.length === 0) return;
 
     const messagesCol = collection(db, "chats", chatId, "messages");
 
-    // Handle media files
     for (let f of files) {
       const type = f.type.startsWith("image/")
         ? "image"
@@ -161,12 +157,14 @@ export default function ChatConversationPage() {
       setMessages((prev) => [...prev, tempMessage]);
       endRef.current?.scrollIntoView({ behavior: "smooth" });
 
+      // Upload to Cloudinary
       try {
         let mediaUrl = "";
         if (type !== "file") {
           const formData = new FormData();
           formData.append("file", f);
           formData.append("upload_preset", import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET);
+
           const res = await axios.post(
             `https://api.cloudinary.com/v1_1/${import.meta.env.VITE_CLOUDINARY_CLOUD_NAME}/auto/upload`,
             formData
@@ -201,7 +199,7 @@ export default function ChatConversationPage() {
       }
     }
 
-    // Handle text message
+    // -------------------- Text messages --------------------
     if (textMsg.trim()) {
       const tempId = `temp-${Date.now()}-${Math.random()}`;
       const tempMessage = {
@@ -237,7 +235,7 @@ export default function ChatConversationPage() {
       }
     }
 
-    // Update chat last message
+    // -------------------- Update chat last message --------------------
     const chatRef = doc(db, "chats", chatId);
     await updateDoc(chatRef, {
       lastMessage: textMsg || files[0]?.name,
@@ -268,7 +266,6 @@ export default function ChatConversationPage() {
         chatId={chatId}
         pinnedMessage={pinnedMessage}
         setBlockedStatus={setIsBlocked}
-        onGoToPinned={(id) => scrollToMessage(id)}
         onClearChat={async () => {
           if (!window.confirm("Clear this chat?")) return;
           messages.forEach(async (msg) => {
