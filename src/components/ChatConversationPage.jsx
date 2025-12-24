@@ -61,6 +61,7 @@ export default function ChatConversationPage() {
         onSnapshot(userRef, (s) => s.exists() && setFriendInfo({ id: s.id, ...s.data() }));
       }
 
+      // Load pinned message
       if (data.pinnedMessageId) {
         const pinnedRef = doc(db, "chats", chatId, "messages", data.pinnedMessageId);
         onSnapshot(pinnedRef, (s) => s.exists() && setPinnedMessage({ id: s.id, ...s.data() }));
@@ -121,7 +122,6 @@ export default function ChatConversationPage() {
     return acc;
   }, []);
 
-  // -------------------- Scroll to a message --------------------
   const scrollToMessage = (id) => {
     const el = document.getElementById(id);
     if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -134,6 +134,7 @@ export default function ChatConversationPage() {
 
     const messagesCol = collection(db, "chats", chatId, "messages");
 
+    // Handle media files
     for (let f of files) {
       const type = f.type.startsWith("image/")
         ? "image"
@@ -149,7 +150,7 @@ export default function ChatConversationPage() {
         id: tempId,
         senderId: myUid,
         text: f.name,
-        mediaUrls: [URL.createObjectURL(f)],
+        mediaUrl: URL.createObjectURL(f),
         mediaType: type,
         createdAt: new Date(),
         reactions: {},
@@ -166,7 +167,6 @@ export default function ChatConversationPage() {
           const formData = new FormData();
           formData.append("file", f);
           formData.append("upload_preset", import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET);
-
           const res = await axios.post(
             `https://api.cloudinary.com/v1_1/${import.meta.env.VITE_CLOUDINARY_CLOUD_NAME}/auto/upload`,
             formData
@@ -177,7 +177,7 @@ export default function ChatConversationPage() {
         const payload = {
           senderId: myUid,
           text: f.name,
-          mediaUrls: [mediaUrl],
+          mediaUrl,
           mediaType: type,
           createdAt: serverTimestamp(),
           reactions: {},
@@ -201,13 +201,14 @@ export default function ChatConversationPage() {
       }
     }
 
+    // Handle text message
     if (textMsg.trim()) {
       const tempId = `temp-${Date.now()}-${Math.random()}`;
       const tempMessage = {
         id: tempId,
         senderId: myUid,
         text: textMsg.trim(),
-        mediaUrls: [],
+        mediaUrl: "",
         mediaType: null,
         createdAt: new Date(),
         reactions: {},
@@ -236,6 +237,7 @@ export default function ChatConversationPage() {
       }
     }
 
+    // Update chat last message
     const chatRef = doc(db, "chats", chatId);
     await updateDoc(chatRef, {
       lastMessage: textMsg || files[0]?.name,
@@ -266,6 +268,7 @@ export default function ChatConversationPage() {
         chatId={chatId}
         pinnedMessage={pinnedMessage}
         setBlockedStatus={setIsBlocked}
+        onGoToPinned={(id) => scrollToMessage(id)}
         onClearChat={async () => {
           if (!window.confirm("Clear this chat?")) return;
           messages.forEach(async (msg) => {
@@ -279,14 +282,8 @@ export default function ChatConversationPage() {
           if (!q) return;
           const results = messages.filter((m) => m.text?.toLowerCase().includes(q.toLowerCase()));
           if (!results.length) return toast.info("No messages found");
-          const first = results[0];
-          document.getElementById(first.id)?.scrollIntoView({ behavior: "smooth", block: "center" });
+          scrollToMessage(results[0].id);
         }}
-        onSelectPinMessage={(msg) => {
-          const chatRef = doc(db, "chats", chatId);
-          updateDoc(chatRef, { pinnedMessageId: msg.id });
-        }}
-        onGoToPinned={() => pinnedMessage && scrollToMessage(pinnedMessage.id)}
       />
 
       <div
@@ -299,19 +296,6 @@ export default function ChatConversationPage() {
           flexDirection: "column",
         }}
       >
-        {/* 🔥 Render pinned message at top */}
-        {pinnedMessage && (
-          <MessageItem
-            key={pinnedMessage.id}
-            message={pinnedMessage}
-            myUid={myUid}
-            isDark={isDark}
-            highlight={true} // 🔥 highlight
-            setReplyTo={setReplyTo}
-            setPinnedMessage={setPinnedMessage}
-          />
-        )}
-
         {groupedMessages.map((item, idx) =>
           item.type === "date-separator" ? (
             <div
@@ -333,9 +317,10 @@ export default function ChatConversationPage() {
               isDark={isDark}
               chatId={chatId}
               setReplyTo={setReplyTo}
+              pinnedMessage={pinnedMessage}
               setPinnedMessage={setPinnedMessage}
-              highlight={pinnedMessage?.id === item.data.id} // highlight original pinned
-              onOpenLongPress={(msg) => {}}
+              friendId={friendInfo?.id}
+              onReplyClick={(id) => scrollToMessage(id)}
             />
           )
         )}
