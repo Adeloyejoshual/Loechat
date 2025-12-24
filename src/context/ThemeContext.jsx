@@ -1,5 +1,5 @@
 // src/context/ThemeContext.jsx
-import React, { createContext, useState, useEffect } from "react";
+import React, { createContext, useState, useEffect, useCallback } from "react";
 import { db, auth } from "../firebaseConfig";
 import { doc, setDoc, onSnapshot } from "firebase/firestore";
 
@@ -8,6 +8,12 @@ export const ThemeContext = createContext();
 export const ThemeProvider = ({ children }) => {
   const [theme, setTheme] = useState("light");
   const [wallpaper, setWallpaper] = useState("");
+
+  // ---------------- DETECT SYSTEM PREFERENCE ----------------
+  useEffect(() => {
+    const systemPrefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+    setTheme(systemPrefersDark ? "dark" : "light");
+  }, []);
 
   // ---------------- LIVE LOAD FROM FIRESTORE ----------------
   useEffect(() => {
@@ -18,41 +24,54 @@ export const ThemeProvider = ({ children }) => {
 
       const userRef = doc(db, "users", user.uid);
 
-      unsubDoc = onSnapshot(userRef, (snap) => {
-        if (!snap.exists()) return;
+      unsubDoc = onSnapshot(
+        userRef,
+        (snap) => {
+          if (!snap.exists()) return;
 
-        const data = snap.data();
-        if (data.theme) setTheme(data.theme);
-        if (data.wallpaper !== undefined) setWallpaper(data.wallpaper);
-      });
+          const data = snap.data();
+          setTheme(data?.theme || theme); // system theme remains default
+          setWallpaper(data?.wallpaper || "");
+        },
+        (err) => {
+          console.error("Theme snapshot error:", err);
+        }
+      );
     });
 
     return () => {
-      if (unsubDoc) unsubDoc();
+      unsubDoc?.();
       unsubAuth();
     };
-  }, []);
+  }, [theme]);
 
   // ---------------- SAVE SETTINGS ----------------
-  const updateSettings = async (newTheme, newWallpaper) => {
-    if (newTheme === theme && newWallpaper === wallpaper) return;
-
+  const updateSettings = useCallback(async (newTheme, newWallpaper) => {
     setTheme(newTheme);
     setWallpaper(newWallpaper);
 
-    const user = auth.currentUser;
-    if (!user) return;
+    try {
+      const user = auth.currentUser;
+      if (!user) return;
 
-    const userRef = doc(db, "users", user.uid);
-    await setDoc(
-      userRef,
-      {
-        theme: newTheme,
-        wallpaper: newWallpaper,
-        updatedAt: Date.now(),
-      },
-      { merge: true }
-    );
+      const userRef = doc(db, "users", user.uid);
+      await setDoc(
+        userRef,
+        {
+          theme: newTheme,
+          wallpaper: newWallpaper,
+          updatedAt: Date.now(),
+        },
+        { merge: true }
+      );
+    } catch (err) {
+      console.error("Failed to update theme settings:", err);
+    }
+  }, []);
+
+  // ---------------- TOGGLE THEME HELPER ----------------
+  const toggleTheme = () => {
+    updateSettings(theme === "dark" ? "light" : "dark", wallpaper);
   };
 
   // ---------------- APPLY TO DOCUMENT ----------------
@@ -73,7 +92,9 @@ export const ThemeProvider = ({ children }) => {
   }, [theme, wallpaper]);
 
   return (
-    <ThemeContext.Provider value={{ theme, wallpaper, updateSettings }}>
+    <ThemeContext.Provider
+      value={{ theme, wallpaper, updateSettings, toggleTheme }}
+    >
       {children}
     </ThemeContext.Provider>
   );
