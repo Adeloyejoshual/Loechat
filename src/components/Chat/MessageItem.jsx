@@ -1,5 +1,5 @@
 // src/components/Chat/MessageItem.jsx
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import { format } from "date-fns";
 
 export default function MessageItem({
@@ -20,8 +20,8 @@ export default function MessageItem({
   const [showReactions, setShowReactions] = useState(false);
   const refEl = useRef(null);
 
-  // Register the message DOM element for scrolling
-  React.useEffect(() => {
+  // Register message DOM for scrolling
+  useEffect(() => {
     if (registerRef) registerRef(refEl.current);
   }, [registerRef]);
 
@@ -33,7 +33,9 @@ export default function MessageItem({
     if (onMediaClick) onMediaClick(message, index);
   };
 
-  const formattedTime = message.createdAt ? format(new Date(message.createdAt), "HH:mm") : "";
+  const formattedTime = message.createdAt
+    ? format(new Date(message.createdAt), "HH:mm")
+    : "";
 
   return (
     <div
@@ -98,7 +100,12 @@ export default function MessageItem({
               key={idx}
               src={url}
               alt="media"
-              style={{ maxWidth: "100%", marginTop: 4, borderRadius: 8, cursor: "pointer" }}
+              style={{
+                maxWidth: "100%",
+                marginTop: 4,
+                borderRadius: 8,
+                cursor: "pointer",
+              }}
               onClick={() => handleMediaClick(idx)}
             />
           ))}
