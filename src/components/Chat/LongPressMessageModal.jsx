@@ -1,6 +1,6 @@
 // src/components/Chat/LongPressMessageModal.jsx
 import React, { useState, useEffect, useRef } from "react";
-import { doc, updateDoc, arrayUnion, arrayRemove, deleteDoc } from "firebase/firestore";
+import { doc, updateDoc, deleteDoc, arrayUnion, arrayRemove } from "firebase/firestore";
 import { db } from "../../firebaseConfig";
 import { toast } from "react-toastify";
 import EmojiPicker from "./EmojiPicker";
@@ -9,11 +9,13 @@ const QUICK_EMOJIS = ["👍", "❤️", "😂", "😮", "😢"];
 
 export default function LongPressMessageModal({
   message,
+  chatId,
   myUid,
   isDark = false,
   onClose,
   setReplyTo,
-  setPinnedMessage, // 🔥 used to update header banner
+  pinnedMessage,
+  setPinnedMessage,
   onDeleteMessage,
   onReactionChange,
 }) {
@@ -26,7 +28,9 @@ export default function LongPressMessageModal({
   // Close modal on outside click
   useEffect(() => {
     const handleClickOutside = (e) => {
-      if (modalRef.current && !modalRef.current.contains(e.target)) onClose?.();
+      if (modalRef.current && !modalRef.current.contains(e.target)) {
+        onClose?.();
+      }
     };
     document.addEventListener("mousedown", handleClickOutside);
     document.addEventListener("touchstart", handleClickOutside, { passive: true });
@@ -36,8 +40,9 @@ export default function LongPressMessageModal({
     };
   }, [onClose]);
 
+  // Toggle reaction in Firestore
   const toggleReaction = async (emoji) => {
-    const msgRef = doc(db, "chats", message.chatId, "messages", message.id);
+    const msgRef = doc(db, "chats", chatId, "messages", message.id);
     const hasReacted = reactions[emoji]?.includes(myUid);
     const newReactions = { ...reactions };
 
@@ -72,7 +77,7 @@ export default function LongPressMessageModal({
 
   const handleDelete = async () => {
     try {
-      await deleteDoc(doc(db, "chats", message.chatId, "messages", message.id));
+      await deleteDoc(doc(db, "chats", chatId, "messages", message.id));
       toast.success("Message deleted");
       onDeleteMessage?.(message.id);
       onClose?.();
@@ -82,17 +87,22 @@ export default function LongPressMessageModal({
     }
   };
 
-  // 🔥 PIN MESSAGE
-  const handlePinMessage = async () => {
+  const handlePinToggle = async () => {
     try {
-      const chatRef = doc(db, "chats", message.chatId);
-      await updateDoc(chatRef, { pinnedMessageId: message.id });
-      setPinnedMessage?.(message); // update header banner immediately
-      toast.success("Message pinned!");
+      const chatRef = doc(db, "chats", chatId);
+      if (pinnedMessage?.id === message.id) {
+        // Unpin
+        await updateDoc(chatRef, { pinnedMessageId: null });
+        setPinnedMessage(null);
+      } else {
+        // Pin
+        await updateDoc(chatRef, { pinnedMessageId: message.id });
+        setPinnedMessage(message);
+      }
       onClose?.();
     } catch (err) {
       console.error(err);
-      toast.error("Failed to pin message");
+      toast.error("Failed to update pin");
     }
   };
 
@@ -154,13 +164,18 @@ export default function LongPressMessageModal({
           <ActionButton
             label="Reply"
             isDark={isDark}
-            onClick={() => { setReplyTo?.(message); onClose(); }}
+            onClick={() => {
+              setReplyTo?.(message);
+              onClose();
+            }}
           />
+
           <ActionButton
-            label="Pin"
+            label={pinnedMessage?.id === message.id ? "Unpin" : "Pin"}
             isDark={isDark}
-            onClick={handlePinMessage} // 🔥 pin
+            onClick={handlePinToggle}
           />
+
           <ActionButton label="Copy" isDark={isDark} onClick={handleCopy} />
           <ActionButton label="Delete" isDark={isDark} onClick={handleDelete} />
         </div>
@@ -208,9 +223,11 @@ export default function LongPressMessageModal({
           </button>
         </div>
 
+        {/* Close button */}
         <ActionButton label="Close" isDark={isDark} onClick={onClose} />
       </div>
 
+      {/* Emoji Picker */}
       {showEmojiPicker && (
         <EmojiPicker
           open={showEmojiPicker}
