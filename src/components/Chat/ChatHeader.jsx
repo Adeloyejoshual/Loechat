@@ -1,7 +1,8 @@
+// src/components/Chat/ChatHeader.jsx
 import React, { useEffect, useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { doc, onSnapshot, updateDoc } from "firebase/firestore";
-import { db } from "../../firebaseConfig";
+import { doc, onSnapshot, updateDoc, arrayUnion, arrayRemove } from "firebase/firestore";
+import { db, auth } from "../../firebaseConfig";
 import { FiMoreVertical, FiPhone, FiVideo } from "react-icons/fi";
 
 export default function ChatHeader({
@@ -14,15 +15,17 @@ export default function ChatHeader({
   setBlockedStatus,
   onVoiceCall,
   onVideoCall,
-  onSelectPinMessage // 🔥 Added this
+  onSelectPinMessage,
 }) {
   const navigate = useNavigate();
+  const myUid = auth.currentUser?.uid;
+
   const [friendInfo, setFriendInfo] = useState(null);
   const [chatInfo, setChatInfo] = useState(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef(null);
 
-  /** LOAD FRIEND INFO **/
+  /* ------------------ LOAD FRIEND ------------------ */
   useEffect(() => {
     if (!friendId) return;
     return onSnapshot(doc(db, "users", friendId), (snap) => {
@@ -30,91 +33,75 @@ export default function ChatHeader({
     });
   }, [friendId]);
 
-  /** LOAD CHAT INFO **/
+  /* ------------------ LOAD CHAT (REALTIME) ------------------ */
   useEffect(() => {
     if (!chatId) return;
     return onSnapshot(doc(db, "chats", chatId), (snap) => {
-      if (snap.exists()) {
-        const data = snap.data();
-        setChatInfo(data);
-        setBlockedStatus?.(data.blocked);
-      }
+      if (!snap.exists()) return;
+      const data = snap.data();
+      setChatInfo(data);
+      setBlockedStatus?.(data.blockedBy?.includes(myUid));
     });
-  }, [chatId, setBlockedStatus]);
+  }, [chatId, myUid, setBlockedStatus]);
 
-  /** CLOSE MENU ON OUTSIDE CLICK **/
+  /* ------------------ CLOSE MENU OUTSIDE ------------------ */
   useEffect(() => {
-    const closeMenu = (e) => {
+    const close = (e) => {
       if (menuRef.current && !menuRef.current.contains(e.target)) {
         setMenuOpen(false);
       }
     };
-    document.addEventListener("mousedown", closeMenu);
-    return () => document.removeEventListener("mousedown", closeMenu);
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
   }, []);
 
-  /** BLOCK / UNBLOCK **/
+  /* ------------------ BLOCK / UNBLOCK ------------------ */
   const toggleBlock = async () => {
-    const newValue = !chatInfo?.blocked;
-    await updateDoc(doc(db, "chats", chatId), { blocked: newValue });
-    setChatInfo((p) => ({ ...p, blocked: newValue }));
-    setBlockedStatus?.(newValue);
-    setMenuOpen(false);
-  };
+    if (!chatInfo) return;
+    const ref = doc(db, "chats", chatId);
+    const isBlocked = chatInfo.blockedBy?.includes(myUid);
 
-  /** MUTE / UNMUTE **/
-  const toggleMute = async () => {
-    const isMuted = chatInfo?.mutedUntil > Date.now();
-    const newValue = isMuted ? 0 : Date.now() + 24 * 60 * 60 * 1000;
-
-    await updateDoc(doc(db, "chats", chatId), { mutedUntil: newValue });
-    setChatInfo((p) => ({ ...p, mutedUntil: newValue }));
-    setMenuOpen(false);
-  };
-
-  /** UTIL **/
-  const getInitials = (name) => {
-    if (!name) return "U";
-    const p = name.trim().split(" ");
-    return p.length > 1
-      ? (p[0][0] + p[1][0]).toUpperCase()
-      : p[0][0].toUpperCase();
-  };
-
-  const formatLastSeen = (timestamp) => {
-    if (!timestamp) return "offline";
-
-    const last = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
-    const diff = Date.now() - last.getTime();
-    if (diff < 60000) return "Online";
-
-    return last.toLocaleString([], {
-      hour: "2-digit",
-      minute: "2-digit",
-      day: "numeric",
-      month: "short",
+    await updateDoc(ref, {
+      blockedBy: isBlocked ? arrayRemove(myUid) : arrayUnion(myUid),
     });
+
+    setMenuOpen(false);
+  };
+
+  /* ------------------ MUTE / UNMUTE ------------------ */
+  const toggleMute = async () => {
+    const muted = chatInfo?.mutedUntil > Date.now();
+    const value = muted ? 0 : Date.now() + 24 * 60 * 60 * 1000;
+
+    await updateDoc(doc(db, "chats", chatId), { mutedUntil: value });
+    setMenuOpen(false);
+  };
+
+  /* ------------------ HELPERS ------------------ */
+  const initials = (name) =>
+    name?.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase() || "U";
+
+  const formatLastSeen = (ts) => {
+    if (!ts) return "offline";
+    const d = ts.toDate ? ts.toDate() : new Date(ts);
+    if (Date.now() - d.getTime() < 60000) return "Online";
+    return d.toLocaleString([], { hour: "2-digit", minute: "2-digit" });
   };
 
   return (
     <>
       {/* HEADER */}
       <div className="chat-header">
-        {/* BACK BUTTON */}
-        <div className="chat-back" onClick={() => navigate("/chat")}>
-          ←
-        </div>
+        <div className="chat-back" onClick={() => navigate(-1)}>←</div>
 
-        {/* AVATAR */}
         <div className="chat-avatar" onClick={() => navigate(`/friend/${friendId}`)}>
           {friendInfo?.profilePic ? (
             <img src={friendInfo.profilePic} alt="avatar" />
           ) : (
-            <span>{getInitials(friendInfo?.name)}</span>
+            <span>{initials(friendInfo?.name)}</span>
           )}
         </div>
 
-        {/* NAME + STATUS */}
         <div className="chat-info" onClick={() => navigate(`/friend/${friendId}`)}>
           <span className="chat-name">{friendInfo?.name || "Loading..."}</span>
           <span className="chat-lastseen">
@@ -122,46 +109,27 @@ export default function ChatHeader({
           </span>
         </div>
 
-        {/* VOICE + VIDEO CALL */}
         <div className="chat-actions">
-          <FiPhone size={21} onClick={() => onVoiceCall?.(chatId)} />
-          <FiVideo size={21} onClick={() => onVideoCall?.(chatId)} />
+          <FiPhone onClick={() => onVoiceCall?.(chatId)} />
+          <FiVideo onClick={() => onVideoCall?.(chatId)} />
         </div>
 
-        {/* MENU */}
         <div ref={menuRef} className="chat-menu">
-          <FiMoreVertical size={22} onClick={() => setMenuOpen((p) => !p)} />
-
+          <FiMoreVertical onClick={() => setMenuOpen((p) => !p)} />
           {menuOpen && (
             <div className="menu-dropdown">
-              {/* SEARCH */}
-              <div onClick={() => { setMenuOpen(false); onSearch?.(); }}>
-                Search
+              <div onClick={() => { setMenuOpen(false); onSearch?.(); }}>Search</div>
+              <div onClick={() => { setMenuOpen(false); onSelectPinMessage?.(); }}>
+                Pin message
               </div>
-
-              {/* PIN MESSAGE */}
-              <div
-                onClick={() => {
-                  setMenuOpen(false);
-                  onSelectPinMessage?.(); // 🔥 choose a message to pin
-                }}
-              >
-                Pin Message
-              </div>
-
-              {/* CLEAR CHAT */}
               <div onClick={() => { setMenuOpen(false); onClearChat?.(); }}>
-                Clear Chat
+                Clear chat
               </div>
-
-              {/* MUTE */}
               <div onClick={toggleMute}>
                 {chatInfo?.mutedUntil > Date.now() ? "Unmute" : "Mute"}
               </div>
-
-              {/* BLOCK */}
               <div className="danger" onClick={toggleBlock}>
-                {chatInfo?.blocked ? "Unblock" : "Block"}
+                {chatInfo?.blockedBy?.includes(myUid) ? "Unblock" : "Block"}
               </div>
             </div>
           )}
@@ -170,123 +138,10 @@ export default function ChatHeader({
 
       {/* PINNED MESSAGE BAR */}
       {pinnedMessage && (
-        <div
-          className="pinned-message"
-          onClick={() => onGoToPinned?.(pinnedMessage.id)} // 🔥 scroll to message
-        >
-          📌{" "}
-          {pinnedMessage.text?.trim()
-            ? pinnedMessage.text
-            : pinnedMessage.mediaType === "image"
-            ? "📷 Photo"
-            : pinnedMessage.mediaType === "video"
-            ? "🎥 Video"
-            : "Pinned message"}
+        <div className="pinned-message" onClick={() => onGoToPinned?.(pinnedMessage.id)}>
+          📌 {pinnedMessage.text || "Pinned message"}
         </div>
       )}
-
-      {/* STYLES */}
-      <style jsx>{`
-        .chat-header {
-          display: flex;
-          align-items: center;
-          padding: 8px 12px;
-          background-color: #075e54;
-          position: sticky;
-          top: 0;
-          z-index: 1000;
-          gap: 10px;
-        }
-        .chat-back {
-          width: 38px;
-          height: 38px;
-          border-radius: 50%;
-          background: rgba(255, 255, 255, 0.2);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          color: white;
-          font-size: 20px;
-          cursor: pointer;
-        }
-        .chat-avatar {
-          width: 46px;
-          height: 46px;
-          border-radius: 50%;
-          overflow: hidden;
-          background: #ddd;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          cursor: pointer;
-        }
-        .chat-avatar img {
-          width: 100%;
-          height: 100%;
-          object-fit: cover;
-        }
-        .chat-info {
-          flex: 1;
-          display: flex;
-          flex-direction: column;
-          color: white;
-          cursor: pointer;
-          overflow: hidden;
-        }
-        .chat-name {
-          font-size: 15px;
-          font-weight: 600;
-          white-space: nowrap;
-          overflow: hidden;
-          text-overflow: ellipsis;
-        }
-        .chat-lastseen {
-          font-size: 12px;
-          opacity: 0.85;
-        }
-        .chat-actions {
-          display: flex;
-          gap: 14px;
-          color: white;
-        }
-        .chat-menu {
-          position: relative;
-          color: white;
-        }
-        .menu-dropdown {
-          position: absolute;
-          top: 34px;
-          right: 0;
-          background: #fff;
-          color: #000;
-          width: 165px;
-          border-radius: 10px;
-          overflow: hidden;
-          box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
-        }
-        .menu-dropdown div {
-          padding: 12px 15px;
-          cursor: pointer;
-          font-size: 14px;
-        }
-        .menu-dropdown div:hover {
-          background: #f1f1f1;
-        }
-        .danger {
-          color: #d90000;
-          font-weight: bold;
-        }
-        .pinned-message {
-          background: #ececec;
-          padding: 6px 12px;
-          border-bottom: 1px solid #ccc;
-          font-size: 13px;
-          position: sticky;
-          top: 56px;
-          z-index: 999;
-          cursor: pointer;
-        }
-      `}</style>
     </>
   );
 }
