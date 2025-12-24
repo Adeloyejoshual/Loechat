@@ -1,84 +1,144 @@
-import React from "react";
-import { useTheme } from "../../hooks/useTheme"; // optional theme hook
+import React, { useRef, useEffect, useState } from "react";
+import { useTheme } from "../../hooks/useTheme";
 import { useNavigate } from "react-router-dom";
+import { motion, AnimatePresence } from "framer-motion";
+import { playSound } from "../../utils/sound";
 
 const SupportAndAboutSettings = () => {
   const { theme } = useTheme();
   const isDark = theme === "dark";
   const navigate = useNavigate();
 
+  const containerRef = useRef(null);
+  const startX = useRef(0);
+  const endX = useRef(0);
+
+  const [isExiting, setIsExiting] = useState(false);
+
+  /* ---------------- SWIPE RIGHT TO GO BACK ---------------- */
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+
+    const onStart = (e) => (startX.current = e.touches[0].clientX);
+    const onMove = (e) => (endX.current = e.touches[0].clientX);
+    const onEnd = () => {
+      if (endX.current - startX.current > 90) triggerBack();
+    };
+
+    el.addEventListener("touchstart", onStart);
+    el.addEventListener("touchmove", onMove);
+    el.addEventListener("touchend", onEnd);
+
+    return () => {
+      el.removeEventListener("touchstart", onStart);
+      el.removeEventListener("touchmove", onMove);
+      el.removeEventListener("touchend", onEnd);
+    };
+  }, []);
+
+  const triggerBack = () => {
+    playSound("/sounds/toggle.mp3", true);
+    setIsExiting(true);
+    setTimeout(() => navigate("/settings"), 220);
+  };
+
   const openMail = () => {
+    playSound("/sounds/success.mp3", true);
     window.open("mailto:loechatapp@gmail.com");
   };
 
   const openLink = (url) => {
-    window.open(url, "_blank");
+    playSound("/sounds/toggle.mp3", true);
+    window.open(url, "_blank", "noopener,noreferrer");
   };
 
   return (
-    <div className={`p-6 min-h-screen ${isDark ? "bg-[#1c1c1c]" : "bg-gray-100"}`}>
-      {/* Back Arrow */}
-      <div
-        onClick={() => navigate("/settings")}
-        style={{
-          cursor: "pointer",
-          marginBottom: 16,
-          fontSize: 20,
-          fontWeight: "bold",
-          color: isDark ? "#fff" : "#000",
-        }}
-      >
-        ← Back to Settings
-      </div>
-
-      <div
-        className={`p-4 rounded-lg shadow-md ${
-          isDark ? "bg-[#1f1f1f] text-gray-200" : "bg-white text-gray-800"
-        }`}
-      >
-        <h2 className="text-xl font-semibold mb-4">Support & About</h2>
-
-        <div className="flex flex-col space-y-3">
-          <button
-            className={`px-4 py-2 rounded-lg transition ${
-              isDark
-                ? "bg-gray-800 hover:bg-gray-700 text-gray-200"
-                : "bg-gray-100 hover:bg-gray-200 text-gray-800"
-            }`}
-            onClick={() => openLink("https://yourapp.com/help")}
+    <AnimatePresence>
+      {!isExiting && (
+        <motion.div
+          ref={containerRef}
+          initial={{ x: "100%", opacity: 0 }}
+          animate={{ x: 0, opacity: 1 }}
+          exit={{ x: "100%", opacity: 0 }}
+          transition={{ duration: 0.25 }}
+          className={`min-h-screen p-6 ${
+            isDark ? "bg-[#1c1c1c] text-white" : "bg-gray-100 text-black"
+          }`}
+        >
+          {/* BACK */}
+          <div
+            onClick={triggerBack}
+            className="mb-6 text-lg font-semibold cursor-pointer"
           >
-            Help Center
-          </button>
+            ← Back to Settings
+          </div>
 
-          <button
-            className={`px-4 py-2 rounded-lg transition ${
-              isDark
-                ? "bg-gray-800 hover:bg-gray-700 text-gray-200"
-                : "bg-gray-100 hover:bg-gray-200 text-gray-800"
-            }`}
-            onClick={openMail}
-          >
-            Contact Support
-          </button>
+          {/* SUPPORT */}
+          <Section title="Support">
+            <ActionButton
+              label="Help Center"
+              onClick={() => openLink("https://yourapp.com/help")}
+              isDark={isDark}
+            />
+            <ActionButton
+              label="Contact Support"
+              onClick={openMail}
+              isDark={isDark}
+            />
+          </Section>
 
-          <button
-            className={`px-4 py-2 rounded-lg transition ${
-              isDark
-                ? "bg-gray-800 hover:bg-gray-700 text-gray-200"
-                : "bg-gray-100 hover:bg-gray-200 text-gray-800"
-            }`}
-            onClick={() => openLink("https://yourapp.com/terms")}
-          >
-            Terms & Privacy Policy
-          </button>
+          {/* LEGAL */}
+          <Section title="Legal">
+            <ActionButton
+              label="Terms of Service"
+              onClick={() => openLink("https://yourapp.com/terms")}
+              isDark={isDark}
+            />
+            <ActionButton
+              label="Privacy Policy"
+              onClick={() => openLink("https://yourapp.com/privacy")}
+              isDark={isDark}
+            />
+          </Section>
 
-          <p className={isDark ? "text-gray-400 text-sm mt-2" : "text-gray-500 text-sm mt-2"}>
-            App Version: 1.0.0
-          </p>
-        </div>
-      </div>
-    </div>
+          {/* ABOUT */}
+          <Section title="About">
+            <div className="text-sm opacity-70 leading-relaxed">
+              LoeChat is a secure real-time messaging platform focused on privacy,
+              speed, and modern communication.
+            </div>
+
+            <div className="mt-4 text-xs opacity-50">
+              Version 1.0.0 • © {new Date().getFullYear()} LoeChat
+            </div>
+          </Section>
+        </motion.div>
+      )}
+    </AnimatePresence>
   );
 };
+
+/* ---------------- REUSABLE COMPONENTS ---------------- */
+
+const Section = ({ title, children }) => (
+  <div className="mb-6 p-5 rounded-xl shadow-md bg-white/5">
+    <h2 className="text-lg font-bold mb-4">{title}</h2>
+    <div className="space-y-3">{children}</div>
+  </div>
+);
+
+const ActionButton = ({ label, onClick, isDark }) => (
+  <button
+    onClick={onClick}
+    className={`w-full px-4 py-3 rounded-lg font-medium transition ${
+      isDark
+        ? "bg-gray-800 hover:bg-gray-700 text-gray-200"
+        : "bg-gray-100 hover:bg-gray-200 text-gray-800"
+    }`}
+  >
+    {label}
+  </button>
+);
 
 export default SupportAndAboutSettings;
