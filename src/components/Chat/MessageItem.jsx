@@ -30,11 +30,11 @@ export default function MessageItem({
   };
 
   const handleMediaClick = (index = 0) => {
-    if (onMediaClick) onMediaClick(message, index);
+    onMediaClick?.(message, index);
   };
 
   const formattedTime = message.createdAt
-    ? format(new Date(message.createdAt), "HH:mm")
+    ? format(new Date(message.createdAt.seconds ? message.createdAt.seconds * 1000 : message.createdAt), "HH:mm")
     : "";
 
   return (
