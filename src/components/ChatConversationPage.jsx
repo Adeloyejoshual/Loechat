@@ -28,11 +28,8 @@ export default function ChatConversationPage() {
   const { theme, wallpaper } = useContext(ThemeContext);
   const { profilePic, profileName } = useContext(UserContext);
   const isDark = theme === "dark";
-  const myUid = auth.currentUser?.uid;
 
-  const messagesRefEl = useRef(null);
-  const endRef = useRef(null);
-
+  const [myUid, setMyUid] = useState(null);
   const [chatInfo, setChatInfo] = useState(null);
   const [friendInfo, setFriendInfo] = useState(null);
   const [messages, setMessages] = useState([]);
@@ -40,27 +37,42 @@ export default function ChatConversationPage() {
   const [selectedFiles, setSelectedFiles] = useState([]);
   const [replyTo, setReplyTo] = useState(null);
   const [pinnedMessage, setPinnedMessage] = useState(null);
+  const [isBlocked, setIsBlocked] = useState(false);
   const [isAtBottom, setIsAtBottom] = useState(true);
   const [showPreview, setShowPreview] = useState(false);
-  const [isBlocked, setIsBlocked] = useState(false);
 
-  // ---------------- Load chat & friend info ----------------
+  const messagesRefEl = useRef(null);
+  const endRef = useRef(null);
+
+  // -------------------- Wait for Firebase auth --------------------
   useEffect(() => {
-    if (!chatId) return;
+    const unsubscribe = auth.onAuthStateChanged((user) => {
+      if (user) setMyUid(user.uid);
+    });
+    return unsubscribe;
+  }, []);
+
+  // -------------------- Load chat & friend info --------------------
+  useEffect(() => {
+    if (!chatId || !myUid) return;
+
     const chatRef = doc(db, "chats", chatId);
 
     const unsubChat = onSnapshot(chatRef, (snap) => {
       if (!snap.exists()) return;
+
       const data = snap.data();
       setChatInfo({ id: snap.id, ...data });
       setIsBlocked(data.blocked || false);
 
+      // Friend info
       const friendId = data.participants?.find((p) => p !== myUid);
       if (friendId) {
         const userRef = doc(db, "users", friendId);
         onSnapshot(userRef, (s) => s.exists() && setFriendInfo({ id: s.id, ...s.data() }));
       }
 
+      // Pinned message
       if (data.pinnedMessageId) {
         const pinnedRef = doc(db, "chats", chatId, "messages", data.pinnedMessageId);
         onSnapshot(pinnedRef, (s) => s.exists() && setPinnedMessage({ id: s.id, ...s.data() }));
@@ -72,9 +84,10 @@ export default function ChatConversationPage() {
     return () => unsubChat();
   }, [chatId, myUid]);
 
-  // ---------------- Real-time messages ----------------
+  // -------------------- Real-time messages --------------------
   useEffect(() => {
-    if (!chatId) return;
+    if (!chatId || !myUid) return;
+
     const messagesRef = collection(db, "chats", chatId, "messages");
     const q = query(messagesRef, orderBy("createdAt", "asc"));
 
@@ -86,9 +99,9 @@ export default function ChatConversationPage() {
     });
 
     return () => unsub();
-  }, [chatId, isAtBottom]);
+  }, [chatId, myUid, isAtBottom]);
 
-  // ---------------- Scroll detection ----------------
+  // -------------------- Scroll detection --------------------
   useEffect(() => {
     const el = messagesRefEl.current;
     if (!el) return;
@@ -97,7 +110,7 @@ export default function ChatConversationPage() {
     return () => el.removeEventListener("scroll", onScroll);
   }, []);
 
-  // ---------------- Date helpers ----------------
+  // -------------------- Helpers --------------------
   const formatDateSeparator = (date) => {
     if (!date) return "";
     const msgDate = new Date(date.toDate?.() || date);
@@ -126,14 +139,15 @@ export default function ChatConversationPage() {
     if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
   };
 
-  // ---------------- Send message ----------------
+  // -------------------- Send message --------------------
   const sendMessage = async (textMsg = "", files = []) => {
+    if (!myUid) return;
     if (isBlocked) return toast.error("You cannot send messages to this user");
     if (!textMsg && files.length === 0) return;
 
     const messagesCol = collection(db, "chats", chatId, "messages");
 
-    // ---------------- Handle media ----------------
+    // Send files
     for (let f of files) {
       const type = f.type.startsWith("image/")
         ? "image"
@@ -144,7 +158,6 @@ export default function ChatConversationPage() {
         : "file";
 
       const tempId = `temp-${Date.now()}-${Math.random()}`;
-
       const tempMessage = {
         id: tempId,
         senderId: myUid,
@@ -187,16 +200,20 @@ export default function ChatConversationPage() {
         const docRef = await addDoc(messagesCol, payload);
 
         setMessages((prev) =>
-          prev.map((m) => (m.id === tempId ? { ...payload, id: docRef.id, status: "sent", createdAt: new Date() } : m))
+          prev.map((m) =>
+            m.id === tempId ? { ...payload, id: docRef.id, status: "sent", createdAt: new Date() } : m
+          )
         );
       } catch (err) {
         console.error(err);
         toast.error(`Failed to send ${f.name}`);
-        setMessages((prev) => prev.map((m) => (m.id === tempId ? { ...m, status: "failed" } : m)));
+        setMessages((prev) =>
+          prev.map((m) => (m.id === tempId ? { ...m, status: "failed" } : m))
+        );
       }
     }
 
-    // ---------------- Handle text ----------------
+    // Send text
     if (textMsg.trim()) {
       const tempId = `temp-${Date.now()}-${Math.random()}`;
       const tempMessage = {
@@ -217,17 +234,22 @@ export default function ChatConversationPage() {
       try {
         const payload = { ...tempMessage, createdAt: serverTimestamp(), status: "sent" };
         const docRef = await addDoc(messagesCol, payload);
+
         setMessages((prev) =>
-          prev.map((m) => (m.id === tempId ? { ...payload, id: docRef.id, createdAt: new Date() } : m))
+          prev.map((m) =>
+            m.id === tempId ? { ...payload, id: docRef.id, createdAt: new Date() } : m
+          )
         );
       } catch (err) {
         console.error(err);
         toast.error("Failed to send message");
-        setMessages((prev) => prev.map((m) => (m.id === tempId ? { ...m, status: "failed" } : m)));
+        setMessages((prev) =>
+          prev.map((m) => (m.id === tempId ? { ...m, status: "failed" } : m))
+        );
       }
     }
 
-    // ---------------- Update chat last message ----------------
+    // Update last message in chat
     const chatRef = doc(db, "chats", chatId);
     await updateDoc(chatRef, {
       lastMessage: textMsg || files[0]?.name,
@@ -241,6 +263,8 @@ export default function ChatConversationPage() {
     setReplyTo(null);
     setShowPreview(false);
   };
+
+  if (!chatId || !myUid) return null; // prevent blank screen crash
 
   return (
     <div
