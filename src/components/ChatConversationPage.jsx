@@ -10,6 +10,7 @@ import {
   serverTimestamp,
   doc,
   updateDoc,
+  deleteDoc,
 } from "firebase/firestore";
 import { db, auth } from "../firebaseConfig";
 import { ThemeContext } from "../context/ThemeContext";
@@ -28,8 +29,11 @@ export default function ChatConversationPage() {
   const { theme, wallpaper } = useContext(ThemeContext);
   const { profilePic, profileName } = useContext(UserContext);
   const isDark = theme === "dark";
+  const myUid = auth.currentUser?.uid;
 
-  const [myUid, setMyUid] = useState(null);
+  const messagesRefEl = useRef(null);
+  const endRef = useRef(null);
+
   const [chatInfo, setChatInfo] = useState(null);
   const [friendInfo, setFriendInfo] = useState(null);
   const [messages, setMessages] = useState([]);
@@ -37,35 +41,22 @@ export default function ChatConversationPage() {
   const [selectedFiles, setSelectedFiles] = useState([]);
   const [replyTo, setReplyTo] = useState(null);
   const [pinnedMessage, setPinnedMessage] = useState(null);
-  const [isBlocked, setIsBlocked] = useState(false);
   const [isAtBottom, setIsAtBottom] = useState(true);
   const [showPreview, setShowPreview] = useState(false);
+  const [isBlocked, setIsBlocked] = useState(false);
+  const [isFriendTyping, setIsFriendTyping] = useState(false);
 
-  const messagesRefEl = useRef(null);
-  const endRef = useRef(null);
-
-  // -------------------- Wait for Firebase auth --------------------
+  // ---------------- Load chat & friend info ----------------
   useEffect(() => {
-    const unsubscribe = auth.onAuthStateChanged((user) => {
-      if (user) setMyUid(user.uid);
-    });
-    return unsubscribe;
-  }, []);
-
-  // -------------------- Load chat & friend info --------------------
-  useEffect(() => {
-    if (!chatId || !myUid) return;
-
+    if (!chatId) return;
     const chatRef = doc(db, "chats", chatId);
 
     const unsubChat = onSnapshot(chatRef, (snap) => {
       if (!snap.exists()) return;
-
       const data = snap.data();
       setChatInfo({ id: snap.id, ...data });
       setIsBlocked(data.blocked || false);
 
-      // Friend info
       const friendId = data.participants?.find((p) => p !== myUid);
       if (friendId) {
         const userRef = doc(db, "users", friendId);
@@ -79,51 +70,61 @@ export default function ChatConversationPage() {
       } else {
         setPinnedMessage(null);
       }
+
+      // Typing indicator
+      setIsFriendTyping(data.typing?.[data.participants.find((p) => p !== myUid)] || false);
     });
 
     return () => unsubChat();
   }, [chatId, myUid]);
 
-  // -------------------- Real-time messages --------------------
+  // ---------------- Real-time messages ----------------
   useEffect(() => {
-    if (!chatId || !myUid) return;
-
+    if (!chatId) return;
     const messagesRef = collection(db, "chats", chatId, "messages");
-    const q = query(messagesRef, orderBy("createdAt", "asc"));
+    const q = query(messagesRef, orderBy("createdAt", "asc")); // ascending
 
     const unsub = onSnapshot(q, (snap) => {
-      const docs = snap.docs.map((d) => ({ id: d.id, ...d.data(), status: "sent" }));
+      const docs = snap.docs.map((d) => ({
+        id: d.id,
+        ...d.data(),
+        status: d.data().seenBy?.includes(myUid) ? "seen" : d.data().status || "sent",
+      }));
       setMessages(docs);
 
       if (isAtBottom) endRef.current?.scrollIntoView({ behavior: "smooth" });
     });
 
     return () => unsub();
-  }, [chatId, myUid, isAtBottom]);
+  }, [chatId, isAtBottom, myUid]);
 
-  // -------------------- Scroll detection --------------------
+  // ---------------- Scroll detection ----------------
   useEffect(() => {
     const el = messagesRefEl.current;
     if (!el) return;
-    const onScroll = () => setIsAtBottom(el.scrollHeight - el.scrollTop - el.clientHeight < 80);
+    const onScroll = () =>
+      setIsAtBottom(el.scrollHeight - el.scrollTop - el.clientHeight < 80);
     el.addEventListener("scroll", onScroll);
     return () => el.removeEventListener("scroll", onScroll);
   }, []);
 
-  // -------------------- Helpers --------------------
+  // ---------------- Typing indicator ----------------
+  const handleTyping = async () => {
+    const chatRef = doc(db, "chats", chatId);
+    await updateDoc(chatRef, { [`typing.${myUid}`]: text.trim().length > 0 });
+  };
+
+  // ---------------- Date helpers ----------------
   const formatDateSeparator = (date) => {
     if (!date) return "";
     const msgDate = new Date(date.toDate?.() || date);
     const now = new Date();
+    if (msgDate.toDateString() === now.toDateString()) return "Today";
     const yesterday = new Date();
     yesterday.setDate(now.getDate() - 1);
-
-    if (msgDate.toDateString() === now.toDateString()) return "Today";
     if (msgDate.toDateString() === yesterday.toDateString()) return "Yesterday";
 
-    const options = { month: "short", day: "numeric" };
-    if (msgDate.getFullYear() !== now.getFullYear()) options.year = "numeric";
-    return msgDate.toLocaleDateString(undefined, options);
+    return msgDate.toLocaleDateString(undefined, { month: "short", day: "numeric" });
   };
 
   const groupedMessages = messages.reduce((acc, msg) => {
@@ -139,15 +140,14 @@ export default function ChatConversationPage() {
     if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
   };
 
-  // -------------------- Send message --------------------
+  // ---------------- Send message ----------------
   const sendMessage = async (textMsg = "", files = []) => {
-    if (!myUid) return;
     if (isBlocked) return toast.error("You cannot send messages to this user");
     if (!textMsg && files.length === 0) return;
 
     const messagesCol = collection(db, "chats", chatId, "messages");
 
-    // Send files
+    // --- Handle media ---
     for (let f of files) {
       const type = f.type.startsWith("image/")
         ? "image"
@@ -161,7 +161,7 @@ export default function ChatConversationPage() {
       const tempMessage = {
         id: tempId,
         senderId: myUid,
-        text: f.name,
+        text: "",
         mediaUrl: URL.createObjectURL(f),
         mediaType: type,
         createdAt: new Date(),
@@ -175,20 +175,18 @@ export default function ChatConversationPage() {
 
       try {
         let mediaUrl = "";
-        if (type !== "file") {
-          const formData = new FormData();
-          formData.append("file", f);
-          formData.append("upload_preset", import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET);
-          const res = await axios.post(
-            `https://api.cloudinary.com/v1_1/${import.meta.env.VITE_CLOUDINARY_CLOUD_NAME}/auto/upload`,
-            formData
-          );
-          mediaUrl = res.data.secure_url;
-        }
+        const formData = new FormData();
+        formData.append("file", f);
+        formData.append("upload_preset", import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET);
+        const res = await axios.post(
+          `https://api.cloudinary.com/v1_1/${import.meta.env.VITE_CLOUDINARY_CLOUD_NAME}/auto/upload`,
+          formData
+        );
+        mediaUrl = res.data.secure_url;
 
         const payload = {
           senderId: myUid,
-          text: f.name,
+          text: "",
           mediaUrl,
           mediaType: type,
           createdAt: serverTimestamp(),
@@ -206,14 +204,12 @@ export default function ChatConversationPage() {
         );
       } catch (err) {
         console.error(err);
-        toast.error(`Failed to send ${f.name}`);
-        setMessages((prev) =>
-          prev.map((m) => (m.id === tempId ? { ...m, status: "failed" } : m))
-        );
+        toast.error("Failed to send media");
+        setMessages((prev) => prev.map((m) => (m.id === tempId ? { ...m, status: "failed" } : m)));
       }
     }
 
-    // Send text
+    // --- Handle text ---
     if (textMsg.trim()) {
       const tempId = `temp-${Date.now()}-${Math.random()}`;
       const tempMessage = {
@@ -243,19 +239,18 @@ export default function ChatConversationPage() {
       } catch (err) {
         console.error(err);
         toast.error("Failed to send message");
-        setMessages((prev) =>
-          prev.map((m) => (m.id === tempId ? { ...m, status: "failed" } : m))
-        );
+        setMessages((prev) => prev.map((m) => (m.id === tempId ? { ...m, status: "failed" } : m)));
       }
     }
 
-    // Update last message in chat
+    // Update chat last message
     const chatRef = doc(db, "chats", chatId);
     await updateDoc(chatRef, {
-      lastMessage: textMsg || files[0]?.name,
+      lastMessage: textMsg || files[0]?.name || "",
       lastMessageSender: myUid,
       lastMessageAt: serverTimestamp(),
       lastMessageStatus: "delivered",
+      [`typing.${myUid}`]: false,
     });
 
     setText("");
@@ -263,8 +258,6 @@ export default function ChatConversationPage() {
     setReplyTo(null);
     setShowPreview(false);
   };
-
-  if (!chatId || !myUid) return null; // prevent blank screen crash
 
   return (
     <div
@@ -287,7 +280,7 @@ export default function ChatConversationPage() {
           if (!window.confirm("Clear this chat?")) return;
           messages.forEach(async (msg) => {
             const msgRef = doc(db, "chats", chatId, "messages", msg.id);
-            await updateDoc(msgRef, { deleted: true });
+            await deleteDoc(msgRef);
           });
           toast.success("Chat cleared");
         }}
@@ -300,6 +293,7 @@ export default function ChatConversationPage() {
         }}
       />
 
+      {/* Messages */}
       <div
         ref={messagesRefEl}
         style={{
@@ -334,9 +328,28 @@ export default function ChatConversationPage() {
               pinnedMessage={pinnedMessage}
               setPinnedMessage={setPinnedMessage}
               friendId={friendInfo?.id}
-              onReplyClick={(id) => scrollToMessage(id)}
+              onOpenLongPress={(msg) => {
+                // Show delete / remove options
+                const choice = window.prompt("Type DELETE for me, DELETE ALL for everyone, or CANCEL");
+                if (!choice) return;
+                const msgRef = doc(db, "chats", chatId, "messages", msg.id);
+                if (choice.toUpperCase() === "DELETE") {
+                  deleteDoc(msgRef);
+                  toast.success("Message deleted for you");
+                } else if (choice.toUpperCase() === "DELETE ALL") {
+                  deleteDoc(msgRef);
+                  // Optionally delete media from Cloudinary if exists
+                  toast.success("Message deleted for everyone");
+                }
+              }}
+              onSwipeRight={() => setReplyTo(item.data)}
             />
           )
+        )}
+        {isFriendTyping && (
+          <div style={{ fontSize: 12, color: "#0d6efd", padding: "2px 8px" }}>
+            Typing...
+          </div>
         )}
         <div ref={endRef} />
       </div>
@@ -353,6 +366,7 @@ export default function ChatConversationPage() {
         replyTo={replyTo}
         setReplyTo={setReplyTo}
         disabled={isBlocked}
+        onChange={handleTyping}
       />
 
       {showPreview && selectedFiles.length > 0 && (
