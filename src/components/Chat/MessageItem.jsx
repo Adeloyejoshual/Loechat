@@ -8,37 +8,32 @@ export default function MessageItem({
   isDark = false,
   setReplyTo,
   setPinnedMessage,
+  pinnedMessage,
+  onOpenLongPress,
+  onSwipeRight,
   onMediaClick,
   onReact,
   highlight = false,
-  pinnedMessage,
-  friendId,
-  onOpenLongPress,
-  onSwipeRight,
 }) {
   const isMine = message.senderId === myUid;
   const [showReactions, setShowReactions] = useState(false);
   const refEl = useRef(null);
 
-  // For swipe to reply
+  // Swipe detection
   const touchStartX = useRef(0);
   const touchStartY = useRef(0);
   const touchMoved = useRef(false);
-  const swipeThreshold = 80; // px
+  const swipeThreshold = 80;
 
   // Long press detection
   const longPressTimer = useRef(null);
   const longPressDelay = 600;
 
-  // Register element ref
-  useEffect(() => {
-    // Could register for scroll or other features
-  }, []);
-
+  // Touch handlers
   const handleTouchStart = (e) => {
-    const touch = e.touches[0];
-    touchStartX.current = touch.clientX;
-    touchStartY.current = touch.clientY;
+    const t = e.touches[0];
+    touchStartX.current = t.clientX;
+    touchStartY.current = t.clientY;
     touchMoved.current = false;
 
     longPressTimer.current = setTimeout(() => {
@@ -47,9 +42,9 @@ export default function MessageItem({
   };
 
   const handleTouchMove = (e) => {
-    const touch = e.touches[0];
-    const dx = touch.clientX - touchStartX.current;
-    const dy = touch.clientY - touchStartY.current;
+    const t = e.touches[0];
+    const dx = t.clientX - touchStartX.current;
+    const dy = t.clientY - touchStartY.current;
 
     if (Math.abs(dx) > 10 || Math.abs(dy) > 10) {
       touchMoved.current = true;
@@ -59,12 +54,8 @@ export default function MessageItem({
 
   const handleTouchEnd = (e) => {
     clearTimeout(longPressTimer.current);
-    if (!touchMoved.current) return;
-
     const dx = e.changedTouches[0].clientX - touchStartX.current;
-    if (dx > swipeThreshold && onSwipeRight) {
-      onSwipeRight();
-    }
+    if (dx > swipeThreshold) onSwipeRight?.(message);
   };
 
   const handleMouseDown = () => {
@@ -73,12 +64,13 @@ export default function MessageItem({
     }, longPressDelay);
   };
 
-  const handleMouseUp = () => {
-    clearTimeout(longPressTimer.current);
-  };
+  const handleMouseUp = () => clearTimeout(longPressTimer.current);
 
   const formattedTime = message.createdAt
-    ? format(new Date(message.createdAt.seconds ? message.createdAt.seconds * 1000 : message.createdAt), "HH:mm")
+    ? format(
+        new Date(message.createdAt.seconds ? message.createdAt.seconds * 1000 : message.createdAt),
+        "HH:mm"
+      )
     : "";
 
   return (
@@ -102,7 +94,7 @@ export default function MessageItem({
         onOpenLongPress?.(message);
       }}
     >
-      {/* Reply preview */}
+      {/* Reply Preview */}
       {message.replyTo && (
         <div
           style={{
@@ -117,11 +109,11 @@ export default function MessageItem({
           }}
           onClick={() => setReplyTo?.(message.replyTo)}
         >
-          ↩ {message.replyTo.text || "Media message"}
+          ↩ {message.replyTo.text || message.replyTo.mediaType?.toUpperCase() || "Media message"}
         </div>
       )}
 
-      {/* Message bubble */}
+      {/* Message Bubble */}
       <div
         style={{
           maxWidth: "80%",
@@ -143,22 +135,30 @@ export default function MessageItem({
           <img
             src={message.mediaUrl}
             alt="media"
-            style={{ width: "100%", borderRadius: 8, marginBottom: message.text ? 6 : 0 }}
+            style={{
+              width: "100%",
+              borderRadius: 8,
+              marginBottom: message.text ? 6 : 0,
+            }}
             onClick={() => onMediaClick?.(0)}
           />
         )}
         {message.mediaUrl && message.mediaType === "video" && (
           <video
-            controls
             src={message.mediaUrl}
-            style={{ width: "100%", borderRadius: 8, marginBottom: message.text ? 6 : 0 }}
+            controls
+            style={{
+              width: "100%",
+              borderRadius: 8,
+              marginBottom: message.text ? 6 : 0,
+            }}
           />
         )}
 
         {/* Text */}
         {message.text && <div>{message.text}</div>}
 
-        {/* Timestamp & read receipt */}
+        {/* Timestamp & Read Receipt */}
         <div
           style={{
             fontSize: 10,
