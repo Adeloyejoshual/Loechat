@@ -9,28 +9,72 @@ export default function MessageItem({
   setReplyTo,
   setPinnedMessage,
   onMediaClick,
-  registerRef,
   onReact,
   highlight = false,
-  dataType,
-  dataDate,
+  pinnedMessage,
+  friendId,
   onOpenLongPress,
+  onSwipeRight,
 }) {
   const isMine = message.senderId === myUid;
   const [showReactions, setShowReactions] = useState(false);
   const refEl = useRef(null);
 
-  // Register message DOM for scrolling
-  useEffect(() => {
-    if (registerRef) registerRef(refEl.current);
-  }, [registerRef]);
+  // For swipe to reply
+  const touchStartX = useRef(0);
+  const touchStartY = useRef(0);
+  const touchMoved = useRef(false);
+  const swipeThreshold = 80; // px
 
-  const handleLongPress = () => {
-    onOpenLongPress?.(message);
+  // Long press detection
+  const longPressTimer = useRef(null);
+  const longPressDelay = 600;
+
+  // Register element ref
+  useEffect(() => {
+    // Could register for scroll or other features
+  }, []);
+
+  const handleTouchStart = (e) => {
+    const touch = e.touches[0];
+    touchStartX.current = touch.clientX;
+    touchStartY.current = touch.clientY;
+    touchMoved.current = false;
+
+    longPressTimer.current = setTimeout(() => {
+      onOpenLongPress?.(message);
+    }, longPressDelay);
   };
 
-  const handleMediaClick = (index = 0) => {
-    onMediaClick?.(message, index);
+  const handleTouchMove = (e) => {
+    const touch = e.touches[0];
+    const dx = touch.clientX - touchStartX.current;
+    const dy = touch.clientY - touchStartY.current;
+
+    if (Math.abs(dx) > 10 || Math.abs(dy) > 10) {
+      touchMoved.current = true;
+      clearTimeout(longPressTimer.current);
+    }
+  };
+
+  const handleTouchEnd = (e) => {
+    clearTimeout(longPressTimer.current);
+    if (!touchMoved.current) return;
+
+    const dx = e.changedTouches[0].clientX - touchStartX.current;
+    if (dx > swipeThreshold && onSwipeRight) {
+      onSwipeRight();
+    }
+  };
+
+  const handleMouseDown = () => {
+    longPressTimer.current = setTimeout(() => {
+      onOpenLongPress?.(message);
+    }, longPressDelay);
+  };
+
+  const handleMouseUp = () => {
+    clearTimeout(longPressTimer.current);
   };
 
   const formattedTime = message.createdAt
@@ -40,8 +84,7 @@ export default function MessageItem({
   return (
     <div
       ref={refEl}
-      data-type={dataType}
-      data-date={dataDate}
+      id={message.id}
       style={{
         display: "flex",
         flexDirection: "column",
@@ -49,9 +92,14 @@ export default function MessageItem({
         marginBottom: 6,
         animation: highlight ? "flash-highlight 1.2s ease" : "none",
       }}
+      onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
+      onTouchEnd={handleTouchEnd}
+      onMouseDown={handleMouseDown}
+      onMouseUp={handleMouseUp}
       onContextMenu={(e) => {
         e.preventDefault();
-        handleLongPress();
+        onOpenLongPress?.(message);
       }}
     >
       {/* Reply preview */}
@@ -90,27 +138,27 @@ export default function MessageItem({
         onClick={() => setShowReactions((prev) => !prev)}
         onDoubleClick={() => onReact?.(message.id, "❤️")}
       >
+        {/* Media */}
+        {message.mediaUrl && message.mediaType === "image" && (
+          <img
+            src={message.mediaUrl}
+            alt="media"
+            style={{ width: "100%", borderRadius: 8, marginBottom: message.text ? 6 : 0 }}
+            onClick={() => onMediaClick?.(0)}
+          />
+        )}
+        {message.mediaUrl && message.mediaType === "video" && (
+          <video
+            controls
+            src={message.mediaUrl}
+            style={{ width: "100%", borderRadius: 8, marginBottom: message.text ? 6 : 0 }}
+          />
+        )}
+
         {/* Text */}
         {message.text && <div>{message.text}</div>}
 
-        {/* Media */}
-        {message.mediaUrls?.length > 0 &&
-          message.mediaUrls.map((url, idx) => (
-            <img
-              key={idx}
-              src={url}
-              alt="media"
-              style={{
-                maxWidth: "100%",
-                marginTop: 4,
-                borderRadius: 8,
-                cursor: "pointer",
-              }}
-              onClick={() => handleMediaClick(idx)}
-            />
-          ))}
-
-        {/* Timestamp */}
+        {/* Timestamp & read receipt */}
         <div
           style={{
             fontSize: 10,
@@ -119,19 +167,12 @@ export default function MessageItem({
             marginTop: 4,
           }}
         >
-          {formattedTime}
+          {formattedTime} {isMine && <span>{message.status}</span>}
         </div>
 
         {/* Reactions */}
         {message.reactions && Object.keys(message.reactions).length > 0 && (
-          <div
-            style={{
-              display: "flex",
-              gap: 4,
-              flexWrap: "wrap",
-              marginTop: 4,
-            }}
-          >
+          <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 4 }}>
             {Object.entries(message.reactions).map(([emoji, users]) => (
               <div
                 key={emoji}
@@ -151,6 +192,24 @@ export default function MessageItem({
                 {emoji} {users.length}
               </div>
             ))}
+          </div>
+        )}
+
+        {/* Pinned */}
+        {pinnedMessage?.id === message.id && (
+          <div
+            style={{
+              position: "absolute",
+              top: -10,
+              right: -10,
+              background: "#ffd700",
+              padding: "2px 4px",
+              borderRadius: 4,
+              fontSize: 10,
+              fontWeight: "bold",
+            }}
+          >
+            📌
           </div>
         )}
       </div>
