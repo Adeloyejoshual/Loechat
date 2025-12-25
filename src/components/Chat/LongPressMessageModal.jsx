@@ -22,16 +22,12 @@ export default function LongPressMessageModal({
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const modalRef = useRef(null);
 
-  useEffect(() => {
-    setReactions(message.reactions || {});
-  }, [message.reactions]);
+  useEffect(() => setReactions(message.reactions || {}), [message.reactions]);
 
-  /* ---------------- CLICK OUTSIDE (NO OVERLAY) ---------------- */
+  // Close modal on outside click
   useEffect(() => {
     const handler = (e) => {
-      if (modalRef.current && !modalRef.current.contains(e.target)) {
-        onClose?.();
-      }
+      if (modalRef.current && !modalRef.current.contains(e.target)) onClose?.();
     };
     document.addEventListener("mousedown", handler);
     document.addEventListener("touchstart", handler, { passive: true });
@@ -41,7 +37,7 @@ export default function LongPressMessageModal({
     };
   }, [onClose]);
 
-  /* ---------------- REACTIONS ---------------- */
+  // ---------------- REACTIONS ----------------
   const toggleReaction = async (emoji) => {
     const ref = doc(db, "chats", chatId, "messages", message.id);
     const reacted = reactions[emoji]?.includes(myUid);
@@ -57,42 +53,68 @@ export default function LongPressMessageModal({
     setReactions(updated);
     onReactionChange?.(updated);
 
-    await updateDoc(ref, {
-      [`reactions.${emoji}`]: reacted
-        ? arrayRemove(myUid)
-        : arrayUnion(myUid),
-    });
+    try {
+      await updateDoc(ref, {
+        [`reactions.${emoji}`]: reacted ? arrayRemove(myUid) : arrayUnion(myUid),
+      });
+    } catch (err) {
+      console.error(err);
+      toast.error("Failed to update reaction");
+    }
   };
 
-  /* ---------------- ACTIONS ---------------- */
+  // ---------------- ACTIONS ----------------
   const handleCopy = async () => {
-    await navigator.clipboard.writeText(message.text || "");
-    toast.success("Copied");
-    onClose();
+    try {
+      await navigator.clipboard.writeText(message.text || "");
+      toast.success("Message copied!");
+      onClose?.();
+    } catch {
+      toast.error("Failed to copy");
+    }
   };
 
   const handleDelete = async () => {
-    await deleteDoc(doc(db, "chats", chatId, "messages", message.id));
-    toast.success("Deleted");
-    onClose();
+    try {
+      await deleteDoc(doc(db, "chats", chatId, "messages", message.id));
+      toast.success("Message deleted");
+      onClose?.();
+    } catch {
+      toast.error("Failed to delete");
+    }
   };
 
   const handlePin = async () => {
     const chatRef = doc(db, "chats", chatId);
     const isPinned = pinnedMessage?.id === message.id;
 
-    await updateDoc(chatRef, {
-      pinnedMessageId: isPinned ? null : message.id,
-    });
-
-    setPinnedMessage(isPinned ? null : message);
-    toast.success(isPinned ? "Unpinned" : "Pinned");
-    onClose();
+    try {
+      await updateDoc(chatRef, {
+        pinnedMessageId: isPinned ? null : message.id,
+      });
+      setPinnedMessage(isPinned ? null : message);
+      toast.success(isPinned ? "Unpinned" : "Pinned");
+      onClose?.();
+    } catch {
+      toast.error("Failed to update pin");
+    }
   };
 
-  /* ---------------- UI ---------------- */
+  // ---------------- UI ----------------
   return (
     <>
+      {/* Overlay */}
+      <div
+        style={{
+          position: "fixed",
+          inset: 0,
+          backgroundColor: "transparent",
+          zIndex: 9999,
+        }}
+        onClick={onClose}
+      />
+
+      {/* Modal */}
       <div
         ref={modalRef}
         style={{
@@ -123,14 +145,14 @@ export default function LongPressMessageModal({
           {message.text || "Media message"}
         </div>
 
-        {/* Quick emojis */}
+        {/* Quick emoji reactions */}
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-          {QUICK_EMOJIS.map((e) => {
-            const active = reactions[e]?.includes(myUid);
+          {QUICK_EMOJIS.map((emoji) => {
+            const active = reactions[emoji]?.includes(myUid);
             return (
               <button
-                key={e}
-                onClick={() => toggleReaction(e)}
+                key={emoji}
+                onClick={() => toggleReaction(emoji)}
                 style={{
                   padding: "6px 10px",
                   borderRadius: 10,
@@ -141,7 +163,7 @@ export default function LongPressMessageModal({
                   cursor: "pointer",
                 }}
               >
-                {e} {reactions[e]?.length || ""}
+                {emoji} {reactions[emoji]?.length || ""}
               </button>
             );
           })}
@@ -163,15 +185,14 @@ export default function LongPressMessageModal({
 
         <hr style={{ opacity: 0.2, margin: "12px 0" }} />
 
-        <Action label="Reply" onClick={() => { setReplyTo(message); onClose(); }} />
-        <Action
-          label={pinnedMessage?.id === message.id ? "Unpin" : "Pin"}
-          onClick={handlePin}
-        />
+        {/* Actions */}
+        <Action label="Reply" onClick={() => { setReplyTo(message); onClose?.(); }} />
+        <Action label={pinnedMessage?.id === message.id ? "Unpin" : "Pin"} onClick={handlePin} />
         <Action label="Copy" onClick={handleCopy} />
         <Action danger label="Delete" onClick={handleDelete} />
       </div>
 
+      {/* Full emoji picker */}
       {showEmojiPicker && (
         <EmojiPicker
           open
@@ -181,6 +202,7 @@ export default function LongPressMessageModal({
             setShowEmojiPicker(false);
           }}
           isDark={isDark}
+          maxHeightPct={0.5}
         />
       )}
     </>
