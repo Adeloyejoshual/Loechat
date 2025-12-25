@@ -1,4 +1,3 @@
-// src/components/Chat/MessageItem.jsx
 import React, { useRef } from "react";
 import { format } from "date-fns";
 
@@ -11,10 +10,11 @@ export default function MessageItem({
   onOpenLongPress,
   onSwipeRight,
   onMediaClick,
+  reactions = {}, // pass reactions to show live
 }) {
   const isMine = message.senderId === myUid;
+  const msgRef = useRef(null);
 
-  /* ------------------ GESTURE STATE ------------------ */
   const touchStartX = useRef(0);
   const touchStartY = useRef(0);
   const longPressTimer = useRef(null);
@@ -24,7 +24,6 @@ export default function MessageItem({
   const SWIPE_DISTANCE = 70;
   const MOVE_TOLERANCE = 12;
 
-  /* ------------------ TOUCH HANDLERS ------------------ */
   const handleTouchStart = (e) => {
     const t = e.touches[0];
     touchStartX.current = t.clientX;
@@ -33,7 +32,10 @@ export default function MessageItem({
 
     longPressTimer.current = setTimeout(() => {
       longPressTriggered.current = true;
-      onOpenLongPress?.(message);
+      if (msgRef.current) {
+        const rect = msgRef.current.getBoundingClientRect();
+        onOpenLongPress?.(message, rect);
+      }
     }, LONG_PRESS_DELAY);
   };
 
@@ -41,30 +43,30 @@ export default function MessageItem({
     const t = e.touches[0];
     const dx = t.clientX - touchStartX.current;
     const dy = t.clientY - touchStartY.current;
-
-    if (Math.abs(dy) > MOVE_TOLERANCE) clearTimeout(longPressTimer.current);
-    if (Math.abs(dx) > MOVE_TOLERANCE) clearTimeout(longPressTimer.current);
+    if (Math.abs(dy) > MOVE_TOLERANCE || Math.abs(dx) > MOVE_TOLERANCE) {
+      clearTimeout(longPressTimer.current);
+    }
   };
 
   const handleTouchEnd = (e) => {
     clearTimeout(longPressTimer.current);
     if (longPressTriggered.current) return;
-
     const dx = e.changedTouches[0].clientX - touchStartX.current;
     if (dx > SWIPE_DISTANCE) onSwipeRight?.(message);
   };
 
-  /* ------------------ MOUSE HANDLERS ------------------ */
   const handleMouseDown = () => {
     longPressTriggered.current = false;
     longPressTimer.current = setTimeout(() => {
       longPressTriggered.current = true;
-      onOpenLongPress?.(message);
+      if (msgRef.current) {
+        const rect = msgRef.current.getBoundingClientRect();
+        onOpenLongPress?.(message, rect);
+      }
     }, LONG_PRESS_DELAY);
   };
   const handleMouseUp = () => clearTimeout(longPressTimer.current);
 
-  /* ------------------ TIME ------------------ */
   const formattedTime = message.createdAt
     ? format(
         new Date(
@@ -76,10 +78,10 @@ export default function MessageItem({
       )
     : "";
 
-  /* ------------------ UI ------------------ */
   return (
     <div
       id={message.id}
+      ref={msgRef}
       onTouchStart={handleTouchStart}
       onTouchMove={handleTouchMove}
       onTouchEnd={handleTouchEnd}
@@ -87,7 +89,10 @@ export default function MessageItem({
       onMouseUp={handleMouseUp}
       onContextMenu={(e) => {
         e.preventDefault();
-        onOpenLongPress?.(message);
+        if (msgRef.current) {
+          const rect = msgRef.current.getBoundingClientRect();
+          onOpenLongPress?.(message, rect);
+        }
       }}
       style={{
         display: "flex",
@@ -153,6 +158,27 @@ export default function MessageItem({
 
         {/* Text */}
         {message.text && <div>{message.text}</div>}
+
+        {/* Reactions */}
+        {reactions && Object.keys(reactions).length > 0 && (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 4 }}>
+            {Object.entries(reactions).map(([emoji, users]) => (
+              <div
+                key={emoji}
+                style={{
+                  padding: "2px 6px",
+                  background: "#eee",
+                  borderRadius: 8,
+                  fontSize: 12,
+                  display: "flex",
+                  alignItems: "center",
+                }}
+              >
+                {emoji} {users.length}
+              </div>
+            ))}
+          </div>
+        )}
 
         {/* Time */}
         <div
