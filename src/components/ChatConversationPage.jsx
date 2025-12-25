@@ -1,4 +1,4 @@
-// src/components/Chat/ChatConversationPage.jsx
+// src/components/ChatConversationPage.jsx
 import React, { useEffect, useState, useRef, useContext } from "react";
 import { useParams } from "react-router-dom";
 import {
@@ -15,18 +15,17 @@ import {
 import { db, auth } from "../firebaseConfig";
 import { ThemeContext } from "../context/ThemeContext";
 
-import ChatHeader from "./ChatHeader";
-import MessageItem from "./MessageItem";
-import ChatInput from "../ChatInput";
-import MediaViewer from "./MediaViewer";
-import ImagePreviewModal from "./ImagePreviewModal";
-import LongPressMessageModal from "./LongPressMessageModal";
+import ChatHeader from "./Chat/ChatHeader";
+import MessageItem from "./Chat/MessageItem";
+import ChatInput from "./Chat/ChatInput";
+import MediaViewer from "./Chat/MediaViewer";
+import ImagePreviewModal from "./Chat/ImagePreviewModal";
+import LongPressMessageModal from "./Chat/LongPressMessageModal";
 
 import { toast, ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 
-/* -------------------------------- HELPERS -------------------------------- */
-
+/* --------------------------- HELPERS ---------------------------- */
 const getDayLabel = (date) => {
   if (!date) return "";
   const d = new Date(date);
@@ -37,14 +36,10 @@ const getDayLabel = (date) => {
   if (d.toDateString() === today.toDateString()) return "Today";
   if (d.toDateString() === yesterday.toDateString()) return "Yesterday";
 
-  return d.toLocaleDateString(undefined, {
-    month: "long",
-    day: "numeric",
-  });
+  return d.toLocaleDateString(undefined, { month: "long", day: "numeric" });
 };
 
-/* ------------------------------- COMPONENT -------------------------------- */
-
+/* ----------------------- CHAT CONVERSATION ----------------------- */
 export default function ChatConversationPage() {
   const { chatId } = useParams();
   const { theme, wallpaper } = useContext(ThemeContext);
@@ -57,23 +52,17 @@ export default function ChatConversationPage() {
   const [friend, setFriend] = useState(null);
   const [messages, setMessages] = useState([]);
   const [text, setText] = useState("");
-
   const [replyTo, setReplyTo] = useState(null);
   const [selectedFiles, setSelectedFiles] = useState([]);
   const [showPreview, setShowPreview] = useState(false);
-
   const [pinnedMessage, setPinnedMessage] = useState(null);
-
   const [longPressMsg, setLongPressMsg] = useState(null);
-
   const [mediaItems, setMediaItems] = useState([]);
   const [mediaIndex, setMediaIndex] = useState(0);
   const [showMediaViewer, setShowMediaViewer] = useState(false);
-
   const [isAtBottom, setIsAtBottom] = useState(true);
 
-  /* ----------------------- LOAD CHAT + FRIEND ----------------------- */
-
+  /* ---------------------- LOAD CHAT & FRIEND ---------------------- */
   useEffect(() => {
     if (!chatId || !myUid) return;
 
@@ -103,8 +92,7 @@ export default function ChatConversationPage() {
     return () => unsubChat();
   }, [chatId, myUid]);
 
-  /* ----------------------- LOAD MESSAGES (ASC) ----------------------- */
-
+  /* ----------------------- LOAD MESSAGES ASC ---------------------- */
   useEffect(() => {
     if (!chatId) return;
 
@@ -118,22 +106,20 @@ export default function ChatConversationPage() {
       setMessages(docs);
 
       if (isAtBottom) {
-        setTimeout(() => bottomRef.current?.scrollIntoView(), 50);
+        setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }), 50);
       }
     });
 
     return () => unsub();
   }, [chatId, isAtBottom]);
 
-  /* -------------------------- SCROLL TRACK -------------------------- */
-
+  /* ------------------------ SCROLL TRACK ------------------------- */
   useEffect(() => {
     const el = messagesWrapRef.current;
     if (!el) return;
 
     const onScroll = () => {
-      const atBottom =
-        el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+      const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
       setIsAtBottom(atBottom);
     };
 
@@ -146,15 +132,11 @@ export default function ChatConversationPage() {
     if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
   };
 
-  /* --------------------------- GROUP BY DAY -------------------------- */
-
+  /* ------------------------ GROUP BY DAY ------------------------- */
   const grouped = [];
   let lastDay = null;
-
   messages.forEach((m) => {
-    const d = m.createdAt?.seconds
-      ? new Date(m.createdAt.seconds * 1000)
-      : null;
+    const d = m.createdAt?.seconds ? new Date(m.createdAt.seconds * 1000) : null;
     const label = getDayLabel(d);
 
     if (label !== lastDay) {
@@ -165,8 +147,7 @@ export default function ChatConversationPage() {
     grouped.push({ type: "msg", data: m });
   });
 
-  /* --------------------------- SEND TEXT ----------------------------- */
-
+  /* ----------------------- SEND TEXT MESSAGE ---------------------- */
   const sendTextMessage = async (txt, reply) => {
     if (!txt.trim()) return;
 
@@ -185,8 +166,7 @@ export default function ChatConversationPage() {
     });
   };
 
-  /* -------------------------- SEND MEDIA ----------------------------- */
-
+  /* ----------------------- SEND MEDIA MESSAGE --------------------- */
   const sendMediaMessage = async (files, reply, caption = "") => {
     for (const file of files) {
       const fd = new FormData();
@@ -212,8 +192,7 @@ export default function ChatConversationPage() {
     }
   };
 
-  /* ------------------------- LONG PRESS ------------------------------ */
-
+  /* ------------------------ LONG PRESS --------------------------- */
   const handleLongPress = (msg) => setLongPressMsg(msg);
 
   const deleteMessage = async (msg, type) => {
@@ -236,8 +215,7 @@ export default function ChatConversationPage() {
     setLongPressMsg(null);
   };
 
-  /* ----------------------------- MEDIA ------------------------------- */
-
+  /* ------------------------ MEDIA VIEWER ------------------------- */
   const openMedia = (index) => {
     setMediaItems(
       messages
@@ -248,8 +226,7 @@ export default function ChatConversationPage() {
     setShowMediaViewer(true);
   };
 
-  /* ------------------------------ UI -------------------------------- */
-
+  /* ---------------------------- RENDER --------------------------- */
   return (
     <div
       style={{
