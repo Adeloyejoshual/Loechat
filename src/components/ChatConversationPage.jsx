@@ -21,7 +21,6 @@ import MessageItem from "./Chat/MessageItem";
 import ChatInput from "./Chat/ChatInput";
 import MediaViewer from "./Chat/MediaViewer";
 import ImagePreviewModal from "./Chat/ImagePreviewModal";
-import TypingIndicator from "./Chat/TypingIndicator";
 import { toast, ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 
@@ -105,15 +104,31 @@ export default function ChatConversationPage() {
     if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
   };
 
-  // ------------------ Group messages by day ------------------
-  const formatDate = date => {
-    if (!date) return "";
+  // ------------------ Format dates ------------------
+  const formatDateLabel = date => {
     const d = new Date(date.toDate?.() || date);
+    const today = new Date();
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+
+    if (
+      d.getDate() === today.getDate() &&
+      d.getMonth() === today.getMonth() &&
+      d.getFullYear() === today.getFullYear()
+    ) return "Today";
+
+    if (
+      d.getDate() === yesterday.getDate() &&
+      d.getMonth() === yesterday.getMonth() &&
+      d.getFullYear() === yesterday.getFullYear()
+    ) return "Yesterday";
+
     return d.toLocaleDateString(undefined, { month: "long", day: "numeric" });
   };
 
+  // ------------------ Group messages by day ------------------
   const groupedMessages = messages.reduce((acc, msg) => {
-    const dateStr = formatDate(msg.createdAt);
+    const dateStr = formatDateLabel(msg.createdAt);
     const lastDate = acc.length ? acc[acc.length - 1].date : null;
     if (dateStr !== lastDate) acc.push({ type: "date-separator", date: dateStr });
     acc.push({ type: "message", data: msg });
@@ -133,7 +148,7 @@ export default function ChatConversationPage() {
       seenBy: [],
       replyTo: reply ? { id: reply.id, text: reply.text } : null,
     };
-    const docRef = await addDoc(messagesCol, payload);
+    await addDoc(messagesCol, payload);
     await updateDoc(doc(db, "chats", chatId), {
       lastMessage: txt,
       lastMessageSender: myUid,
@@ -145,12 +160,15 @@ export default function ChatConversationPage() {
   const sendMediaMessage = async (files, reply = null) => {
     if (!files.length) return;
     const messagesCol = collection(db, "chats", chatId, "messages");
+
     for (let f of files) {
+      // Upload to Cloudinary
       const formData = new FormData();
       formData.append("file", f);
       formData.append("upload_preset", import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET);
       const res = await fetch(`https://api.cloudinary.com/v1_1/${import.meta.env.VITE_CLOUDINARY_CLOUD_NAME}/auto/upload`, { method: "POST", body: formData });
       const url = (await res.json()).secure_url;
+
       const payload = {
         senderId: myUid,
         text: "",
@@ -163,6 +181,7 @@ export default function ChatConversationPage() {
       };
       await addDoc(messagesCol, payload);
     }
+
     await updateDoc(doc(db, "chats", chatId), {
       lastMessage: "Media",
       lastMessageSender: myUid,
@@ -200,26 +219,37 @@ export default function ChatConversationPage() {
         onGoToPinned={scrollToMessage}
       />
 
+      {/* Messages container */}
       <div ref={messagesRefEl} style={{ flex: 1, overflowY: "auto", padding: 8, display: "flex", flexDirection: "column" }}>
-        {groupedMessages.map((item, idx) => item.type === "date-separator" ? (
-          <div key={idx} style={{ textAlign: "center", margin: "10px 0", fontSize: 12, color: isDark ? "#aaa" : "#555" }}>{item.date}</div>
-        ) : (
-          <MessageItem
-            key={item.data.id}
-            id={item.data.id}
-            message={item.data}
-            myUid={myUid}
-            isDark={isDark}
-            setReplyTo={setReplyTo}
-            onMediaClick={() => openMediaViewer(0)}
-            onDelete={deleteMessage}
-            onPin={pinMessage}
-            highlight={replyTo?.id === item.data.id}
-          />
-        ))}
+        {groupedMessages.map((item, idx) =>
+          item.type === "date-separator" ? (
+            <div key={idx} style={{ textAlign: "center", margin: "10px 0", fontSize: 12, color: isDark ? "#aaa" : "#555" }}>{item.date}</div>
+          ) : (
+            <MessageItem
+              key={item.data.id}
+              message={item.data}
+              myUid={myUid}
+              isDark={isDark}
+              setReplyTo={setReplyTo}
+              onOpenLongPress={(msg) => {
+                const action = prompt("Action: reply / delete / copy");
+                if (action === "reply") setReplyTo(msg);
+                else if (action === "delete") deleteMessage(msg.id, "me");
+                else if (action === "copy") navigator.clipboard.writeText(msg.text || "");
+              }}
+              onSwipeRight={() => setReplyTo(item.data)}
+              onMediaClick={() => openMediaViewer(0)}
+              onDelete={deleteMessage}
+              onPin={pinMessage}
+              highlight={replyTo?.id === item.data.id}
+              pinnedMessage={pinnedMessage}
+            />
+          )
+        )}
         <div ref={endRef} />
       </div>
 
+      {/* Chat input */}
       <ChatInput
         text={text}
         setText={setText}
@@ -236,6 +266,7 @@ export default function ChatConversationPage() {
         setShowPreview={setShowPreview}
       />
 
+      {/* Media preview */}
       {showPreview && selectedFiles.length > 0 && (
         <ImagePreviewModal
           previews={selectedFiles.map(f => ({ file: f, previewUrl: URL.createObjectURL(f) }))}
@@ -246,6 +277,7 @@ export default function ChatConversationPage() {
         />
       )}
 
+      {/* Media viewer */}
       {showMediaViewer && (
         <MediaViewer
           items={messages.filter(m => m.mediaUrl).map(m => ({ type: m.mediaType, url: m.mediaUrl }))}
