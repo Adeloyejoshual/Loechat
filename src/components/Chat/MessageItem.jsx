@@ -1,5 +1,4 @@
-// src/components/Chat/MessageItem.jsx
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef } from "react";
 import { format } from "date-fns";
 
 export default function MessageItem({
@@ -7,25 +6,24 @@ export default function MessageItem({
   myUid,
   isDark = false,
   setReplyTo,
-  setPinnedMessage,
   pinnedMessage,
   onOpenLongPress,
   onSwipeRight,
   onMediaClick,
   onReact,
   highlight = false,
+  scrollToMessage, // function to scroll to original message
 }) {
   const isMine = message.senderId === myUid;
   const [showReactions, setShowReactions] = useState(false);
+  const [swipeX, setSwipeX] = useState(0);
   const refEl = useRef(null);
 
-  // Swipe detection
   const touchStartX = useRef(0);
   const touchStartY = useRef(0);
   const touchMoved = useRef(false);
   const swipeThreshold = 80;
 
-  // Long press detection
   const longPressTimer = useRef(null);
   const longPressDelay = 600;
 
@@ -37,7 +35,7 @@ export default function MessageItem({
     touchMoved.current = false;
 
     longPressTimer.current = setTimeout(() => {
-      onOpenLongPress?.(message);
+      onOpenLongPress?.(message); // Trigger long press menu
     }, longPressDelay);
   };
 
@@ -46,16 +44,20 @@ export default function MessageItem({
     const dx = t.clientX - touchStartX.current;
     const dy = t.clientY - touchStartY.current;
 
-    if (Math.abs(dx) > 10 || Math.abs(dy) > 10) {
-      touchMoved.current = true;
-      clearTimeout(longPressTimer.current);
-    }
+    if (Math.abs(dx) > 5 || Math.abs(dy) > 5) touchMoved.current = true;
+    clearTimeout(longPressTimer.current);
+
+    // Bubble swipe
+    if (dx > 0 && Math.abs(dx) > Math.abs(dy)) setSwipeX(Math.min(dx, swipeThreshold + 30));
   };
 
   const handleTouchEnd = (e) => {
     clearTimeout(longPressTimer.current);
     const dx = e.changedTouches[0].clientX - touchStartX.current;
-    if (dx > swipeThreshold) onSwipeRight?.(message);
+    const dy = e.changedTouches[0].clientY - touchStartY.current;
+
+    if (dx > swipeThreshold && Math.abs(dx) > Math.abs(dy)) onSwipeRight?.(message);
+    setSwipeX(0);
   };
 
   const handleMouseDown = () => {
@@ -63,7 +65,6 @@ export default function MessageItem({
       onOpenLongPress?.(message);
     }, longPressDelay);
   };
-
   const handleMouseUp = () => clearTimeout(longPressTimer.current);
 
   const formattedTime = message.createdAt
@@ -107,7 +108,7 @@ export default function MessageItem({
             maxWidth: "80%",
             cursor: "pointer",
           }}
-          onClick={() => setReplyTo?.(message.replyTo)}
+          onClick={() => scrollToMessage?.(message.replyTo.id)}
         >
           ↩ {message.replyTo.text || message.replyTo.mediaType?.toUpperCase() || "Media message"}
         </div>
@@ -126,11 +127,12 @@ export default function MessageItem({
           wordBreak: "break-word",
           position: "relative",
           cursor: "pointer",
+          transform: `translateX(${swipeX}px)`,
+          transition: swipeX === 0 ? "transform 0.2s ease" : "none",
         }}
         onClick={() => setShowReactions((prev) => !prev)}
         onDoubleClick={() => onReact?.(message.id, "❤️")}
       >
-        {/* Media */}
         {message.mediaUrl && message.mediaType === "image" && (
           <img
             src={message.mediaUrl}
@@ -155,10 +157,8 @@ export default function MessageItem({
           />
         )}
 
-        {/* Text */}
         {message.text && <div>{message.text}</div>}
 
-        {/* Timestamp & Read Receipt */}
         <div
           style={{
             fontSize: 10,
