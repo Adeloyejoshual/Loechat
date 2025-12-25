@@ -25,7 +25,7 @@ import LongPressMessageModal from "./Chat/LongPressMessageModal";
 import { toast, ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 
-/* --------------------------- HELPERS ---------------------------- */
+// ------------------ Helpers ------------------
 const getDayLabel = (date) => {
   if (!date) return "";
   const d = new Date(date);
@@ -39,7 +39,7 @@ const getDayLabel = (date) => {
   return d.toLocaleDateString(undefined, { month: "long", day: "numeric" });
 };
 
-/* ----------------------- CHAT CONVERSATION ----------------------- */
+// ------------------ Component ------------------
 export default function ChatConversationPage() {
   const { chatId } = useParams();
   const { theme, wallpaper } = useContext(ThemeContext);
@@ -61,8 +61,9 @@ export default function ChatConversationPage() {
   const [mediaIndex, setMediaIndex] = useState(0);
   const [showMediaViewer, setShowMediaViewer] = useState(false);
   const [isAtBottom, setIsAtBottom] = useState(true);
+  const [friendTyping, setFriendTyping] = useState(false);
 
-  /* ---------------------- LOAD CHAT & FRIEND ---------------------- */
+  // ------------------ Load chat + friend ------------------
   useEffect(() => {
     if (!chatId || !myUid) return;
 
@@ -92,7 +93,7 @@ export default function ChatConversationPage() {
     return () => unsubChat();
   }, [chatId, myUid]);
 
-  /* ----------------------- LOAD MESSAGES ASC ---------------------- */
+  // ------------------ Load messages (asc) ------------------
   useEffect(() => {
     if (!chatId) return;
 
@@ -113,16 +114,15 @@ export default function ChatConversationPage() {
     return () => unsub();
   }, [chatId, isAtBottom]);
 
-  /* ------------------------ SCROLL TRACK ------------------------- */
+  // ------------------ Scroll detection ------------------
   useEffect(() => {
     const el = messagesWrapRef.current;
     if (!el) return;
-
     const onScroll = () => {
-      const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+      const atBottom =
+        el.scrollHeight - el.scrollTop - el.clientHeight < 80;
       setIsAtBottom(atBottom);
     };
-
     el.addEventListener("scroll", onScroll);
     return () => el.removeEventListener("scroll", onScroll);
   }, []);
@@ -132,11 +132,13 @@ export default function ChatConversationPage() {
     if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
   };
 
-  /* ------------------------ GROUP BY DAY ------------------------- */
+  // ------------------ Group messages by day ------------------
   const grouped = [];
   let lastDay = null;
   messages.forEach((m) => {
-    const d = m.createdAt?.seconds ? new Date(m.createdAt.seconds * 1000) : null;
+    const d = m.createdAt?.seconds
+      ? new Date(m.createdAt.seconds * 1000)
+      : null;
     const label = getDayLabel(d);
 
     if (label !== lastDay) {
@@ -147,7 +149,7 @@ export default function ChatConversationPage() {
     grouped.push({ type: "msg", data: m });
   });
 
-  /* ----------------------- SEND TEXT MESSAGE ---------------------- */
+  // ------------------ Send text ------------------
   const sendTextMessage = async (txt, reply) => {
     if (!txt.trim()) return;
 
@@ -166,7 +168,7 @@ export default function ChatConversationPage() {
     });
   };
 
-  /* ----------------------- SEND MEDIA MESSAGE --------------------- */
+  // ------------------ Send media ------------------
   const sendMediaMessage = async (files, reply, caption = "") => {
     for (const file of files) {
       const fd = new FormData();
@@ -192,7 +194,7 @@ export default function ChatConversationPage() {
     }
   };
 
-  /* ------------------------ LONG PRESS --------------------------- */
+  // ------------------ Long press ------------------
   const handleLongPress = (msg) => setLongPressMsg(msg);
 
   const deleteMessage = async (msg, type) => {
@@ -215,7 +217,7 @@ export default function ChatConversationPage() {
     setLongPressMsg(null);
   };
 
-  /* ------------------------ MEDIA VIEWER ------------------------- */
+  // ------------------ Media viewer ------------------
   const openMedia = (index) => {
     setMediaItems(
       messages
@@ -226,37 +228,19 @@ export default function ChatConversationPage() {
     setShowMediaViewer(true);
   };
 
-  /* ---------------------------- RENDER --------------------------- */
+  // ------------------ Render ------------------
   return (
-    <div
-      style={{
-        height: "100vh",
-        display: "flex",
-        flexDirection: "column",
-        background: wallpaper || (isDark ? "#0b0b0b" : "#f5f5f5"),
-      }}
-    >
+    <div style={{ height: "100vh", display: "flex", flexDirection: "column", background: wallpaper || (isDark ? "#0b0b0b" : "#f5f5f5") }}>
       <ChatHeader
         friend={friend}
         pinnedMessage={pinnedMessage}
         onPinnedClick={() => scrollToMessage(pinnedMessage?.id)}
       />
 
-      <div
-        ref={messagesWrapRef}
-        style={{ flex: 1, overflowY: "auto", padding: 8 }}
-      >
+      <div ref={messagesWrapRef} style={{ flex: 1, overflowY: "auto", padding: 8 }}>
         {grouped.map((item, i) =>
           item.type === "date" ? (
-            <div
-              key={i}
-              style={{
-                textAlign: "center",
-                fontSize: 12,
-                color: isDark ? "#aaa" : "#555",
-                margin: "10px 0",
-              }}
-            >
+            <div key={i} style={{ textAlign: "center", fontSize: 12, color: isDark ? "#aaa" : "#555", margin: "10px 0" }}>
               {item.label}
             </div>
           ) : (
@@ -270,7 +254,6 @@ export default function ChatConversationPage() {
               onOpenLongPress={handleLongPress}
               onSwipeRight={(m) => setReplyTo(m)}
               onMediaClick={openMedia}
-              scrollToMessage={scrollToMessage}
             />
           )
         )}
@@ -288,45 +271,36 @@ export default function ChatConversationPage() {
         setReplyTo={setReplyTo}
         isDark={isDark}
         setShowPreview={setShowPreview}
+        disabled={false}
+        friendTyping={friendTyping}
+        setTyping={setFriendTyping}
       />
 
-      {showPreview && (
-        <ImagePreviewModal
-          previews={selectedFiles.map((f) => ({
-            file: f,
-            previewUrl: URL.createObjectURL(f),
-          }))}
-          onClose={() => setShowPreview(false)}
-          onSend={(files, caption) =>
-            sendMediaMessage(files, replyTo, caption)
-          }
-          isDark={isDark}
-        />
-      )}
-
       {showMediaViewer && (
-        <MediaViewer
-          items={mediaItems}
-          startIndex={mediaIndex}
-          onClose={() => setShowMediaViewer(false)}
-        />
+        <MediaViewer items={mediaItems} startIndex={mediaIndex} onClose={() => setShowMediaViewer(false)} />
       )}
 
       {longPressMsg && (
         <LongPressMessageModal
           message={longPressMsg}
           onClose={() => setLongPressMsg(null)}
-          onReply={() => {
-            setReplyTo(longPressMsg);
-            setLongPressMsg(null);
-          }}
+          onReply={() => { setReplyTo(longPressMsg); setLongPressMsg(null); }}
           onPin={() => pinMessage(longPressMsg)}
           onDelete={deleteMessage}
           isPinned={pinnedMessage?.id === longPressMsg.id}
         />
       )}
 
-      <ToastContainer position="top-center" autoClose={1500} />
+      {showPreview && selectedFiles.length > 0 && (
+        <ImagePreviewModal
+          previews={selectedFiles.map((f) => ({ file: f, previewUrl: URL.createObjectURL(f) }))}
+          onClose={() => setShowPreview(false)}
+          onSend={(files, caption) => sendMediaMessage(files, replyTo, caption)}
+          isDark={isDark}
+        />
+      )}
+
+      <ToastContainer position="top-center" autoClose={1500} hideProgressBar />
     </div>
   );
 }
