@@ -10,7 +10,7 @@ export default function MessageItem({
   onOpenLongPress,
   onSwipeRight,
   onMediaClick,
-  onReactionToggle, // ✅ NEW
+  onReactionToggle, // ✅ Reaction callback
 }) {
   const isMine = message.senderId === myUid;
   const msgRef = useRef(null);
@@ -33,9 +33,7 @@ export default function MessageItem({
 
     longPressTimer.current = setTimeout(() => {
       longPressTriggered.current = true;
-      if (msgRef.current) {
-        onOpenLongPress?.(message, msgRef.current.getBoundingClientRect());
-      }
+      onOpenLongPress?.(message, msgRef.current.getBoundingClientRect());
     }, LONG_PRESS_DELAY);
   };
 
@@ -51,8 +49,13 @@ export default function MessageItem({
   const handleTouchEnd = (e) => {
     clearTimeout(longPressTimer.current);
     if (longPressTriggered.current) return;
+
     const dx = e.changedTouches[0].clientX - touchStartX.current;
-    if (dx > SWIPE_DISTANCE) onSwipeRight?.(message);
+    if (dx > SWIPE_DISTANCE) {
+      // ✅ Vibrate on swipe right (works on mobile)
+      if (navigator.vibrate) navigator.vibrate(50);
+      onSwipeRight?.(message);
+    }
   };
 
   /* ---------------- MOUSE ---------------- */
@@ -60,9 +63,7 @@ export default function MessageItem({
     longPressTriggered.current = false;
     longPressTimer.current = setTimeout(() => {
       longPressTriggered.current = true;
-      if (msgRef.current) {
-        onOpenLongPress?.(message, msgRef.current.getBoundingClientRect());
-      }
+      onOpenLongPress?.(message, msgRef.current.getBoundingClientRect());
     }, LONG_PRESS_DELAY);
   };
 
@@ -91,9 +92,7 @@ export default function MessageItem({
       onMouseUp={handleMouseUp}
       onContextMenu={(e) => {
         e.preventDefault();
-        if (msgRef.current) {
-          onOpenLongPress?.(message, msgRef.current.getBoundingClientRect());
-        }
+        onOpenLongPress?.(message, msgRef.current.getBoundingClientRect());
       }}
       style={{
         display: "flex",
@@ -109,11 +108,7 @@ export default function MessageItem({
           maxWidth: "80%",
           padding: 10,
           borderRadius: 12,
-          background: isMine
-            ? "#4a90e2"
-            : isDark
-            ? "#2a2a2a"
-            : "#fff",
+          background: isMine ? "#4a90e2" : isDark ? "#2a2a2a" : "#fff",
           color: isMine ? "#fff" : isDark ? "#eee" : "#111",
           position: "relative",
         }}
@@ -127,7 +122,6 @@ export default function MessageItem({
             onClick={() => onMediaClick?.(message.id)}
           />
         )}
-
         {message.mediaUrl && message.mediaType === "video" && (
           <video
             src={message.mediaUrl}
@@ -188,11 +182,7 @@ export default function MessageItem({
                   borderRadius: 12,
                   border: "none",
                   cursor: "pointer",
-                  background: reacted
-                    ? "#4a90e2"
-                    : isDark
-                    ? "#333"
-                    : "#eee",
+                  background: reacted ? "#4a90e2" : isDark ? "#333" : "#eee",
                   color: reacted ? "#fff" : isDark ? "#eee" : "#111",
                   fontSize: 12,
                 }}
