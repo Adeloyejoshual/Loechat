@@ -1,5 +1,5 @@
 // src/components/Chat/EmojiPicker.jsx
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
 
 const EMOJIS = [
   "😀","😃","😄","😁","😆","😅","😂","🤣","😊","😇",
@@ -17,6 +17,12 @@ const EMOJIS = [
 
 export default function EmojiPicker({ open = false, onClose, onSelect, isDark = false, maxHeightPct = 0.5 }) {
   const pickerRef = useRef(null);
+  const [sheetY, setSheetY] = useState(0);
+  const startYRef = useRef(0);
+  const lastYRef = useRef(0);
+  const draggingRef = useRef(false);
+
+  const maxHeight = window.innerHeight * maxHeightPct;
 
   // Close on outside click
   useEffect(() => {
@@ -33,6 +39,27 @@ export default function EmojiPicker({ open = false, onClose, onSelect, isDark = 
 
   if (!open) return null;
 
+  /* ---------------- DRAG ---------------- */
+  const handleTouchStart = (e) => {
+    draggingRef.current = true;
+    startYRef.current = e.touches[0].clientY;
+    lastYRef.current = sheetY;
+  };
+
+  const handleTouchMove = (e) => {
+    if (!draggingRef.current) return;
+    const dy = e.touches[0].clientY - startYRef.current;
+    const newY = Math.max(0, lastYRef.current + dy);
+    setSheetY(newY);
+  };
+
+  const handleTouchEnd = () => {
+    draggingRef.current = false;
+    // Close if dragged more than half of height
+    if (sheetY > maxHeight / 2) onClose?.();
+    else setSheetY(0);
+  };
+
   return (
     <div
       style={{
@@ -44,19 +71,26 @@ export default function EmojiPicker({ open = false, onClose, onSelect, isDark = 
         justifyContent: "center",
         alignItems: "flex-end",
         backdropFilter: "blur(4px)",
+        overflow: "hidden",
       }}
     >
       <div
         ref={pickerRef}
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
         style={{
           width: "100%",
           maxWidth: 400,
-          maxHeight: `${maxHeightPct * 100}%`,
+          maxHeight,
+          transform: `translateY(${sheetY}px)`,
+          transition: draggingRef.current ? "none" : "transform 0.2s ease",
           background: isDark ? "#1c1c1c" : "#fff",
           borderTopLeftRadius: 16,
           borderTopRightRadius: 16,
           padding: 12,
           overflowY: "auto",
+          WebkitOverflowScrolling: "touch",
           boxShadow: "0 -4px 16px rgba(0,0,0,0.25)",
           display: "grid",
           gridTemplateColumns: "repeat(auto-fill, minmax(40px, 1fr))",
