@@ -1,3 +1,4 @@
+// src/components/Chat/MessageItem.jsx
 import React, { useRef } from "react";
 import { format } from "date-fns";
 
@@ -5,12 +6,11 @@ export default function MessageItem({
   message,
   myUid,
   isDark,
-  setReplyTo,
   pinnedMessage,
   onOpenLongPress,
   onSwipeRight,
   onMediaClick,
-  reactions = {}, // pass reactions to show live
+  onReactionToggle, // ✅ NEW
 }) {
   const isMine = message.senderId === myUid;
   const msgRef = useRef(null);
@@ -24,6 +24,7 @@ export default function MessageItem({
   const SWIPE_DISTANCE = 70;
   const MOVE_TOLERANCE = 12;
 
+  /* ---------------- TOUCH ---------------- */
   const handleTouchStart = (e) => {
     const t = e.touches[0];
     touchStartX.current = t.clientX;
@@ -33,8 +34,7 @@ export default function MessageItem({
     longPressTimer.current = setTimeout(() => {
       longPressTriggered.current = true;
       if (msgRef.current) {
-        const rect = msgRef.current.getBoundingClientRect();
-        onOpenLongPress?.(message, rect);
+        onOpenLongPress?.(message, msgRef.current.getBoundingClientRect());
       }
     }, LONG_PRESS_DELAY);
   };
@@ -43,7 +43,7 @@ export default function MessageItem({
     const t = e.touches[0];
     const dx = t.clientX - touchStartX.current;
     const dy = t.clientY - touchStartY.current;
-    if (Math.abs(dy) > MOVE_TOLERANCE || Math.abs(dx) > MOVE_TOLERANCE) {
+    if (Math.abs(dx) > MOVE_TOLERANCE || Math.abs(dy) > MOVE_TOLERANCE) {
       clearTimeout(longPressTimer.current);
     }
   };
@@ -55,18 +55,20 @@ export default function MessageItem({
     if (dx > SWIPE_DISTANCE) onSwipeRight?.(message);
   };
 
+  /* ---------------- MOUSE ---------------- */
   const handleMouseDown = () => {
     longPressTriggered.current = false;
     longPressTimer.current = setTimeout(() => {
       longPressTriggered.current = true;
       if (msgRef.current) {
-        const rect = msgRef.current.getBoundingClientRect();
-        onOpenLongPress?.(message, rect);
+        onOpenLongPress?.(message, msgRef.current.getBoundingClientRect());
       }
     }, LONG_PRESS_DELAY);
   };
+
   const handleMouseUp = () => clearTimeout(longPressTimer.current);
 
+  /* ---------------- TIME ---------------- */
   const formattedTime = message.createdAt
     ? format(
         new Date(
@@ -90,40 +92,17 @@ export default function MessageItem({
       onContextMenu={(e) => {
         e.preventDefault();
         if (msgRef.current) {
-          const rect = msgRef.current.getBoundingClientRect();
-          onOpenLongPress?.(message, rect);
+          onOpenLongPress?.(message, msgRef.current.getBoundingClientRect());
         }
       }}
       style={{
         display: "flex",
         flexDirection: "column",
         alignItems: isMine ? "flex-end" : "flex-start",
-        marginBottom: 6,
+        marginBottom: 8,
         touchAction: "pan-y",
       }}
     >
-      {/* Reply Preview */}
-      {message.replyTo && (
-        <div
-          onClick={() =>
-            document
-              .getElementById(message.replyTo.id)
-              ?.scrollIntoView({ behavior: "smooth", block: "center" })
-          }
-          style={{
-            fontSize: 12,
-            opacity: 0.8,
-            marginBottom: 3,
-            padding: "4px 6px",
-            background: isDark ? "#333" : "#eee",
-            borderRadius: 6,
-            cursor: "pointer",
-          }}
-        >
-          ↩ {message.replyTo.text || "Media message"}
-        </div>
-      )}
-
       {/* Message Bubble */}
       <div
         style={{
@@ -144,41 +123,21 @@ export default function MessageItem({
           <img
             src={message.mediaUrl}
             alt=""
-            style={{ width: "100%", borderRadius: 8, marginBottom: message.text ? 6 : 0 }}
+            style={{ width: "100%", borderRadius: 8, marginBottom: 6 }}
             onClick={() => onMediaClick?.(message.id)}
           />
         )}
+
         {message.mediaUrl && message.mediaType === "video" && (
           <video
             src={message.mediaUrl}
             controls
-            style={{ width: "100%", borderRadius: 8, marginBottom: message.text ? 6 : 0 }}
+            style={{ width: "100%", borderRadius: 8, marginBottom: 6 }}
           />
         )}
 
         {/* Text */}
         {message.text && <div>{message.text}</div>}
-
-        {/* Reactions */}
-        {reactions && Object.keys(reactions).length > 0 && (
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 4 }}>
-            {Object.entries(reactions).map(([emoji, users]) => (
-              <div
-                key={emoji}
-                style={{
-                  padding: "2px 6px",
-                  background: "#eee",
-                  borderRadius: 8,
-                  fontSize: 12,
-                  display: "flex",
-                  alignItems: "center",
-                }}
-              >
-                {emoji} {users.length}
-              </div>
-            ))}
-          </div>
-        )}
 
         {/* Time */}
         <div
@@ -206,6 +165,44 @@ export default function MessageItem({
           </div>
         )}
       </div>
+
+      {/* ✅ REACTIONS (UNDER MESSAGE, CLICKABLE) */}
+      {message.reactions && Object.keys(message.reactions).length > 0 && (
+        <div
+          style={{
+            display: "flex",
+            gap: 6,
+            marginTop: 4,
+            flexWrap: "wrap",
+            alignSelf: isMine ? "flex-end" : "flex-start",
+          }}
+        >
+          {Object.entries(message.reactions).map(([emoji, users]) => {
+            const reacted = users.includes(myUid);
+            return (
+              <button
+                key={emoji}
+                onClick={() => onReactionToggle?.(message, emoji)}
+                style={{
+                  padding: "3px 8px",
+                  borderRadius: 12,
+                  border: "none",
+                  cursor: "pointer",
+                  background: reacted
+                    ? "#4a90e2"
+                    : isDark
+                    ? "#333"
+                    : "#eee",
+                  color: reacted ? "#fff" : isDark ? "#eee" : "#111",
+                  fontSize: 12,
+                }}
+              >
+                {emoji} {users.length}
+              </button>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
