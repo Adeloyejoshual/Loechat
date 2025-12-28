@@ -16,7 +16,8 @@ export default function ChatInput({
   setShowPreview,
   disabled,
   friendTyping,
-  setTyping,
+  setTyping,          // Function to update current user typing status in Firestore
+  chatId,             // Needed for Firestore typing updates
 }) {
   const fileInputRef = useRef(null);
   const textareaRef = useRef(null);
@@ -30,7 +31,7 @@ export default function ChatInput({
     [selectedFiles]
   );
 
-  // Auto-resize textarea
+  /* ---------------- Auto-resize textarea ---------------- */
   useEffect(() => {
     if (!textareaRef.current) return;
     const el = textareaRef.current;
@@ -40,16 +41,24 @@ export default function ChatInput({
     el.style.overflowY = el.scrollHeight > maxHeight ? "auto" : "hidden";
   }, [text]);
 
-  // Typing detection
+  /* ---------------- Typing detection with debounce ---------------- */
   useEffect(() => {
-    if (!setTyping) return;
+    if (!setTyping || !chatId) return;
+
     const changed = text !== lastInput.current;
     if (!changed) return;
     lastInput.current = text;
-    setTyping(text.length > 0);
-  }, [text, setTyping]);
 
-  // Friend typing indicator
+    const isTyping = text.length > 0;
+    setTyping(isTyping); // local Firestore update
+    if (typingTimeout.current) clearTimeout(typingTimeout.current);
+
+    if (isTyping) {
+      typingTimeout.current = setTimeout(() => setTyping(false), 800);
+    }
+  }, [text, setTyping, chatId]);
+
+  /* ---------------- Friend typing indicator ---------------- */
   useEffect(() => {
     if (friendTyping) {
       setTypingVisible(true);
@@ -60,24 +69,22 @@ export default function ChatInput({
     return () => clearTimeout(typingTimeout.current);
   }, [friendTyping]);
 
-  // ----------------- Send message -----------------
+  /* ----------------- Send message ----------------- */
   const handleSend = async () => {
     if (disabled) return;
+
     try {
-      // Send media first
       if (selectedFiles.length > 0) {
         await sendMediaMessage(selectedFiles, replyTo || null);
         setSelectedFiles([]);
         setShowPreview(false);
       }
 
-      // Send text message
       if (text.trim()) {
         await sendTextMessage(text.trim(), replyTo || null);
         setText("");
       }
 
-      // Reset reply & typing
       setReplyTo?.(null);
       setTyping?.(false);
     } catch (err) {
@@ -85,7 +92,7 @@ export default function ChatInput({
     }
   };
 
-  // ----------------- File handling -----------------
+  /* ----------------- File handling ----------------- */
   const handleFileChange = (e) => {
     const files = Array.from(e.target.files || []);
     if (!files.length) return;
@@ -99,7 +106,7 @@ export default function ChatInput({
   const handleRemoveFile = (index) => setSelectedFiles((prev) => prev.filter((_, i) => i !== index));
   const handleCancelPreview = () => { setSelectedFiles([]); setShowPreview(false); };
 
-  // ----------------- Typing dots -----------------
+  /* ----------------- Typing dots ----------------- */
   const TypingDots = () => {
     if (!typingVisible) return null;
     const dotStyle = (delay) => ({
