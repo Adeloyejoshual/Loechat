@@ -1,5 +1,5 @@
 // src/components/Chat/MessageItem.jsx
-import React, { useRef } from "react";
+import React, { useRef, useState } from "react";
 import { format } from "date-fns";
 
 export default function MessageItem({
@@ -11,13 +11,14 @@ export default function MessageItem({
   onSwipeRight,
   onMediaClick,
   onReactionToggle,
-  retryUpload, // for retrying failed uploads
-  pauseUpload, // for pausing
-  resumeUpload, // for resuming
-  cancelUpload, // for cancelling
+  retryUpload,
+  pauseUpload,
+  resumeUpload,
+  cancelUpload,
 }) {
   const isMine = message.senderId === myUid;
   const msgRef = useRef(null);
+  const [showFull, setShowFull] = useState(false);
 
   const touchStartX = useRef(0);
   const touchStartY = useRef(0);
@@ -27,6 +28,7 @@ export default function MessageItem({
   const LONG_PRESS_DELAY = 550;
   const SWIPE_DISTANCE = 70;
   const MOVE_TOLERANCE = 12;
+  const MAX_LENGTH = 200; // max characters before "Read more"
 
   /* ---------------- TOUCH ---------------- */
   const handleTouchStart = (e) => {
@@ -40,20 +42,15 @@ export default function MessageItem({
       onOpenLongPress?.(message, msgRef.current.getBoundingClientRect());
     }, LONG_PRESS_DELAY);
   };
-
   const handleTouchMove = (e) => {
     const t = e.touches[0];
     const dx = t.clientX - touchStartX.current;
     const dy = t.clientY - touchStartY.current;
-    if (Math.abs(dx) > MOVE_TOLERANCE || Math.abs(dy) > MOVE_TOLERANCE) {
-      clearTimeout(longPressTimer.current);
-    }
+    if (Math.abs(dx) > MOVE_TOLERANCE || Math.abs(dy) > MOVE_TOLERANCE) clearTimeout(longPressTimer.current);
   };
-
   const handleTouchEnd = (e) => {
     clearTimeout(longPressTimer.current);
     if (longPressTriggered.current) return;
-
     const dx = e.changedTouches[0].clientX - touchStartX.current;
     if (dx > SWIPE_DISTANCE) {
       if (navigator.vibrate) navigator.vibrate(50);
@@ -75,18 +72,33 @@ export default function MessageItem({
   const formattedTime = message.createdAt
     ? format(
         new Date(
-          message.createdAt.seconds
-            ? message.createdAt.seconds * 1000
-            : message.createdAt
+          message.createdAt.seconds ? message.createdAt.seconds * 1000 : message.createdAt
         ),
         "HH:mm"
       )
     : "";
 
-  /* ---------------- RENDER MEDIA ---------------- */
+  /* ---------------- TEXT ---------------- */
+  const renderText = () => {
+    if (!message.text) return null;
+    if (message.text.length <= MAX_LENGTH) return <div>{message.text}</div>;
+
+    return (
+      <div>
+        {showFull ? message.text : message.text.slice(0, MAX_LENGTH) + "... "}
+        <span
+          style={{ color: "#4a90e2", cursor: "pointer" }}
+          onClick={() => setShowFull(!showFull)}
+        >
+          {showFull ? "Show less" : "Read more"}
+        </span>
+      </div>
+    );
+  };
+
+  /* ---------------- MEDIA ---------------- */
   const renderMedia = () => {
     if (!message.mediaUrl) return null;
-
     switch (message.mediaType) {
       case "image":
         return (
@@ -99,20 +111,10 @@ export default function MessageItem({
         );
       case "video":
         return (
-          <video
-            src={message.mediaUrl}
-            controls
-            style={{ width: "100%", borderRadius: 8, marginBottom: 6 }}
-          />
+          <video src={message.mediaUrl} controls style={{ width: "100%", borderRadius: 8, marginBottom: 6 }} />
         );
       case "audio":
-        return (
-          <audio
-            controls
-            src={message.mediaUrl}
-            style={{ width: "100%", marginBottom: 6 }}
-          />
-        );
+        return <audio controls src={message.mediaUrl} style={{ width: "100%", marginBottom: 6 }} />;
       case "file":
         return (
           <a
@@ -139,10 +141,9 @@ export default function MessageItem({
   /* ---------------- UPLOAD STATUS ---------------- */
   const renderUploadStatus = () => {
     if (!message.status || message.status === "done") return null;
-
     return (
       <div style={{ marginTop: 4 }}>
-        {/* Progress bar */}
+        {/* Progress */}
         <div
           style={{
             height: 4,
@@ -153,104 +154,32 @@ export default function MessageItem({
             marginBottom: 4,
           }}
         >
-          <div
-            style={{
-              height: "100%",
-              width: `${message.progress || 0}%`,
-              background: "#4a90e2",
-            }}
-          />
+          <div style={{ height: "100%", width: `${message.progress || 0}%`, background: "#4a90e2" }} />
         </div>
 
-        {/* Upload status controls */}
+        {/* Controls */}
         {message.status === "uploading" && (
           <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
             <span style={{ fontSize: 10, color: isDark ? "#ccc" : "#555" }}>Uploading...</span>
-            <button
-              onClick={() => pauseUpload?.(message)}
-              style={{
-                fontSize: 10,
-                padding: "2px 6px",
-                cursor: "pointer",
-                border: "none",
-                borderRadius: 4,
-                background: "#f39c12",
-                color: "#fff",
-              }}
-            >
-              Pause
-            </button>
-            <button
-              onClick={() => cancelUpload?.(message)}
-              style={{
-                fontSize: 10,
-                padding: "2px 6px",
-                cursor: "pointer",
-                border: "none",
-                borderRadius: 4,
-                background: "#e74c3c",
-                color: "#fff",
-              }}
-            >
-              Cancel
-            </button>
+            <button onClick={() => pauseUpload?.(message)} style={{ fontSize: 10, padding: "2px 6px", cursor: "pointer", border: "none", borderRadius: 4, background: "#f39c12", color: "#fff" }}>Pause</button>
+            <button onClick={() => cancelUpload?.(message)} style={{ fontSize: 10, padding: "2px 6px", cursor: "pointer", border: "none", borderRadius: 4, background: "#e74c3c", color: "#fff" }}>Cancel</button>
           </div>
         )}
-
         {message.status === "paused" && (
           <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
             <span style={{ fontSize: 10, color: isDark ? "#ccc" : "#555" }}>Paused</span>
-            <button
-              onClick={() => resumeUpload?.(message)}
-              style={{
-                fontSize: 10,
-                padding: "2px 6px",
-                cursor: "pointer",
-                border: "none",
-                borderRadius: 4,
-                background: "#27ae60",
-                color: "#fff",
-              }}
-            >
-              Resume
-            </button>
-            <button
-              onClick={() => cancelUpload?.(message)}
-              style={{
-                fontSize: 10,
-                padding: "2px 6px",
-                cursor: "pointer",
-                border: "none",
-                borderRadius: 4,
-                background: "#e74c3c",
-                color: "#fff",
-              }}
-            >
-              Cancel
-            </button>
+            <button onClick={() => resumeUpload?.(message)} style={{ fontSize: 10, padding: "2px 6px", cursor: "pointer", border: "none", borderRadius: 4, background: "#27ae60", color: "#fff" }}>Resume</button>
+            <button onClick={() => cancelUpload?.(message)} style={{ fontSize: 10, padding: "2px 6px", cursor: "pointer", border: "none", borderRadius: 4, background: "#e74c3c", color: "#fff" }}>Cancel</button>
           </div>
         )}
-
         {message.status === "error" && (
-          <button
-            onClick={() => retryUpload([message], message.replyTo)}
-            style={{
-              fontSize: 10,
-              color: "#fff",
-              background: "#e74c3c",
-              border: "none",
-              borderRadius: 4,
-              padding: "2px 6px",
-              cursor: "pointer",
-            }}
-          >
-            Retry
-          </button>
+          <button onClick={() => retryUpload([message], message.replyTo)} style={{ fontSize: 10, color: "#fff", background: "#e74c3c", border: "none", borderRadius: 4, padding: "2px 6px", cursor: "pointer" }}>Retry</button>
         )}
       </div>
     );
   };
 
+  /* ---------------- RENDER ---------------- */
   return (
     <div
       id={message.id}
@@ -264,80 +193,22 @@ export default function MessageItem({
         e.preventDefault();
         onOpenLongPress?.(message, msgRef.current.getBoundingClientRect());
       }}
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        alignItems: isMine ? "flex-end" : "flex-start",
-        marginBottom: 8,
-        touchAction: "pan-y",
-      }}
+      style={{ display: "flex", flexDirection: "column", alignItems: isMine ? "flex-end" : "flex-start", marginBottom: 8, touchAction: "pan-y" }}
     >
-      <div
-        style={{
-          maxWidth: "80%",
-          padding: 10,
-          borderRadius: 12,
-          background: isMine ? "#4a90e2" : isDark ? "#2a2a2a" : "#fff",
-          color: isMine ? "#fff" : isDark ? "#eee" : "#111",
-          position: "relative",
-        }}
-      >
+      <div style={{ maxWidth: "80%", padding: 10, borderRadius: 12, background: isMine ? "#4a90e2" : isDark ? "#2a2a2a" : "#fff", color: isMine ? "#fff" : isDark ? "#eee" : "#111", position: "relative" }}>
         {renderMedia()}
-        {message.text && <div>{message.text}</div>}
-
+        {renderText()}
         {renderUploadStatus()}
-
-        <div
-          style={{
-            fontSize: 10,
-            textAlign: "right",
-            opacity: 0.7,
-            marginTop: 4,
-          }}
-        >
-          {formattedTime}
-        </div>
-
-        {pinnedMessage?.id === message.id && (
-          <div
-            style={{
-              position: "absolute",
-              top: -8,
-              right: -8,
-              fontSize: 12,
-            }}
-          >
-            📌
-          </div>
-        )}
+        <div style={{ fontSize: 10, textAlign: "right", opacity: 0.7, marginTop: 4 }}>{formattedTime}</div>
+        {pinnedMessage?.id === message.id && <div style={{ position: "absolute", top: -8, right: -8, fontSize: 12 }}>📌</div>}
       </div>
 
       {message.reactions && Object.keys(message.reactions).length > 0 && (
-        <div
-          style={{
-            display: "flex",
-            gap: 6,
-            marginTop: 4,
-            flexWrap: "wrap",
-            alignSelf: isMine ? "flex-end" : "flex-start",
-          }}
-        >
+        <div style={{ display: "flex", gap: 6, marginTop: 4, flexWrap: "wrap", alignSelf: isMine ? "flex-end" : "flex-start" }}>
           {Object.entries(message.reactions).map(([emoji, users]) => {
             const reacted = users.includes(myUid);
             return (
-              <button
-                key={emoji}
-                onClick={() => onReactionToggle?.(message, emoji)}
-                style={{
-                  padding: "3px 8px",
-                  borderRadius: 12,
-                  border: "none",
-                  cursor: "pointer",
-                  background: reacted ? "#4a90e2" : isDark ? "#333" : "#eee",
-                  color: reacted ? "#fff" : isDark ? "#eee" : "#111",
-                  fontSize: 12,
-                }}
-              >
+              <button key={emoji} onClick={() => onReactionToggle?.(message, emoji)} style={{ padding: "3px 8px", borderRadius: 12, border: "none", cursor: "pointer", background: reacted ? "#4a90e2" : isDark ? "#333" : "#eee", color: reacted ? "#fff" : isDark ? "#eee" : "#111", fontSize: 12 }}>
                 {emoji} {users.length}
               </button>
             );
