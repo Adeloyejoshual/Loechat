@@ -1,4 +1,4 @@
-// src/components/Chat/ChatConversationPage.jsx
+// src/components/ChatConversationPage.jsx
 import React, { useEffect, useState, useRef, useContext } from "react";
 import { useParams } from "react-router-dom";
 import {
@@ -60,7 +60,7 @@ export default function ChatConversationPage() {
   const [mediaIndex, setMediaIndex] = useState(0);
   const [showMediaViewer, setShowMediaViewer] = useState(false);
   const [isAtBottom, setIsAtBottom] = useState(true);
-  const [isTyping, setIsTyping] = useState(false); // 👈 Typing indicator state
+  const [friendTyping, setFriendTyping] = useState(false);
 
   /* ---------------- Load chat & friend ---------------- */
   useEffect(() => {
@@ -70,15 +70,15 @@ export default function ChatConversationPage() {
       if (!snap.exists()) return;
       const data = snap.data();
 
+      // Get friend info
       const friendId = data.participants?.find((p) => p !== myUid);
       if (friendId) {
         onSnapshot(doc(db, "users", friendId), (u) => {
           u.exists() && setFriend({ id: u.id, ...u.data() });
         });
-        // Typing status of friend
-        setIsTyping(data.typing?.[friendId] || false);
       }
 
+      // Get pinned message
       if (data.pinnedMessageId) {
         onSnapshot(
           doc(db, "chats", chatId, "messages", data.pinnedMessageId),
@@ -86,6 +86,18 @@ export default function ChatConversationPage() {
         );
       } else {
         setPinnedMessage(null);
+      }
+
+      // Listen to typing status for friend
+      if (friendId) {
+        const typingUnsub = onSnapshot(doc(db, "chats", chatId, "typing", friendId), (t) => {
+          if (t.exists()) {
+            setFriendTyping(t.data()?.isTyping || false);
+          } else {
+            setFriendTyping(false);
+          }
+        });
+        return () => typingUnsub();
       }
     });
 
@@ -104,7 +116,7 @@ export default function ChatConversationPage() {
     const unsub = onSnapshot(q, (snap) => {
       setMessages(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
       if (isAtBottom) {
-        setTimeout(() => bottomRef.current?.scrollIntoView(), 40);
+        setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }), 40);
       }
     });
 
@@ -117,19 +129,18 @@ export default function ChatConversationPage() {
     if (!el) return;
 
     const onScroll = () => {
-      setIsAtBottom(
-        el.scrollHeight - el.scrollTop - el.clientHeight < 80
-      );
+      setIsAtBottom(el.scrollHeight - el.scrollTop - el.clientHeight < 80);
     };
 
     el.addEventListener("scroll", onScroll);
     return () => el.removeEventListener("scroll", onScroll);
   }, []);
 
-  const scrollToMessage = (id) => {
-    document.getElementById(id)?.scrollIntoView({
-      behavior: "smooth",
-      block: "center",
+  /* ---------------- Send typing status ---------------- */
+  const setTypingStatus = async (isTyping) => {
+    const myTypingRef = doc(db, "chats", chatId, "typing", myUid);
+    await updateDoc(myTypingRef, { isTyping }).catch(async () => {
+      await setDoc(myTypingRef, { isTyping });
     });
   };
 
@@ -193,7 +204,7 @@ export default function ChatConversationPage() {
     }
   };
 
-  /* ---------------- Reactions (TOGGLE) ---------------- */
+  /* ---------------- Reactions ---------------- */
   const handleReactionToggle = async (msg, emoji) => {
     const ref = doc(db, "chats", chatId, "messages", msg.id);
     const reactions = msg.reactions || {};
@@ -203,9 +214,7 @@ export default function ChatConversationPage() {
       ? users.filter((u) => u !== myUid)
       : [...users, myUid];
 
-    await updateDoc(ref, {
-      [`reactions.${emoji}`]: updated,
-    });
+    await updateDoc(ref, { [`reactions.${emoji}`]: updated });
   };
 
   /* ---------------- Long press actions ---------------- */
@@ -235,6 +244,14 @@ export default function ChatConversationPage() {
     setMediaItems(media.map((m) => ({ type: m.mediaType, url: m.mediaUrl })));
     setMediaIndex(media.findIndex((m) => m.id === id));
     setShowMediaViewer(true);
+  };
+
+  /* ---------------- Scroll to message ---------------- */
+  const scrollToMessage = (id) => {
+    document.getElementById(id)?.scrollIntoView({
+      behavior: "smooth",
+      block: "center",
+    });
   };
 
   /* ---------------- Render ---------------- */
@@ -281,23 +298,6 @@ export default function ChatConversationPage() {
             />
           )
         )}
-
-        {/* Typing indicator (for other user only) */}
-        {isTyping && friend && (
-          <div
-            style={{
-              padding: "6px 12px",
-              margin: "4px 0",
-              fontSize: 12,
-              color: isDark ? "#eee" : "#111",
-              fontStyle: "italic",
-              opacity: 0.7,
-            }}
-          >
-            {friend.name} is typing...
-          </div>
-        )}
-
         <div ref={bottomRef} />
       </div>
 
@@ -308,11 +308,12 @@ export default function ChatConversationPage() {
         sendMediaMessage={sendMediaMessage}
         selectedFiles={selectedFiles}
         setSelectedFiles={setSelectedFiles}
+        setShowPreview={setShowPreview}
         replyTo={replyTo}
         setReplyTo={setReplyTo}
         isDark={isDark}
-        setShowPreview={setShowPreview}
-        chatId={chatId} // Needed for typing updates
+        setTyping={setTypingStatus} // NEW: Firestore typing updates
+        friendTyping={friendTyping}   // NEW: Show friend's typing indicator
       />
 
       {showMediaViewer && (
@@ -339,14 +340,9 @@ export default function ChatConversationPage() {
 
       {showPreview && selectedFiles.length > 0 && (
         <ImagePreviewModal
-          previews={selectedFiles.map((f) => ({
-            file: f,
-            previewUrl: URL.createObjectURL(f),
-          }))}
+          previews={selectedFiles.map((f) => ({ file: f, previewUrl: URL.createObjectURL(f) }))}
           onClose={() => setShowPreview(false)}
-          onSend={(files, caption) =>
-            sendMediaMessage(files, replyTo, caption)
-          }
+          onSend={(files, caption) => sendMediaMessage(files, replyTo, caption)}
           isDark={isDark}
         />
       )}
