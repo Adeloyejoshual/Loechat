@@ -21,7 +21,6 @@ export default function ChatInput({
   const fileInputRef = useRef(null);
   const textareaRef = useRef(null);
   const stopTypingTimeout = useRef(null);
-
   const [typingVisible, setTypingVisible] = useState(false);
 
   // ---------------- Auto-resize textarea ----------------
@@ -37,7 +36,6 @@ export default function ChatInput({
   // ---------------- Typing detection ----------------
   useEffect(() => {
     if (!setTyping) return;
-
     if (stopTypingTimeout.current) clearTimeout(stopTypingTimeout.current);
 
     if (text.length > 0) {
@@ -99,6 +97,7 @@ export default function ChatInput({
 
     try {
       if (selectedFiles.length > 0) {
+        // sendMediaMessage handles Cloudinary upload & Firestore message creation
         await sendMediaMessage(selectedFiles, replyTo || null);
         setSelectedFiles([]);
         setShowPreview(false);
@@ -116,7 +115,7 @@ export default function ChatInput({
     }
   };
 
-  // ---------------- Typing dots component ----------------
+  // ---------------- Typing dots ----------------
   const TypingDots = () => {
     if (!typingVisible) return null;
     const dotStyle = (delay) => ({
@@ -259,13 +258,13 @@ export default function ChatInput({
         </button>
       </div>
 
-      {/* Media preview */}
+      {/* Media preview modal */}
       {selectedFiles.length > 0 && (
         <ImagePreviewModal
           previews={previews}
           onRemove={handleRemoveFile}
           onClose={handleCancelPreview}
-          onSend={(files, caption) => sendMediaMessage(files, replyTo || null, caption)}
+          onSend={(files, captionsMap) => sendMediaMessage(files, replyTo || null, captionsMap)}
           isDark={isDark}
         />
       )}
