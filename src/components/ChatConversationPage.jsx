@@ -7,6 +7,7 @@ import {
   addDoc,
   onSnapshot,
   updateDoc,
+  setDoc,
   serverTimestamp,
   query,
   orderBy,
@@ -66,42 +67,32 @@ export default function ChatConversationPage() {
   useEffect(() => {
     if (!chatId || !myUid) return;
 
-    const unsub = onSnapshot(doc(db, "chats", chatId), (snap) => {
+    const unsubChat = onSnapshot(doc(db, "chats", chatId), (snap) => {
       if (!snap.exists()) return;
       const data = snap.data();
 
       // Get friend info
       const friendId = data.participants?.find((p) => p !== myUid);
       if (friendId) {
-        onSnapshot(doc(db, "users", friendId), (u) => {
+        const unsubFriend = onSnapshot(doc(db, "users", friendId), (u) => {
           u.exists() && setFriend({ id: u.id, ...u.data() });
         });
+        return () => unsubFriend();
       }
 
       // Get pinned message
       if (data.pinnedMessageId) {
-        onSnapshot(
+        const unsubPinned = onSnapshot(
           doc(db, "chats", chatId, "messages", data.pinnedMessageId),
           (m) => m.exists() && setPinnedMessage({ id: m.id, ...m.data() })
         );
+        return () => unsubPinned();
       } else {
         setPinnedMessage(null);
       }
-
-      // Listen to typing status for friend
-      if (friendId) {
-        const typingUnsub = onSnapshot(doc(db, "chats", chatId, "typing", friendId), (t) => {
-          if (t.exists()) {
-            setFriendTyping(t.data()?.isTyping || false);
-          } else {
-            setFriendTyping(false);
-          }
-        });
-        return () => typingUnsub();
-      }
     });
 
-    return () => unsub();
+    return () => unsubChat();
   }, [chatId, myUid]);
 
   /* ---------------- Load messages ---------------- */
@@ -114,7 +105,8 @@ export default function ChatConversationPage() {
     );
 
     const unsub = onSnapshot(q, (snap) => {
-      setMessages(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+      const msgs = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      setMessages(msgs);
       if (isAtBottom) {
         setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }), 40);
       }
@@ -128,43 +120,30 @@ export default function ChatConversationPage() {
     const el = messagesWrapRef.current;
     if (!el) return;
 
-    const onScroll = () => {
-      setIsAtBottom(el.scrollHeight - el.scrollTop - el.clientHeight < 80);
-    };
-
+    const onScroll = () => setIsAtBottom(el.scrollHeight - el.scrollTop - el.clientHeight < 80);
     el.addEventListener("scroll", onScroll);
     return () => el.removeEventListener("scroll", onScroll);
   }, []);
 
-  /* ---------------- Send typing status ---------------- */
+  /* ---------------- Typing detection ---------------- */
   const setTypingStatus = async (isTyping) => {
-    const myTypingRef = doc(db, "chats", chatId, "typing", myUid);
-    await updateDoc(myTypingRef, { isTyping }).catch(async () => {
-      await setDoc(myTypingRef, { isTyping });
-    });
+    const ref = doc(db, "chats", chatId, "typing", myUid);
+    await updateDoc(ref, { isTyping }).catch(() => setDoc(ref, { isTyping }));
   };
 
-  /* ---------------- Group by date ---------------- */
-  const grouped = [];
-  let lastDay = null;
+  useEffect(() => {
+    if (!chatId || !friend?.id) return;
 
-  messages.forEach((m) => {
-    const date = m.createdAt?.seconds
-      ? new Date(m.createdAt.seconds * 1000)
-      : null;
-    const label = getDayLabel(date);
+    const unsubTyping = onSnapshot(doc(db, "chats", chatId, "typing", friend.id), (snap) => {
+      setFriendTyping(snap.exists() ? snap.data()?.isTyping || false : false);
+    });
 
-    if (label !== lastDay) {
-      grouped.push({ type: "date", label });
-      lastDay = label;
-    }
-    grouped.push({ type: "msg", data: m });
-  });
+    return () => unsubTyping();
+  }, [chatId, friend?.id]);
 
   /* ---------------- Send text ---------------- */
   const sendTextMessage = async (txt, reply) => {
     if (!txt.trim()) return;
-
     await addDoc(collection(db, "chats", chatId, "messages"), {
       senderId: myUid,
       text: txt,
@@ -172,7 +151,6 @@ export default function ChatConversationPage() {
       replyTo: reply ? { id: reply.id, text: reply.text } : null,
       reactions: {},
     });
-
     await updateDoc(doc(db, "chats", chatId), {
       lastMessage: txt,
       lastMessageAt: serverTimestamp(),
@@ -209,25 +187,19 @@ export default function ChatConversationPage() {
     const ref = doc(db, "chats", chatId, "messages", msg.id);
     const reactions = msg.reactions || {};
     const users = reactions[emoji] || [];
-
-    const updated = users.includes(myUid)
-      ? users.filter((u) => u !== myUid)
-      : [...users, myUid];
-
+    const updated = users.includes(myUid) ? users.filter((u) => u !== myUid) : [...users, myUid];
     await updateDoc(ref, { [`reactions.${emoji}`]: updated });
   };
 
   /* ---------------- Long press actions ---------------- */
   const deleteMessage = async (msg, type) => {
-    if (type === "everyone") {
-      await deleteDoc(doc(db, "chats", chatId, "messages", msg.id));
-    } else {
+    if (type === "everyone") await deleteDoc(doc(db, "chats", chatId, "messages", msg.id));
+    else
       await updateDoc(doc(db, "chats", chatId, "messages", msg.id), {
         text: "This message was deleted",
         mediaUrl: "",
         deleted: true,
       });
-    }
     setLongPressMsg(null);
   };
 
@@ -248,22 +220,26 @@ export default function ChatConversationPage() {
 
   /* ---------------- Scroll to message ---------------- */
   const scrollToMessage = (id) => {
-    document.getElementById(id)?.scrollIntoView({
-      behavior: "smooth",
-      block: "center",
-    });
+    document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "center" });
   };
+
+  /* ---------------- Group messages with typing indicator ---------------- */
+  const grouped = [];
+  let lastDay = null;
+  messages.forEach((m) => {
+    const date = m.createdAt?.seconds ? new Date(m.createdAt.seconds * 1000) : null;
+    const label = getDayLabel(date);
+    if (label !== lastDay) {
+      grouped.push({ type: "date", label });
+      lastDay = label;
+    }
+    grouped.push({ type: "msg", data: m });
+  });
+  if (friendTyping) grouped.push({ type: "typing" });
 
   /* ---------------- Render ---------------- */
   return (
-    <div
-      style={{
-        height: "100vh",
-        display: "flex",
-        flexDirection: "column",
-        background: wallpaper || (isDark ? "#0b0b0b" : "#f5f5f5"),
-      }}
-    >
+    <div style={{ height: "100vh", display: "flex", flexDirection: "column", background: wallpaper || (isDark ? "#0b0b0b" : "#f5f5f5") }}>
       <ChatHeader
         friend={friend}
         pinnedMessage={pinnedMessage}
@@ -273,16 +249,12 @@ export default function ChatConversationPage() {
       <div ref={messagesWrapRef} style={{ flex: 1, overflowY: "auto", padding: 8 }}>
         {grouped.map((item, i) =>
           item.type === "date" ? (
-            <div
-              key={i}
-              style={{
-                textAlign: "center",
-                fontSize: 12,
-                margin: "10px 0",
-                color: isDark ? "#aaa" : "#555",
-              }}
-            >
+            <div key={i} style={{ textAlign: "center", fontSize: 12, margin: "10px 0", color: isDark ? "#aaa" : "#555" }}>
               {item.label}
+            </div>
+          ) : item.type === "typing" ? (
+            <div key="typing" style={{ fontStyle: "italic", fontSize: 12, margin: "6px 0", color: isDark ? "#ccc" : "#555" }}>
+              {friend?.name || "Friend"} is typing...
             </div>
           ) : (
             <MessageItem
@@ -312,32 +284,21 @@ export default function ChatConversationPage() {
         replyTo={replyTo}
         setReplyTo={setReplyTo}
         isDark={isDark}
-        setTyping={setTypingStatus} // NEW: Firestore typing updates
-        friendTyping={friendTyping}   // NEW: Show friend's typing indicator
+        setTyping={setTypingStatus}
+        friendTyping={friendTyping}
       />
 
-      {showMediaViewer && (
-        <MediaViewer
-          items={mediaItems}
-          startIndex={mediaIndex}
-          onClose={() => setShowMediaViewer(false)}
-        />
-      )}
-
+      {showMediaViewer && <MediaViewer items={mediaItems} startIndex={mediaIndex} onClose={() => setShowMediaViewer(false)} />}
       {longPressMsg && (
         <LongPressMessageModal
           message={longPressMsg}
           onClose={() => setLongPressMsg(null)}
-          onReply={() => {
-            setReplyTo(longPressMsg);
-            setLongPressMsg(null);
-          }}
+          onReply={() => { setReplyTo(longPressMsg); setLongPressMsg(null); }}
           onPin={() => pinMessage(longPressMsg)}
           onDelete={deleteMessage}
           isPinned={pinnedMessage?.id === longPressMsg.id}
         />
       )}
-
       {showPreview && selectedFiles.length > 0 && (
         <ImagePreviewModal
           previews={selectedFiles.map((f) => ({ file: f, previewUrl: URL.createObjectURL(f) }))}
@@ -346,7 +307,6 @@ export default function ChatConversationPage() {
           isDark={isDark}
         />
       )}
-
       <ToastContainer position="top-center" autoClose={1500} hideProgressBar />
     </div>
   );
