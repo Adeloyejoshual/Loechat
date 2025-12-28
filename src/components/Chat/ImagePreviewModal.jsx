@@ -1,5 +1,6 @@
 // src/components/Chat/ImagePreviewModal.jsx
 import React, { useState, useRef, useEffect } from "react";
+import { toast } from "react-toastify";
 
 export default function ImagePreviewModal({
   previews = [], // [{ file, previewUrl, type, name }]
@@ -15,20 +16,21 @@ export default function ImagePreviewModal({
   const [isDragging, setIsDragging] = useState(false);
   const startPos = useRef({ x: 0, y: 0 });
   const [captions, setCaptions] = useState({}); // { fileName: caption }
+  const [uploadProgress, setUploadProgress] = useState({}); // { fileName: percent }
 
   if (!previews.length) return null;
   const current = previews[index];
 
+  // --- Navigation ---
   const handleNext = () => setIndex((i) => Math.min(i + 1, previews.length - 1));
   const handlePrev = () => setIndex((i) => Math.max(i - 1, 0));
 
-  // --- Touch handlers ---
+  // --- Touch / drag support ---
   const handleTouchStart = (e) => {
     const t = e.touches[0];
     startPos.current = { x: t.clientX, y: t.clientY };
     setIsDragging(true);
   };
-
   const handleTouchMove = (e) => {
     if (!isDragging) return;
     const t = e.touches[0];
@@ -36,7 +38,6 @@ export default function ImagePreviewModal({
     const dy = t.clientY - startPos.current.y;
     setTranslate({ x: dx, y: dy });
   };
-
   const handleTouchEnd = () => {
     setIsDragging(false);
     const { x, y } = translate;
@@ -46,20 +47,24 @@ export default function ImagePreviewModal({
     setTranslate({ x: 0, y: 0 });
   };
 
-  // --- Send handler ---
+  // --- Send handler with progress & error ---
   const handleSend = async () => {
     if (sending || disabled) return;
     setSending(true);
     try {
-      await onSend(previews.map((p) => p.file), captions);
+      await onSend(previews.map((p) => p.file), captions, setUploadProgress);
       setCaptions({});
+      setUploadProgress({});
       onClose();
+      toast.success("Files sent successfully!");
     } catch (err) {
       console.error("Send failed:", err);
+      toast.error("Upload failed");
       setSending(false);
     }
   };
 
+  // --- Click outside to close ---
   const modalRef = useRef(null);
   useEffect(() => {
     const handleClickOutside = (e) => {
@@ -73,6 +78,11 @@ export default function ImagePreviewModal({
     };
   }, [onClose]);
 
+  // --- Cleanup object URLs ---
+  useEffect(() => {
+    return () => previews.forEach((p) => URL.revokeObjectURL(p.previewUrl));
+  }, [previews]);
+
   return (
     <div
       style={{
@@ -82,7 +92,7 @@ export default function ImagePreviewModal({
         display: "flex",
         justifyContent: "center",
         alignItems: "center",
-        zIndex: 9999,
+        zIndex: 99999,
         padding: 12,
       }}
     >
@@ -96,7 +106,7 @@ export default function ImagePreviewModal({
           maxWidth: 500,
         }}
       >
-        {/* Media preview */}
+        {/* --- Media Preview --- */}
         <div
           style={{
             display: "flex",
@@ -116,7 +126,7 @@ export default function ImagePreviewModal({
           {current.type === "image" && (
             <img
               src={current.previewUrl}
-              alt="preview"
+              alt={current.name}
               style={{ maxHeight: "60vh", maxWidth: "100%", borderRadius: 8 }}
               draggable={false}
             />
@@ -140,9 +150,35 @@ export default function ImagePreviewModal({
               <div style={{ marginTop: 8 }}>{current.name}</div>
             </div>
           )}
+
+          {/* Upload Progress */}
+          {uploadProgress[current.name] && (
+            <div style={{ marginTop: 8, width: "80%", textAlign: "center" }}>
+              <div
+                style={{
+                  height: 6,
+                  backgroundColor: "#ccc",
+                  borderRadius: 3,
+                  overflow: "hidden",
+                  marginBottom: 4,
+                }}
+              >
+                <div
+                  style={{
+                    width: `${uploadProgress[current.name]}%`,
+                    height: "100%",
+                    backgroundColor: "#4caf50",
+                  }}
+                />
+              </div>
+              <small style={{ color: isDark ? "#fff" : "#000" }}>
+                Uploading: {uploadProgress[current.name]}%
+              </small>
+            </div>
+          )}
         </div>
 
-        {/* Navigation */}
+        {/* --- Navigation --- */}
         {previews.length > 1 && (
           <div style={{ display: "flex", marginTop: 12, gap: 16 }}>
             <button onClick={handlePrev} disabled={index === 0}>
@@ -157,7 +193,7 @@ export default function ImagePreviewModal({
           </div>
         )}
 
-        {/* Caption */}
+        {/* --- Caption --- */}
         <textarea
           placeholder="Add a caption..."
           value={captions[current.name] || ""}
@@ -175,7 +211,7 @@ export default function ImagePreviewModal({
           }}
         />
 
-        {/* Controls */}
+        {/* --- Controls --- */}
         <div style={{ marginTop: 16, display: "flex", gap: 12 }}>
           <button
             onClick={() => onRemove(index)}
