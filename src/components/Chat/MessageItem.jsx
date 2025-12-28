@@ -28,7 +28,7 @@ export default function MessageItem({
   const LONG_PRESS_DELAY = 550;
   const SWIPE_DISTANCE = 70;
   const MOVE_TOLERANCE = 12;
-  const MAX_LENGTH = 200; // max characters before "Read more"
+  const MAX_LENGTH = 200;
 
   /* ---------------- TOUCH ---------------- */
   const handleTouchStart = (e) => {
@@ -99,6 +99,7 @@ export default function MessageItem({
   /* ---------------- MEDIA ---------------- */
   const renderMedia = () => {
     if (!message.mediaUrl) return null;
+
     switch (message.mediaType) {
       case "image":
         return (
@@ -111,10 +112,19 @@ export default function MessageItem({
         );
       case "video":
         return (
-          <video src={message.mediaUrl} controls style={{ width: "100%", borderRadius: 8, marginBottom: 6 }} />
+          <video
+            src={message.mediaUrl}
+            controls
+            style={{ width: "100%", borderRadius: 8, marginBottom: 6 }}
+          />
         );
       case "audio":
-        return <audio controls src={message.mediaUrl} style={{ width: "100%", marginBottom: 6 }} />;
+        return (
+          <div style={{ textAlign: "center", marginBottom: 6 }}>
+            <audio controls src={message.mediaUrl} style={{ width: "100%" }} />
+            <div style={{ fontSize: 12 }}>{message.fileName || "Audio file"}</div>
+          </div>
+        );
       case "file":
         return (
           <a
@@ -141,9 +151,10 @@ export default function MessageItem({
   /* ---------------- UPLOAD STATUS ---------------- */
   const renderUploadStatus = () => {
     if (!message.status || message.status === "done") return null;
+
     return (
       <div style={{ marginTop: 4 }}>
-        {/* Progress */}
+        {/* Progress bar */}
         <div
           style={{
             height: 4,
@@ -154,30 +165,47 @@ export default function MessageItem({
             marginBottom: 4,
           }}
         >
-          <div style={{ height: "100%", width: `${message.progress || 0}%`, background: "#4a90e2" }} />
+          <div
+            style={{
+              height: "100%",
+              width: `${message.progress || 0}%`,
+              background: "#4a90e2",
+              transition: "width 0.2s",
+            }}
+          />
         </div>
 
         {/* Controls */}
         {message.status === "uploading" && (
           <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
             <span style={{ fontSize: 10, color: isDark ? "#ccc" : "#555" }}>Uploading...</span>
-            <button onClick={() => pauseUpload?.(message)} style={{ fontSize: 10, padding: "2px 6px", cursor: "pointer", border: "none", borderRadius: 4, background: "#f39c12", color: "#fff" }}>Pause</button>
-            <button onClick={() => cancelUpload?.(message)} style={{ fontSize: 10, padding: "2px 6px", cursor: "pointer", border: "none", borderRadius: 4, background: "#e74c3c", color: "#fff" }}>Cancel</button>
+            <button onClick={() => pauseUpload?.(message)} style={buttonStyle("#f39c12")}>Pause</button>
+            <button onClick={() => cancelUpload?.(message)} style={buttonStyle("#e74c3c")}>Cancel</button>
           </div>
         )}
         {message.status === "paused" && (
           <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
             <span style={{ fontSize: 10, color: isDark ? "#ccc" : "#555" }}>Paused</span>
-            <button onClick={() => resumeUpload?.(message)} style={{ fontSize: 10, padding: "2px 6px", cursor: "pointer", border: "none", borderRadius: 4, background: "#27ae60", color: "#fff" }}>Resume</button>
-            <button onClick={() => cancelUpload?.(message)} style={{ fontSize: 10, padding: "2px 6px", cursor: "pointer", border: "none", borderRadius: 4, background: "#e74c3c", color: "#fff" }}>Cancel</button>
+            <button onClick={() => resumeUpload?.(message)} style={buttonStyle("#27ae60")}>Resume</button>
+            <button onClick={() => cancelUpload?.(message)} style={buttonStyle("#e74c3c")}>Cancel</button>
           </div>
         )}
         {message.status === "error" && (
-          <button onClick={() => retryUpload([message], message.replyTo)} style={{ fontSize: 10, color: "#fff", background: "#e74c3c", border: "none", borderRadius: 4, padding: "2px 6px", cursor: "pointer" }}>Retry</button>
+          <button onClick={() => retryUpload([message], message.replyTo)} style={buttonStyle("#e74c3c")}>Retry</button>
         )}
       </div>
     );
   };
+
+  const buttonStyle = (bg) => ({
+    fontSize: 10,
+    padding: "2px 6px",
+    cursor: "pointer",
+    border: "none",
+    borderRadius: 4,
+    background: bg,
+    color: "#fff",
+  });
 
   /* ---------------- RENDER ---------------- */
   return (
@@ -193,22 +221,61 @@ export default function MessageItem({
         e.preventDefault();
         onOpenLongPress?.(message, msgRef.current.getBoundingClientRect());
       }}
-      style={{ display: "flex", flexDirection: "column", alignItems: isMine ? "flex-end" : "flex-start", marginBottom: 8, touchAction: "pan-y" }}
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        alignItems: isMine ? "flex-end" : "flex-start",
+        marginBottom: 8,
+        touchAction: "pan-y",
+      }}
     >
-      <div style={{ maxWidth: "80%", padding: 10, borderRadius: 12, background: isMine ? "#4a90e2" : isDark ? "#2a2a2a" : "#fff", color: isMine ? "#fff" : isDark ? "#eee" : "#111", position: "relative" }}>
+      <div
+        style={{
+          maxWidth: "80%",
+          padding: 10,
+          borderRadius: 12,
+          background: isMine ? "#4a90e2" : isDark ? "#2a2a2a" : "#fff",
+          color: isMine ? "#fff" : isDark ? "#eee" : "#111",
+          position: "relative",
+        }}
+      >
         {renderMedia()}
         {renderText()}
         {renderUploadStatus()}
-        <div style={{ fontSize: 10, textAlign: "right", opacity: 0.7, marginTop: 4 }}>{formattedTime}</div>
-        {pinnedMessage?.id === message.id && <div style={{ position: "absolute", top: -8, right: -8, fontSize: 12 }}>📌</div>}
+        <div style={{ fontSize: 10, textAlign: "right", opacity: 0.7, marginTop: 4 }}>
+          {formattedTime}
+        </div>
+        {pinnedMessage?.id === message.id && (
+          <div style={{ position: "absolute", top: -8, right: -8, fontSize: 12 }}>📌</div>
+        )}
       </div>
 
       {message.reactions && Object.keys(message.reactions).length > 0 && (
-        <div style={{ display: "flex", gap: 6, marginTop: 4, flexWrap: "wrap", alignSelf: isMine ? "flex-end" : "flex-start" }}>
+        <div
+          style={{
+            display: "flex",
+            gap: 6,
+            marginTop: 4,
+            flexWrap: "wrap",
+            alignSelf: isMine ? "flex-end" : "flex-start",
+          }}
+        >
           {Object.entries(message.reactions).map(([emoji, users]) => {
             const reacted = users.includes(myUid);
             return (
-              <button key={emoji} onClick={() => onReactionToggle?.(message, emoji)} style={{ padding: "3px 8px", borderRadius: 12, border: "none", cursor: "pointer", background: reacted ? "#4a90e2" : isDark ? "#333" : "#eee", color: reacted ? "#fff" : isDark ? "#eee" : "#111", fontSize: 12 }}>
+              <button
+                key={emoji}
+                onClick={() => onReactionToggle?.(message, emoji)}
+                style={{
+                  padding: "3px 8px",
+                  borderRadius: 12,
+                  border: "none",
+                  cursor: "pointer",
+                  background: reacted ? "#4a90e2" : isDark ? "#333" : "#eee",
+                  color: reacted ? "#fff" : isDark ? "#eee" : "#111",
+                  fontSize: 12,
+                }}
+              >
                 {emoji} {users.length}
               </button>
             );
