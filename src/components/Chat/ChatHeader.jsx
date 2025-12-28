@@ -1,12 +1,14 @@
 // src/components/Chat/ChatHeader.jsx
-import React, { useEffect, useState, useRef } from "react";
+import React, { useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { doc, onSnapshot, updateDoc } from "firebase/firestore";
+import { doc, updateDoc } from "firebase/firestore";
 import { db } from "../../firebaseConfig";
 import { FiMoreVertical, FiPhone, FiVideo } from "react-icons/fi";
 
 export default function ChatHeader({
   friendId,
+  friendName,
+  friendProfilePic,
   chatId,
   pinnedMessage,
   onGoToPinned,
@@ -18,32 +20,12 @@ export default function ChatHeader({
   onVideoCall,
 }) {
   const navigate = useNavigate();
-  const [friendInfo, setFriendInfo] = useState(null);
   const [chatInfo, setChatInfo] = useState(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef(null);
 
-  // ---------------- Load friend info ----------------
-  useEffect(() => {
-    if (!friendId) return;
-    return onSnapshot(doc(db, "users", friendId), (snap) => {
-      if (snap.exists()) setFriendInfo(snap.data());
-    });
-  }, [friendId]);
-
-  // ---------------- Load chat info ----------------
-  useEffect(() => {
-    if (!chatId) return;
-    return onSnapshot(doc(db, "chats", chatId), (snap) => {
-      if (!snap.exists()) return;
-      const data = snap.data();
-      setChatInfo(data);
-      setBlockedStatus?.(data.blocked);
-    });
-  }, [chatId, setBlockedStatus]);
-
   // ---------------- Close menu on outside click ----------------
-  useEffect(() => {
+  React.useEffect(() => {
     const handleClick = (e) => {
       if (menuRef.current && !menuRef.current.contains(e.target)) setMenuOpen(false);
     };
@@ -76,14 +58,8 @@ export default function ChatHeader({
     return p.length > 1 ? (p[0][0] + p[1][0]).toUpperCase() : p[0][0].toUpperCase();
   };
 
-  const formatLastSeen = (ts) => {
-    if (!ts) return "offline";
-    const last = ts.toDate ? ts.toDate() : new Date(ts);
-    return Date.now() - last.getTime() < 60000 ? "Online" : last.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-  };
-
   const getCloudinaryUrl = (url, w = 100, h = 100) => {
-    if (!url.includes("cloudinary")) return url;
+    if (!url?.includes("cloudinary")) return url;
     return url.replace("/upload/", `/upload/c_fill,g_face,h_${h},w_${w}/`);
   };
 
@@ -96,20 +72,19 @@ export default function ChatHeader({
 
         {/* Avatar */}
         <div className="chat-avatar" onClick={() => navigate(`/friend/${friendId}`)}>
-          {friendInfo?.profilePic ? (
+          {friendProfilePic ? (
             <img
-              src={getCloudinaryUrl(friendInfo.profilePic, 100, 100)}
+              src={getCloudinaryUrl(friendProfilePic, 100, 100)}
               alt="avatar"
             />
           ) : (
-            <span>{getInitials(friendInfo?.name)}</span>
+            <span>{getInitials(friendName)}</span>
           )}
         </div>
 
         {/* Info */}
         <div className="chat-info" onClick={() => navigate(`/friend/${friendId}`)}>
-          <span className="chat-name">{friendInfo?.name || "Loading..."}</span>
-          <span className="chat-lastseen">{formatLastSeen(friendInfo?.lastSeen)}</span>
+          <span className="chat-name">{friendName || "Loading..."}</span>
         </div>
 
         {/* Actions */}
@@ -195,10 +170,6 @@ export default function ChatHeader({
           white-space: nowrap;
           overflow: hidden;
           text-overflow: ellipsis;
-        }
-        .chat-lastseen {
-          font-size: 12px;
-          opacity: 0.85;
         }
         .chat-actions {
           display: flex;
