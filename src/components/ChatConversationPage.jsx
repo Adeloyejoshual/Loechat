@@ -1,3 +1,4 @@
+// src/components/Chat/ChatConversationPage.jsx
 import React, { useEffect, useState, useRef, useContext } from "react";
 import { useParams } from "react-router-dom";
 import {
@@ -59,6 +60,7 @@ export default function ChatConversationPage() {
   const [mediaIndex, setMediaIndex] = useState(0);
   const [showMediaViewer, setShowMediaViewer] = useState(false);
   const [isAtBottom, setIsAtBottom] = useState(true);
+  const [isTyping, setIsTyping] = useState(false); // 👈 Typing indicator state
 
   /* ---------------- Load chat & friend ---------------- */
   useEffect(() => {
@@ -73,6 +75,8 @@ export default function ChatConversationPage() {
         onSnapshot(doc(db, "users", friendId), (u) => {
           u.exists() && setFriend({ id: u.id, ...u.data() });
         });
+        // Typing status of friend
+        setIsTyping(data.typing?.[friendId] || false);
       }
 
       if (data.pinnedMessageId) {
@@ -277,6 +281,23 @@ export default function ChatConversationPage() {
             />
           )
         )}
+
+        {/* Typing indicator (for other user only) */}
+        {isTyping && friend && (
+          <div
+            style={{
+              padding: "6px 12px",
+              margin: "4px 0",
+              fontSize: 12,
+              color: isDark ? "#eee" : "#111",
+              fontStyle: "italic",
+              opacity: 0.7,
+            }}
+          >
+            {friend.name} is typing...
+          </div>
+        )}
+
         <div ref={bottomRef} />
       </div>
 
@@ -291,6 +312,7 @@ export default function ChatConversationPage() {
         setReplyTo={setReplyTo}
         isDark={isDark}
         setShowPreview={setShowPreview}
+        chatId={chatId} // Needed for typing updates
       />
 
       {showMediaViewer && (
