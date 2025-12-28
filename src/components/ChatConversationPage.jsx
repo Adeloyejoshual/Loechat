@@ -23,7 +23,7 @@ import ImagePreviewModal from "./Chat/ImagePreviewModal";
 import LongPressMessageModal from "./Chat/LongPressMessageModal";
 import MediaViewer from "./Chat/MediaViewer";
 
-import { ToastContainer } from "react-toastify";
+import { ToastContainer, toast } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 
 /* ---------------- Helpers ---------------- */
@@ -164,35 +164,71 @@ export default function ChatConversationPage() {
     });
   };
 
-  /* ---------------- Send media (image/video/audio/file) ---------------- */
-  const sendMediaMessage = async (files, reply, caption = "") => {
+  /* ---------------- Send media ---------------- */
+  const sendMediaMessage = async (files, reply, captionsMap = {}) => {
     for (const file of files) {
-      const fd = new FormData();
-      fd.append("file", file);
-      fd.append("upload_preset", import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET);
+      try {
+        // --- Compression for images ---
+        let blob = file;
+        if (file.type.startsWith("image/")) {
+          const imageCompression = (await import("browser-image-compression")).default;
+          blob = await imageCompression(file, { maxSizeMB: 1, maxWidthOrHeight: 1920 });
+        }
 
-      const res = await fetch(
-        `https://api.cloudinary.com/v1_1/${import.meta.env.VITE_CLOUDINARY_CLOUD_NAME}/auto/upload`,
-        { method: "POST", body: fd }
-      );
-      const { secure_url, resource_type } = await res.json();
+        // --- E2EE encryption ---
+        const arrayBuffer = await blob.arrayBuffer();
+        const key = await crypto.subtle.generateKey({ name: "AES-GCM", length: 256 }, true, ["encrypt", "decrypt"]);
+        const iv = crypto.getRandomValues(new Uint8Array(12));
+        const encryptedData = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, arrayBuffer);
 
-      // Determine type
-      let mediaType = "file";
-      if (file.type.startsWith("image")) mediaType = "image";
-      else if (file.type.startsWith("video")) mediaType = "video";
-      else if (file.type.startsWith("audio")) mediaType = "audio";
+        const encryptedBlob = new Blob([encryptedData], { type: file.type });
 
-      await addDoc(collection(db, "chats", chatId, "messages"), {
-        senderId: myUid,
-        mediaUrl: secure_url,
-        mediaType,
-        fileName: file.name,
-        text: caption,
-        createdAt: serverTimestamp(),
-        replyTo: reply ? { id: reply.id, text: reply.text } : null,
-        reactions: {},
-      });
+        // --- Upload to Cloudinary with progress ---
+        const formData = new FormData();
+        formData.append("file", encryptedBlob, file.name);
+        formData.append("upload_preset", import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET);
+
+        await new Promise((resolve, reject) => {
+          const xhr = new XMLHttpRequest();
+          xhr.open("POST", `https://api.cloudinary.com/v1_1/${import.meta.env.VITE_CLOUDINARY_CLOUD_NAME}/auto/upload`);
+          xhr.upload.onprogress = (e) => {
+            if (e.lengthComputable) {
+              const progress = (e.loaded / e.total) * 100;
+              // Optionally update progress in modal
+              console.log(`Uploading ${file.name}: ${progress.toFixed(0)}%`);
+            }
+          };
+          xhr.onload = () => {
+            if (xhr.status >= 200 && xhr.status < 300) {
+              const res = JSON.parse(xhr.responseText);
+              // Save message
+              addDoc(collection(db, "chats", chatId, "messages"), {
+                senderId: myUid,
+                mediaUrl: res.secure_url,
+                mediaType: file.type.startsWith("image")
+                  ? "image"
+                  : file.type.startsWith("video")
+                  ? "video"
+                  : file.type.startsWith("audio")
+                  ? "audio"
+                  : "file",
+                fileName: file.name,
+                caption: captionsMap[file.name] || "",
+                encrypted: true,
+                createdAt: serverTimestamp(),
+                replyTo: reply ? { id: reply.id, text: reply.text } : null,
+                reactions: {},
+              });
+              resolve(true);
+            } else reject(xhr.responseText);
+          };
+          xhr.onerror = () => reject("Upload failed");
+          xhr.send(formData);
+        });
+      } catch (err) {
+        toast.error(`Failed to upload ${file.name}`);
+        console.error(err);
+      }
     }
   };
 
@@ -341,7 +377,7 @@ export default function ChatConversationPage() {
             name: f.name,
           }))}
           onClose={() => setShowPreview(false)}
-          onSend={(files, caption) => sendMediaMessage(files, replyTo, caption)}
+          onSend={(files, captionsMap) => sendMediaMessage(files, replyTo, captionsMap)}
           isDark={isDark}
         />
       )}
