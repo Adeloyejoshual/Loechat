@@ -39,10 +39,8 @@ const getDayLabel = (date) => {
 
   if (d.getTime() === t.getTime()) return "Today";
   if (d.getTime() === y.getTime()) return "Yesterday";
-
   if (date.getFullYear() === today.getFullYear())
     return date.toLocaleDateString(undefined, { day: "numeric", month: "long" });
-
   return date.toLocaleDateString(undefined, { day: "numeric", month: "long", year: "numeric" });
 };
 
@@ -62,8 +60,8 @@ export default function ChatConversationPage() {
   const bottomRef = useRef(null);
 
   const [friend, setFriend] = useState(null);
-  const [messages, setMessages] = useState([]); // Firestore messages
-  const [tempMessages, setTempMessages] = useState([]); // Uploading / temp messages
+  const [messages, setMessages] = useState([]);
+  const [tempMessages, setTempMessages] = useState([]);
   const [text, setText] = useState("");
   const [replyTo, setReplyTo] = useState(null);
   const [selectedFiles, setSelectedFiles] = useState([]);
@@ -100,9 +98,7 @@ export default function ChatConversationPage() {
           (m) => m.exists() && setPinnedMessage({ id: m.id, ...m.data() })
         );
         return () => unsubPinned();
-      } else {
-        setPinnedMessage(null);
-      }
+      } else setPinnedMessage(null);
     });
 
     return () => unsubChat();
@@ -116,9 +112,7 @@ export default function ChatConversationPage() {
     const unsub = onSnapshot(q, (snap) => {
       const msgs = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
       setMessages(msgs);
-      if (isAtBottom) {
-        setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }), 40);
-      }
+      if (isAtBottom) setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }), 40);
     });
 
     return () => unsub();
@@ -128,8 +122,7 @@ export default function ChatConversationPage() {
   useEffect(() => {
     const el = messagesWrapRef.current;
     if (!el) return;
-    const onScroll = () =>
-      setIsAtBottom(el.scrollHeight - el.scrollTop - el.clientHeight < 80);
+    const onScroll = () => setIsAtBottom(el.scrollHeight - el.scrollTop - el.clientHeight < 80);
     el.addEventListener("scroll", onScroll);
     return () => el.removeEventListener("scroll", onScroll);
   }, []);
@@ -166,22 +159,24 @@ export default function ChatConversationPage() {
     });
   };
 
-  /* ---------------- Send media (with live progress) ---------------- */
+  /* ---------------- Send media (image/video/audio/file) ---------------- */
   const sendMediaMessage = async (files, reply, captionsMap = {}) => {
     for (const file of files) {
       const tempId = "temp-" + Date.now() + Math.random().toString(36).slice(2);
+
+      const mediaType = file.type.startsWith("image")
+        ? "image"
+        : file.type.startsWith("video")
+        ? "video"
+        : file.type.startsWith("audio")
+        ? "audio"
+        : "file";
 
       const tempMsg = {
         id: tempId,
         senderId: myUid,
         mediaUrl: URL.createObjectURL(file),
-        mediaType: file.type.startsWith("image")
-          ? "image"
-          : file.type.startsWith("video")
-          ? "video"
-          : file.type.startsWith("audio")
-          ? "audio"
-          : "file",
+        mediaType,
         fileName: file.name,
         caption: captionsMap[file.name] || "",
         createdAt: new Date(),
@@ -189,33 +184,40 @@ export default function ChatConversationPage() {
         progress: 0,
         reactions: {},
         replyTo: reply ? { id: reply.id, text: reply.text } : null,
+        xhr: null,
       };
 
       setTempMessages((prev) => [...prev, tempMsg]);
 
       try {
-        // Compress image
-        let blob = file;
+        let uploadFile = file;
+
+        // Compress images
         if (file.type.startsWith("image/")) {
           const imageCompression = (await import("browser-image-compression")).default;
-          blob = await imageCompression(file, { maxSizeMB: 1, maxWidthOrHeight: 1920 });
+          uploadFile = await imageCompression(file, { maxSizeMB: 1, maxWidthOrHeight: 1920 });
         }
 
-        const arrayBuffer = await blob.arrayBuffer();
-        const key = await crypto.subtle.generateKey(
-          { name: "AES-GCM", length: 256 },
-          true,
-          ["encrypt", "decrypt"]
-        );
-        const iv = crypto.getRandomValues(new Uint8Array(12));
-        const encryptedData = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, arrayBuffer);
-        const encryptedBlob = new Blob([encryptedData], { type: file.type });
+        // Optional encryption for images
+        if (file.type.startsWith("image/")) {
+          const arrayBuffer = await uploadFile.arrayBuffer();
+          const key = await crypto.subtle.generateKey(
+            { name: "AES-GCM", length: 256 },
+            true,
+            ["encrypt", "decrypt"]
+          );
+          const iv = crypto.getRandomValues(new Uint8Array(12));
+          const encryptedData = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, arrayBuffer);
+          uploadFile = new Blob([encryptedData], { type: file.type });
+        }
 
         const formData = new FormData();
-        formData.append("file", encryptedBlob, file.name);
+        formData.append("file", uploadFile, file.name);
         formData.append("upload_preset", import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET);
 
         const xhr = new XMLHttpRequest();
+        tempMsg.xhr = xhr;
+
         xhr.open(
           "POST",
           `https://api.cloudinary.com/v1_1/${import.meta.env.VITE_CLOUDINARY_CLOUD_NAME}/auto/upload`
@@ -239,7 +241,7 @@ export default function ChatConversationPage() {
               mediaType: tempMsg.mediaType,
               fileName: tempMsg.fileName,
               caption: tempMsg.caption,
-              encrypted: true,
+              encrypted: file.type.startsWith("image/"),
               createdAt: serverTimestamp(),
               replyTo: tempMsg.replyTo,
               reactions: {},
@@ -259,6 +261,9 @@ export default function ChatConversationPage() {
         };
 
         xhr.send(formData);
+        setTempMessages((prev) =>
+          prev.map((m) => (m.id === tempId ? { ...m, xhr } : m))
+        );
       } catch (err) {
         toast.error(`Failed to upload ${file.name}`);
         setTempMessages((prev) =>
@@ -266,6 +271,35 @@ export default function ChatConversationPage() {
         );
       }
     }
+  };
+
+  /* ---------------- Pause / Resume / Cancel / Retry ---------------- */
+  const pauseUpload = (msg) => {
+    if (msg.xhr) {
+      msg.xhr.abort();
+      setTempMessages((prev) =>
+        prev.map((m) => (m.id === msg.id ? { ...m, status: "paused" } : m))
+      );
+    }
+  };
+
+  const resumeUpload = (msg) => {
+    const file = selectedFiles.find((f) => f.name === msg.fileName);
+    if (file) sendMediaMessage([file], msg.replyTo);
+    setTempMessages((prev) => prev.filter((m) => m.id !== msg.id));
+  };
+
+  const cancelUpload = (msg) => {
+    if (msg.xhr) msg.xhr.abort();
+    setTempMessages((prev) => prev.filter((m) => m.id !== msg.id));
+  };
+
+  const retryUpload = (msgs) => {
+    msgs.forEach((m) => {
+      const file = selectedFiles.find((f) => f.name === m.fileName);
+      if (file) sendMediaMessage([file], m.replyTo);
+      setTempMessages((prev) => prev.filter((t) => t.id !== m.id));
+    });
   };
 
   /* ---------------- Reactions ---------------- */
@@ -373,14 +407,10 @@ export default function ChatConversationPage() {
               onSwipeRight={setReplyTo}
               onMediaClick={openMedia}
               onReactionToggle={handleReactionToggle}
-              pauseUpload={(msg) => {
-                if (msg.id.startsWith("temp-")) tempMessages.find(m => m.id === msg.id)?.xhr?.abort?.();
-              }}
-              resumeUpload={(msg) => {
-                if (msg.id.startsWith("temp-")) sendMediaMessage([{ name: msg.fileName, type: msg.mediaType }], msg.replyTo);
-              }}
-              cancelUpload={(msg) => setTempMessages(prev => prev.filter(m => m.id !== msg.id))}
-              retryUpload={(msgs) => msgs.forEach((m) => sendMediaMessage([{ name: m.fileName, type: m.mediaType }], m.replyTo))}
+              pauseUpload={pauseUpload}
+              resumeUpload={resumeUpload}
+              cancelUpload={cancelUpload}
+              retryUpload={retryUpload}
             />
           )
         )}
@@ -425,7 +455,13 @@ export default function ChatConversationPage() {
           previews={selectedFiles.map((f) => ({
             file: f,
             previewUrl: URL.createObjectURL(f),
-            type: f.type.startsWith("image") ? "image" : f.type.startsWith("video") ? "video" : f.type.startsWith("audio") ? "audio" : "file",
+            type: f.type.startsWith("image")
+              ? "image"
+              : f.type.startsWith("video")
+              ? "video"
+              : f.type.startsWith("audio")
+              ? "audio"
+              : "file",
             name: f.name,
           }))}
           onClose={() => setShowPreview(false)}
