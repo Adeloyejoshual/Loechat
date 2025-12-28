@@ -11,6 +11,10 @@ export default function MessageItem({
   onSwipeRight,
   onMediaClick,
   onReactionToggle,
+  retryUpload, // for retrying failed uploads
+  pauseUpload, // for pausing
+  resumeUpload, // for resuming
+  cancelUpload, // for cancelling
 }) {
   const isMine = message.senderId === myUid;
   const msgRef = useRef(null);
@@ -65,7 +69,6 @@ export default function MessageItem({
       onOpenLongPress?.(message, msgRef.current.getBoundingClientRect());
     }, LONG_PRESS_DELAY);
   };
-
   const handleMouseUp = () => clearTimeout(longPressTimer.current);
 
   /* ---------------- TIME ---------------- */
@@ -114,7 +117,7 @@ export default function MessageItem({
         return (
           <a
             href={message.mediaUrl}
-            download={message.mediaName || "file"}
+            download={message.fileName || "file"}
             style={{
               display: "block",
               padding: 8,
@@ -125,12 +128,127 @@ export default function MessageItem({
               marginBottom: 6,
             }}
           >
-            📎 {message.mediaName || "Download file"}
+            📎 {message.fileName || "Download file"}
           </a>
         );
       default:
         return null;
     }
+  };
+
+  /* ---------------- UPLOAD STATUS ---------------- */
+  const renderUploadStatus = () => {
+    if (!message.status || message.status === "done") return null;
+
+    return (
+      <div style={{ marginTop: 4 }}>
+        {/* Progress bar */}
+        <div
+          style={{
+            height: 4,
+            width: "100%",
+            background: isDark ? "#555" : "#ccc",
+            borderRadius: 2,
+            overflow: "hidden",
+            marginBottom: 4,
+          }}
+        >
+          <div
+            style={{
+              height: "100%",
+              width: `${message.progress || 0}%`,
+              background: "#4a90e2",
+            }}
+          />
+        </div>
+
+        {/* Upload status controls */}
+        {message.status === "uploading" && (
+          <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+            <span style={{ fontSize: 10, color: isDark ? "#ccc" : "#555" }}>Uploading...</span>
+            <button
+              onClick={() => pauseUpload?.(message)}
+              style={{
+                fontSize: 10,
+                padding: "2px 6px",
+                cursor: "pointer",
+                border: "none",
+                borderRadius: 4,
+                background: "#f39c12",
+                color: "#fff",
+              }}
+            >
+              Pause
+            </button>
+            <button
+              onClick={() => cancelUpload?.(message)}
+              style={{
+                fontSize: 10,
+                padding: "2px 6px",
+                cursor: "pointer",
+                border: "none",
+                borderRadius: 4,
+                background: "#e74c3c",
+                color: "#fff",
+              }}
+            >
+              Cancel
+            </button>
+          </div>
+        )}
+
+        {message.status === "paused" && (
+          <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+            <span style={{ fontSize: 10, color: isDark ? "#ccc" : "#555" }}>Paused</span>
+            <button
+              onClick={() => resumeUpload?.(message)}
+              style={{
+                fontSize: 10,
+                padding: "2px 6px",
+                cursor: "pointer",
+                border: "none",
+                borderRadius: 4,
+                background: "#27ae60",
+                color: "#fff",
+              }}
+            >
+              Resume
+            </button>
+            <button
+              onClick={() => cancelUpload?.(message)}
+              style={{
+                fontSize: 10,
+                padding: "2px 6px",
+                cursor: "pointer",
+                border: "none",
+                borderRadius: 4,
+                background: "#e74c3c",
+                color: "#fff",
+              }}
+            >
+              Cancel
+            </button>
+          </div>
+        )}
+
+        {message.status === "error" && (
+          <button
+            onClick={() => retryUpload([message], message.replyTo)}
+            style={{
+              fontSize: 10,
+              color: "#fff",
+              background: "#e74c3c",
+              border: "none",
+              borderRadius: 4,
+              padding: "2px 6px",
+              cursor: "pointer",
+            }}
+          >
+            Retry
+          </button>
+        )}
+      </div>
+    );
   };
 
   return (
@@ -166,6 +284,8 @@ export default function MessageItem({
       >
         {renderMedia()}
         {message.text && <div>{message.text}</div>}
+
+        {renderUploadStatus()}
 
         <div
           style={{
