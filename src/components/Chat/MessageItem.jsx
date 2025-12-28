@@ -10,7 +10,7 @@ export default function MessageItem({
   onOpenLongPress,
   onSwipeRight,
   onMediaClick,
-  onReactionToggle, // ✅ Reaction callback
+  onReactionToggle,
 }) {
   const isMine = message.senderId === myUid;
   const msgRef = useRef(null);
@@ -52,7 +52,6 @@ export default function MessageItem({
 
     const dx = e.changedTouches[0].clientX - touchStartX.current;
     if (dx > SWIPE_DISTANCE) {
-      // ✅ Vibrate on swipe right (works on mobile)
       if (navigator.vibrate) navigator.vibrate(50);
       onSwipeRight?.(message);
     }
@@ -81,6 +80,59 @@ export default function MessageItem({
       )
     : "";
 
+  /* ---------------- RENDER MEDIA ---------------- */
+  const renderMedia = () => {
+    if (!message.mediaUrl) return null;
+
+    switch (message.mediaType) {
+      case "image":
+        return (
+          <img
+            src={message.mediaUrl}
+            alt=""
+            style={{ width: "100%", borderRadius: 8, marginBottom: 6, cursor: "pointer" }}
+            onClick={() => onMediaClick?.(message.id)}
+          />
+        );
+      case "video":
+        return (
+          <video
+            src={message.mediaUrl}
+            controls
+            style={{ width: "100%", borderRadius: 8, marginBottom: 6 }}
+          />
+        );
+      case "audio":
+        return (
+          <audio
+            controls
+            src={message.mediaUrl}
+            style={{ width: "100%", marginBottom: 6 }}
+          />
+        );
+      case "file":
+        return (
+          <a
+            href={message.mediaUrl}
+            download={message.mediaName || "file"}
+            style={{
+              display: "block",
+              padding: 8,
+              background: isDark ? "#333" : "#eee",
+              color: isDark ? "#eee" : "#111",
+              borderRadius: 6,
+              textDecoration: "none",
+              marginBottom: 6,
+            }}
+          >
+            📎 {message.mediaName || "Download file"}
+          </a>
+        );
+      default:
+        return null;
+    }
+  };
+
   return (
     <div
       id={message.id}
@@ -102,7 +154,6 @@ export default function MessageItem({
         touchAction: "pan-y",
       }}
     >
-      {/* Message Bubble */}
       <div
         style={{
           maxWidth: "80%",
@@ -113,27 +164,9 @@ export default function MessageItem({
           position: "relative",
         }}
       >
-        {/* Media */}
-        {message.mediaUrl && message.mediaType === "image" && (
-          <img
-            src={message.mediaUrl}
-            alt=""
-            style={{ width: "100%", borderRadius: 8, marginBottom: 6 }}
-            onClick={() => onMediaClick?.(message.id)}
-          />
-        )}
-        {message.mediaUrl && message.mediaType === "video" && (
-          <video
-            src={message.mediaUrl}
-            controls
-            style={{ width: "100%", borderRadius: 8, marginBottom: 6 }}
-          />
-        )}
-
-        {/* Text */}
+        {renderMedia()}
         {message.text && <div>{message.text}</div>}
 
-        {/* Time */}
         <div
           style={{
             fontSize: 10,
@@ -145,7 +178,6 @@ export default function MessageItem({
           {formattedTime}
         </div>
 
-        {/* Pinned */}
         {pinnedMessage?.id === message.id && (
           <div
             style={{
@@ -160,7 +192,6 @@ export default function MessageItem({
         )}
       </div>
 
-      {/* ✅ REACTIONS (UNDER MESSAGE, CLICKABLE) */}
       {message.reactions && Object.keys(message.reactions).length > 0 && (
         <div
           style={{
