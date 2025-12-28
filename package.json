@@ -14,6 +14,7 @@
   "dependencies": {
     "axios": "^1.6.0",
     "backblaze-b2": "^1.7.1",
+    "browser-image-compression": "^2.0.1",
     "cors": "^2.8.5",
     "date-fns": "^2.30.0",
     "dotenv": "^16.4.5",
