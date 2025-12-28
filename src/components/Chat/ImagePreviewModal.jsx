@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from "react";
 
-export default function ImagePreviewModal({
-  previews = [], // [{ file, previewUrl }]
+export default function MediaPreviewModal({
+  previews = [], // [{ file, previewUrl, type, name }]
   onRemove = () => {},
   onClose = () => {},
   onSend = async () => {}, // (files, caption) => {}
@@ -31,21 +31,18 @@ export default function ImagePreviewModal({
   const handleTouchMove = (e) => {
     if (!isDragging) return;
     const t = e.touches[0];
-    const dx = t.clientX - startPos.current.x;
-    const dy = t.clientY - startPos.current.y;
-    setTranslate({ x: dx, y: dy });
+    setTranslate({ x: t.clientX - startPos.current.x, y: t.clientY - startPos.current.y });
   };
 
   const handleTouchEnd = () => {
     setIsDragging(false);
     const { x, y } = translate;
-    if (y > 120) return onClose(); // swipe down to close
+    if (y > 120) return onClose();
     if (x < -80 && index < previews.length - 1) handleNext();
     else if (x > 80 && index > 0) handlePrev();
     setTranslate({ x: 0, y: 0 });
   };
 
-  // --- Send handler ---
   const handleSend = async () => {
     if (sending || disabled) return;
     setSending(true);
@@ -59,12 +56,10 @@ export default function ImagePreviewModal({
     }
   };
 
-  // Cleanup object URLs
   useEffect(() => {
     return () => previews.forEach((p) => p.previewUrl && URL.revokeObjectURL(p.previewUrl));
   }, [previews]);
 
-  // Close on clicking outside
   const modalRef = useRef(null);
   useEffect(() => {
     const handleClickOutside = (e) => {
@@ -77,6 +72,56 @@ export default function ImagePreviewModal({
       document.removeEventListener("touchstart", handleClickOutside);
     };
   }, [onClose]);
+
+  const renderMedia = () => {
+    switch (current.type) {
+      case "image":
+        return (
+          <img
+            src={current.previewUrl || URL.createObjectURL(current.file)}
+            alt="preview"
+            style={{ maxHeight: "60vh", maxWidth: "80vw", borderRadius: 8 }}
+            draggable={false}
+          />
+        );
+      case "video":
+        return (
+          <video
+            src={current.previewUrl || URL.createObjectURL(current.file)}
+            controls
+            style={{ maxHeight: "60vh", maxWidth: "80vw", borderRadius: 8 }}
+          />
+        );
+      case "audio":
+        return (
+          <audio
+            src={current.previewUrl || URL.createObjectURL(current.file)}
+            controls
+            style={{ width: "80%", marginBottom: 6 }}
+          />
+        );
+      case "file":
+        return (
+          <a
+            href={current.previewUrl || URL.createObjectURL(current.file)}
+            download={current.name || "file"}
+            style={{
+              display: "block",
+              padding: 12,
+              borderRadius: 6,
+              background: isDark ? "#333" : "#eee",
+              color: isDark ? "#eee" : "#111",
+              textDecoration: "none",
+              fontWeight: 500,
+            }}
+          >
+            📎 {current.name || "Download file"}
+          </a>
+        );
+      default:
+        return null;
+    }
+  };
 
   return (
     <div
@@ -92,7 +137,6 @@ export default function ImagePreviewModal({
       }}
     >
       <div ref={modalRef} style={{ display: "flex", flexDirection: "column", alignItems: "center", width: "100%" }}>
-        {/* Media Preview */}
         <div
           style={{
             display: "flex",
@@ -107,38 +151,17 @@ export default function ImagePreviewModal({
           onTouchMove={handleTouchMove}
           onTouchEnd={handleTouchEnd}
         >
-          {current.file.type.startsWith("video/") ? (
-            <video
-              src={current.previewUrl || URL.createObjectURL(current.file)}
-              controls
-              style={{ maxHeight: "60vh", maxWidth: "80vw", borderRadius: 8 }}
-            />
-          ) : (
-            <img
-              src={current.previewUrl || URL.createObjectURL(current.file)}
-              alt="preview"
-              style={{ maxHeight: "60vh", maxWidth: "80vw", borderRadius: 8 }}
-              draggable={false}
-            />
-          )}
+          {renderMedia()}
         </div>
 
-        {/* Navigation */}
         {previews.length > 1 && (
           <div style={{ display: "flex", marginTop: 12, gap: 16 }}>
-            <button onClick={handlePrev} disabled={index === 0}>
-              ‹ Prev
-            </button>
-            <span style={{ color: isDark ? "#fff" : "#000" }}>
-              {index + 1} / {previews.length}
-            </span>
-            <button onClick={handleNext} disabled={index === previews.length - 1}>
-              Next ›
-            </button>
+            <button onClick={handlePrev} disabled={index === 0}>‹ Prev</button>
+            <span style={{ color: isDark ? "#fff" : "#000" }}>{index + 1} / {previews.length}</span>
+            <button onClick={handleNext} disabled={index === previews.length - 1}>Next ›</button>
           </div>
         )}
 
-        {/* Caption */}
         <textarea
           placeholder="Add a caption..."
           value={caption}
@@ -154,38 +177,19 @@ export default function ImagePreviewModal({
           }}
         />
 
-        {/* Controls */}
         <div style={{ marginTop: 16, display: "flex", gap: 12 }}>
           <button
             onClick={() => onRemove(index)}
-            style={{
-              padding: "8px 16px",
-              backgroundColor: "red",
-              color: "#fff",
-              border: "none",
-              borderRadius: 4,
-              cursor: "pointer",
-            }}
+            style={{ padding: "8px 16px", backgroundColor: "red", color: "#fff", border: "none", borderRadius: 4, cursor: "pointer" }}
           >
             Remove
           </button>
           <button
             onClick={handleSend}
             disabled={sending || disabled}
-            style={{
-              padding: "8px 16px",
-              backgroundColor: isDark ? "#4caf50" : "#1976d2",
-              color: "#fff",
-              border: "none",
-              borderRadius: 4,
-              cursor: sending || disabled ? "not-allowed" : "pointer",
-            }}
+            style={{ padding: "8px 16px", backgroundColor: isDark ? "#4caf50" : "#1976d2", color: "#fff", border: "none", borderRadius: 4, cursor: sending || disabled ? "not-allowed" : "pointer" }}
           >
-            {sending
-              ? "Sending..."
-              : previews.length > 1
-              ? `Send (${previews.length})`
-              : "Send"}
+            {sending ? "Sending..." : previews.length > 1 ? `Send (${previews.length})` : "Send"}
           </button>
         </div>
       </div>
