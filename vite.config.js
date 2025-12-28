@@ -13,16 +13,6 @@ export default defineConfig({
     outDir: "dist",
   },
 
-  // ✅ Pre-bundle only problematic deps
-  optimizeDeps: {
-    include: ["twilio-video"],
-  },
-
-  // ✅ Prevent SSR from breaking for certain packages
-  ssr: {
-    noExternal: ["twilio-video"],
-  },
-
   server: {
     port: 5173,
   },
