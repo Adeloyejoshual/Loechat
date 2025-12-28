@@ -19,9 +19,9 @@ import { ThemeContext } from "../context/ThemeContext";
 import ChatHeader from "./Chat/ChatHeader";
 import MessageItem from "./Chat/MessageItem";
 import ChatInput from "./Chat/ChatInput";
-import MediaViewer from "./Chat/MediaViewer";
 import ImagePreviewModal from "./Chat/ImagePreviewModal";
 import LongPressMessageModal from "./Chat/LongPressMessageModal";
+import MediaViewer from "./Chat/MediaViewer";
 
 import { ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
@@ -83,7 +83,7 @@ export default function ChatConversationPage() {
       if (!snap.exists()) return;
       const data = snap.data();
 
-      // Get friend info
+      // Friend info
       const friendId = data.participants?.find((p) => p !== myUid);
       if (friendId) {
         const unsubFriend = onSnapshot(doc(db, "users", friendId), (u) => {
@@ -92,7 +92,7 @@ export default function ChatConversationPage() {
         return () => unsubFriend();
       }
 
-      // Get pinned message
+      // Pinned message
       if (data.pinnedMessageId) {
         const unsubPinned = onSnapshot(
           doc(db, "chats", chatId, "messages", data.pinnedMessageId),
@@ -111,11 +111,7 @@ export default function ChatConversationPage() {
   useEffect(() => {
     if (!chatId) return;
 
-    const q = query(
-      collection(db, "chats", chatId, "messages"),
-      orderBy("createdAt", "asc")
-    );
-
+    const q = query(collection(db, "chats", chatId, "messages"), orderBy("createdAt", "asc"));
     const unsub = onSnapshot(q, (snap) => {
       const msgs = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
       setMessages(msgs);
@@ -131,9 +127,7 @@ export default function ChatConversationPage() {
   useEffect(() => {
     const el = messagesWrapRef.current;
     if (!el) return;
-
-    const onScroll = () =>
-      setIsAtBottom(el.scrollHeight - el.scrollTop - el.clientHeight < 80);
+    const onScroll = () => setIsAtBottom(el.scrollHeight - el.scrollTop - el.clientHeight < 80);
     el.addEventListener("scroll", onScroll);
     return () => el.removeEventListener("scroll", onScroll);
   }, []);
@@ -151,7 +145,6 @@ export default function ChatConversationPage() {
       doc(db, "chats", chatId, "typing", friend.id),
       (snap) => setFriendTyping(snap.exists() ? snap.data()?.isTyping || false : false)
     );
-
     return () => unsubTyping();
   }, [chatId, friend?.id]);
 
@@ -171,7 +164,7 @@ export default function ChatConversationPage() {
     });
   };
 
-  /* ---------------- Send media ---------------- */
+  /* ---------------- Send media (image/video/audio/file) ---------------- */
   const sendMediaMessage = async (files, reply, caption = "") => {
     for (const file of files) {
       const fd = new FormData();
@@ -182,12 +175,19 @@ export default function ChatConversationPage() {
         `https://api.cloudinary.com/v1_1/${import.meta.env.VITE_CLOUDINARY_CLOUD_NAME}/auto/upload`,
         { method: "POST", body: fd }
       );
-      const { secure_url } = await res.json();
+      const { secure_url, resource_type } = await res.json();
+
+      // Determine type
+      let mediaType = "file";
+      if (file.type.startsWith("image")) mediaType = "image";
+      else if (file.type.startsWith("video")) mediaType = "video";
+      else if (file.type.startsWith("audio")) mediaType = "audio";
 
       await addDoc(collection(db, "chats", chatId, "messages"), {
         senderId: myUid,
         mediaUrl: secure_url,
-        mediaType: file.type.startsWith("video") ? "video" : "image",
+        mediaType,
+        fileName: file.name,
         text: caption,
         createdAt: serverTimestamp(),
         replyTo: reply ? { id: reply.id, text: reply.text } : null,
@@ -227,7 +227,7 @@ export default function ChatConversationPage() {
   /* ---------------- Media viewer ---------------- */
   const openMedia = (id) => {
     const media = messages.filter((m) => m.mediaUrl);
-    setMediaItems(media.map((m) => ({ type: m.mediaType, url: m.mediaUrl })));
+    setMediaItems(media.map((m) => ({ type: m.mediaType, url: m.mediaUrl, name: m.fileName })));
     setMediaIndex(media.findIndex((m) => m.id === id));
     setShowMediaViewer(true);
   };
@@ -237,7 +237,7 @@ export default function ChatConversationPage() {
     document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "center" });
   };
 
-  /* ---------------- Group messages with typing indicator ---------------- */
+  /* ---------------- Group messages ---------------- */
   const grouped = [];
   let lastDay = null;
   messages.forEach((m) => {
@@ -279,10 +279,7 @@ export default function ChatConversationPage() {
               {item.label}
             </div>
           ) : item.type === "typing" ? (
-            <div
-              key="typing"
-              style={{ fontStyle: "italic", fontSize: 12, margin: "6px 0", color: isDark ? "#ccc" : "#555" }}
-            >
+            <div key="typing" style={{ fontStyle: "italic", fontSize: 12, margin: "6px 0", color: isDark ? "#ccc" : "#555" }}>
               {friend?.name || "Friend"} is typing...
             </div>
           ) : (
@@ -317,25 +314,38 @@ export default function ChatConversationPage() {
         friendTyping={friendTyping}
       />
 
-      {showMediaViewer && <MediaViewer items={mediaItems} startIndex={mediaIndex} onClose={() => setShowMediaViewer(false)} />}
+      {showMediaViewer && (
+        <MediaViewer items={mediaItems} startIndex={mediaIndex} onClose={() => setShowMediaViewer(false)} />
+      )}
+
       {longPressMsg && (
         <LongPressMessageModal
           message={longPressMsg}
           onClose={() => setLongPressMsg(null)}
-          onReply={() => { setReplyTo(longPressMsg); setLongPressMsg(null); }}
+          onReply={() => {
+            setReplyTo(longPressMsg);
+            setLongPressMsg(null);
+          }}
           onPin={() => pinMessage(longPressMsg)}
           onDelete={deleteMessage}
           isPinned={pinnedMessage?.id === longPressMsg.id}
         />
       )}
+
       {showPreview && selectedFiles.length > 0 && (
         <ImagePreviewModal
-          previews={selectedFiles.map((f) => ({ file: f, previewUrl: URL.createObjectURL(f) }))}
+          previews={selectedFiles.map((f) => ({
+            file: f,
+            previewUrl: URL.createObjectURL(f),
+            type: f.type.startsWith("image") ? "image" : f.type.startsWith("video") ? "video" : f.type.startsWith("audio") ? "audio" : "file",
+            name: f.name,
+          }))}
           onClose={() => setShowPreview(false)}
           onSend={(files, caption) => sendMediaMessage(files, replyTo, caption)}
           isDark={isDark}
         />
       )}
+
       <ToastContainer position="top-center" autoClose={1500} hideProgressBar />
     </div>
   );
