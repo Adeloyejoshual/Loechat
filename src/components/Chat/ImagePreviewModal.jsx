@@ -2,184 +2,211 @@
 import React, { useState, useRef, useEffect } from "react";
 
 export default function ImagePreviewModal({
-  previews = [],
+  previews = [], // [{ file, previewUrl, type, name }]
   onRemove = () => {},
   onClose = () => {},
-  onSend = async () => {},
+  onSend = async () => {}, // (files, captionsMap) => {}
   isDark = false,
   disabled = false,
 }) {
   const [index, setIndex] = useState(0);
   const [sending, setSending] = useState(false);
-  const [caption, setCaption] = useState("");
-
   const [translate, setTranslate] = useState({ x: 0, y: 0 });
+  const [isDragging, setIsDragging] = useState(false);
   const startPos = useRef({ x: 0, y: 0 });
-  const isDragging = useRef(false);
+  const [captions, setCaptions] = useState({}); // { fileName: caption }
 
   if (!previews.length) return null;
   const current = previews[index];
 
-  const handleNext = () =>
-    setIndex((i) => Math.min(i + 1, previews.length - 1));
-  const handlePrev = () =>
-    setIndex((i) => Math.max(i - 1, 0));
+  const handleNext = () => setIndex((i) => Math.min(i + 1, previews.length - 1));
+  const handlePrev = () => setIndex((i) => Math.max(i - 1, 0));
 
-  /* ---------------- Touch swipe ---------------- */
+  // --- Touch handlers ---
   const handleTouchStart = (e) => {
     const t = e.touches[0];
     startPos.current = { x: t.clientX, y: t.clientY };
-    isDragging.current = true;
+    setIsDragging(true);
   };
 
   const handleTouchMove = (e) => {
-    if (!isDragging.current) return;
+    if (!isDragging) return;
     const t = e.touches[0];
-    setTranslate({
-      x: t.clientX - startPos.current.x,
-      y: t.clientY - startPos.current.y,
-    });
+    const dx = t.clientX - startPos.current.x;
+    const dy = t.clientY - startPos.current.y;
+    setTranslate({ x: dx, y: dy });
   };
 
   const handleTouchEnd = () => {
-    isDragging.current = false;
-
-    if (translate.y > 120) {
-      onClose(); // swipe down to close
-      return;
-    }
-
-    if (translate.x < -80 && index < previews.length - 1) handleNext();
-    if (translate.x > 80 && index > 0) handlePrev();
-
+    setIsDragging(false);
+    const { x, y } = translate;
+    if (y > 120) return onClose(); // swipe down to close
+    if (x < -80 && index < previews.length - 1) handleNext();
+    else if (x > 80 && index > 0) handlePrev();
     setTranslate({ x: 0, y: 0 });
   };
 
-  /* ---------------- Send ---------------- */
+  // --- Send handler ---
   const handleSend = async () => {
     if (sending || disabled) return;
     setSending(true);
-
     try {
-      await onSend(previews.map((p) => p.file), caption.trim());
-      setCaption("");
+      await onSend(previews.map((p) => p.file), captions);
+      setCaptions({});
       onClose();
-    } catch (e) {
-      console.error(e);
+    } catch (err) {
+      console.error("Send failed:", err);
       setSending(false);
     }
   };
 
-  /* ---------------- Cleanup URLs ---------------- */
+  const modalRef = useRef(null);
   useEffect(() => {
-    return () =>
-      previews.forEach(
-        (p) => p.previewUrl && URL.revokeObjectURL(p.previewUrl)
-      );
-  }, [previews]);
+    const handleClickOutside = (e) => {
+      if (modalRef.current && !modalRef.current.contains(e.target)) onClose();
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    document.addEventListener("touchstart", handleClickOutside, { passive: true });
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("touchstart", handleClickOutside);
+    };
+  }, [onClose]);
 
   return (
-    /* 🔥 BACKDROP */
     <div
-      onClick={onClose}
       style={{
         position: "fixed",
         inset: 0,
-        background: isDark
-          ? "rgba(0,0,0,0.9)"
-          : "rgba(255,255,255,0.9)",
-        zIndex: 9999,
+        backgroundColor: isDark ? "rgba(0,0,0,0.9)" : "rgba(255,255,255,0.9)",
         display: "flex",
         justifyContent: "center",
         alignItems: "center",
+        zIndex: 9999,
         padding: 12,
       }}
     >
-      {/* 🔥 MODAL CONTENT */}
       <div
-        onClick={(e) => e.stopPropagation()} // ⛔ prevent close
+        ref={modalRef}
         style={{
-          width: "100%",
-          maxWidth: 420,
           display: "flex",
           flexDirection: "column",
           alignItems: "center",
+          width: "100%",
+          maxWidth: 500,
         }}
       >
-        {/* Media */}
+        {/* Media preview */}
         <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            maxWidth: "100%",
+            maxHeight: "60vh",
+            transform: `translate(${translate.x}px, ${translate.y}px)`,
+            transition: isDragging ? "none" : "transform 0.25s ease",
+            touchAction: "none",
+            flexDirection: "column",
+          }}
           onTouchStart={handleTouchStart}
           onTouchMove={handleTouchMove}
           onTouchEnd={handleTouchEnd}
-          style={{
-            transform: `translate(${translate.x}px, ${translate.y}px)`,
-            transition: "transform 0.25s ease",
-            maxWidth: "100%",
-          }}
         >
-          {current.file.type.startsWith("image/") && (
+          {current.type === "image" && (
             <img
               src={current.previewUrl}
-              alt=""
-              style={{ maxWidth: "100%", borderRadius: 8 }}
+              alt="preview"
+              style={{ maxHeight: "60vh", maxWidth: "100%", borderRadius: 8 }}
+              draggable={false}
             />
           )}
-
-          {current.file.type.startsWith("video/") && (
+          {current.type === "video" && (
             <video
               src={current.previewUrl}
               controls
-              style={{ maxWidth: "100%", borderRadius: 8 }}
+              style={{ maxHeight: "60vh", maxWidth: "100%", borderRadius: 8 }}
             />
           )}
-
-          {current.file.type.startsWith("audio/") && (
+          {current.type === "audio" && (
             <div style={{ textAlign: "center" }}>
               <audio controls src={current.previewUrl} />
-              <div>{current.file.name}</div>
+              <div style={{ marginTop: 8, fontSize: 14 }}>{current.name}</div>
             </div>
           )}
-
-          {!current.file.type.match(/image|video|audio/) && (
+          {current.type === "file" && (
             <div style={{ textAlign: "center" }}>
               <span style={{ fontSize: 40 }}>📄</span>
-              <div>{current.file.name}</div>
+              <div style={{ marginTop: 8 }}>{current.name}</div>
             </div>
           )}
         </div>
 
+        {/* Navigation */}
+        {previews.length > 1 && (
+          <div style={{ display: "flex", marginTop: 12, gap: 16 }}>
+            <button onClick={handlePrev} disabled={index === 0}>
+              ‹ Prev
+            </button>
+            <span style={{ color: isDark ? "#fff" : "#000" }}>
+              {index + 1} / {previews.length}
+            </span>
+            <button onClick={handleNext} disabled={index === previews.length - 1}>
+              Next ›
+            </button>
+          </div>
+        )}
+
         {/* Caption */}
         <textarea
-          value={caption}
-          onChange={(e) => setCaption(e.target.value)}
           placeholder="Add a caption..."
+          value={captions[current.name] || ""}
+          onChange={(e) =>
+            setCaptions((prev) => ({ ...prev, [current.name]: e.target.value }))
+          }
           style={{
             marginTop: 12,
             width: "100%",
             padding: 8,
             borderRadius: 6,
+            border: "1px solid #ccc",
+            resize: "none",
+            minHeight: 40,
           }}
         />
 
-        {/* Buttons */}
-        <div style={{ marginTop: 12, display: "flex", gap: 10 }}>
+        {/* Controls */}
+        <div style={{ marginTop: 16, display: "flex", gap: 12 }}>
           <button
             onClick={() => onRemove(index)}
-            style={{ background: "red", color: "#fff", padding: "8px 16px" }}
+            style={{
+              padding: "8px 16px",
+              backgroundColor: "red",
+              color: "#fff",
+              border: "none",
+              borderRadius: 4,
+              cursor: "pointer",
+            }}
           >
             Remove
           </button>
-
           <button
             onClick={handleSend}
-            disabled={sending}
+            disabled={sending || disabled}
             style={{
-              background: "#1976d2",
-              color: "#fff",
               padding: "8px 16px",
+              backgroundColor: isDark ? "#4caf50" : "#1976d2",
+              color: "#fff",
+              border: "none",
+              borderRadius: 4,
+              cursor: sending || disabled ? "not-allowed" : "pointer",
             }}
           >
-            {sending ? "Sending..." : "Send"}
+            {sending
+              ? "Sending..."
+              : previews.length > 1
+              ? `Send (${previews.length})`
+              : "Send"}
           </button>
         </div>
       </div>
