@@ -33,10 +33,22 @@ const getDayLabel = (date) => {
   const yesterday = new Date();
   yesterday.setDate(today.getDate() - 1);
 
-  if (date.toDateString() === today.toDateString()) return "Today";
-  if (date.toDateString() === yesterday.toDateString()) return "Yesterday";
+  const d = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const t = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const y = new Date(yesterday.getFullYear(), yesterday.getMonth(), yesterday.getDate());
 
-  return date.toLocaleDateString(undefined, { month: "long", day: "numeric" });
+  if (d.getTime() === t.getTime()) return "Today";
+  if (d.getTime() === y.getTime()) return "Yesterday";
+
+  if (date.getFullYear() === today.getFullYear())
+    return date.toLocaleDateString(undefined, { day: "numeric", month: "long" });
+
+  return date.toLocaleDateString(undefined, { day: "numeric", month: "long", year: "numeric" });
+};
+
+const getCloudinaryUrl = (url, w = 100, h = 100) => {
+  if (!url?.includes("cloudinary")) return url;
+  return url.replace("/upload/", `/upload/c_fill,g_face,h_${h},w_${w}/`);
 };
 
 /* ---------------- Component ---------------- */
@@ -75,7 +87,7 @@ export default function ChatConversationPage() {
       const friendId = data.participants?.find((p) => p !== myUid);
       if (friendId) {
         const unsubFriend = onSnapshot(doc(db, "users", friendId), (u) => {
-          u.exists() && setFriend({ id: u.id, ...u.data() });
+          if (u.exists()) setFriend({ id: u.id, ...u.data() });
         });
         return () => unsubFriend();
       }
@@ -120,7 +132,8 @@ export default function ChatConversationPage() {
     const el = messagesWrapRef.current;
     if (!el) return;
 
-    const onScroll = () => setIsAtBottom(el.scrollHeight - el.scrollTop - el.clientHeight < 80);
+    const onScroll = () =>
+      setIsAtBottom(el.scrollHeight - el.scrollTop - el.clientHeight < 80);
     el.addEventListener("scroll", onScroll);
     return () => el.removeEventListener("scroll", onScroll);
   }, []);
@@ -134,9 +147,10 @@ export default function ChatConversationPage() {
   useEffect(() => {
     if (!chatId || !friend?.id) return;
 
-    const unsubTyping = onSnapshot(doc(db, "chats", chatId, "typing", friend.id), (snap) => {
-      setFriendTyping(snap.exists() ? snap.data()?.isTyping || false : false);
-    });
+    const unsubTyping = onSnapshot(
+      doc(db, "chats", chatId, "typing", friend.id),
+      (snap) => setFriendTyping(snap.exists() ? snap.data()?.isTyping || false : false)
+    );
 
     return () => unsubTyping();
   }, [chatId, friend?.id]);
@@ -239,21 +253,36 @@ export default function ChatConversationPage() {
 
   /* ---------------- Render ---------------- */
   return (
-    <div style={{ height: "100vh", display: "flex", flexDirection: "column", background: wallpaper || (isDark ? "#0b0b0b" : "#f5f5f5") }}>
+    <div
+      style={{
+        height: "100vh",
+        display: "flex",
+        flexDirection: "column",
+        background: wallpaper || (isDark ? "#0b0b0b" : "#f5f5f5"),
+      }}
+    >
       <ChatHeader
-        friend={friend}
+        friendId={friend?.id}
+        friendName={friend?.name}
+        friendProfilePic={getCloudinaryUrl(friend?.profilePic, 100, 100)}
         pinnedMessage={pinnedMessage}
-        onPinnedClick={() => scrollToMessage(pinnedMessage?.id)}
+        onGoToPinned={() => scrollToMessage(pinnedMessage?.id)}
       />
 
       <div ref={messagesWrapRef} style={{ flex: 1, overflowY: "auto", padding: 8 }}>
         {grouped.map((item, i) =>
           item.type === "date" ? (
-            <div key={i} style={{ textAlign: "center", fontSize: 12, margin: "10px 0", color: isDark ? "#aaa" : "#555" }}>
+            <div
+              key={i}
+              style={{ textAlign: "center", fontSize: 12, margin: "10px 0", color: isDark ? "#aaa" : "#555" }}
+            >
               {item.label}
             </div>
           ) : item.type === "typing" ? (
-            <div key="typing" style={{ fontStyle: "italic", fontSize: 12, margin: "6px 0", color: isDark ? "#ccc" : "#555" }}>
+            <div
+              key="typing"
+              style={{ fontStyle: "italic", fontSize: 12, margin: "6px 0", color: isDark ? "#ccc" : "#555" }}
+            >
               {friend?.name || "Friend"} is typing...
             </div>
           ) : (
