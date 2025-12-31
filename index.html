@@ -2,24 +2,40 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/png" href="/favicon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>LoeChat 💬</title>
 
-    <!-- SEO + PWA tags -->
+    <!-- Favicon -->
+    <link rel="icon" type="image/png" href="/favicon.png" />
+
+    <!-- SEO + PWA -->
     <meta name="description" content="LoeChat — Chat, Calls & Wallet in one place." />
     <meta name="theme-color" content="#0f172a" />
     <link rel="manifest" href="/manifest.json" />
 
-    <!-- Monetag verification meta tag -->
+    <!-- Monetag verification -->
     <meta name="monetag" content="35bdb4646cf90b1b1f00960bf96b138a">
+
+    <!-- Offline support: optional fallback -->
+    <link rel="stylesheet" href="/offline.css" />
   </head>
 
   <body>
     <!-- React root -->
     <div id="root"></div>
 
-    <!-- Vite script entry -->
+    <!-- Vite entry -->
     <script type="module" src="/src/main.jsx"></script>
+
+    <!-- Optional: Register service worker for offline mode -->
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('/service-worker.js')
+            .then(reg => console.log('Service Worker registered', reg))
+            .catch(err => console.error('SW registration failed:', err));
+        });
+      }
+    </script>
   </body>
 </html>
