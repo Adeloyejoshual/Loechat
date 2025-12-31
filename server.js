@@ -20,9 +20,7 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// ----------------------------------------------
-// Firebase Admin
-// ----------------------------------------------
+// ---------------- Firebase Admin ----------------
 if (!admin.apps.length) {
   admin.initializeApp({
     credential: admin.credential.cert({
@@ -34,18 +32,14 @@ if (!admin.apps.length) {
   console.log("🔥 Firebase Admin initialized");
 }
 
-// ----------------------------------------------
-// MongoDB
-// ----------------------------------------------
+// ---------------- MongoDB ----------------
 mongoose.set("strictQuery", true);
 mongoose
   .connect(process.env.MONGO_URI)
   .then(() => console.log("🟢 MongoDB connected"))
   .catch((err) => console.error("❌ MongoDB Error:", err));
 
-// ----------------------------------------------
-// Models
-// ----------------------------------------------
+// ---------------- Models ----------------
 const transactionSchema = new mongoose.Schema(
   {
     uid: { type: String, required: true },
@@ -71,9 +65,7 @@ const Wallet = mongoose.model("Wallet", walletSchema);
 const generateTxnId = () =>
   `txn_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 
-// ----------------------------------------------
-// Firebase Auth Middleware
-// ----------------------------------------------
+// ---------------- Firebase Auth Middleware ----------------
 const verifyFirebaseToken = async (req, res, next) => {
   try {
     const raw = req.headers.authorization || "";
@@ -88,9 +80,7 @@ const verifyFirebaseToken = async (req, res, next) => {
   }
 };
 
-// ----------------------------------------------
-// Wallet Routes
-// ----------------------------------------------
+// ---------------- Wallet Routes ----------------
 app.post("/api/wallet/daily", verifyFirebaseToken, async (req, res) => {
   try {
     const amount = 0.25;
@@ -141,80 +131,21 @@ app.post("/api/wallet/daily", verifyFirebaseToken, async (req, res) => {
   }
 });
 
-app.get("/api/wallet/:uid", verifyFirebaseToken, async (req, res) => {
-  try {
-    const { uid } = req.params;
-
-    if (req.authUID !== uid) return res.status(403).json({ error: "Forbidden" });
-
-    const wallet = await Wallet.findOne({ uid });
-    const transactions = await Transaction.find({ uid }).sort({ createdAt: -1 });
-
-    res.json({
-      balance: wallet?.balance || 0,
-      transactions,
-      lastDailyClaim: wallet?.lastCheckIn || null,
-    });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.post("/api/wallet/withdraw", verifyFirebaseToken, async (req, res) => {
-  try {
-    const { amount, destination } = req.body;
-    const uid = req.authUID;
-
-    if (!amount || amount <= 0)
-      return res.status(400).json({ error: "Bad amount" });
-
-    const wallet = await Wallet.findOne({ uid });
-    if (!wallet || wallet.balance < amount)
-      return res.status(400).json({ error: "Insufficient funds" });
-
-    const newBalance = wallet.balance - amount;
-    const session = await mongoose.startSession();
-    session.startTransaction();
-
-    try {
-      await Wallet.updateOne({ uid }, { $inc: { balance: -amount } }, { session });
-
-      const [txn] = await Transaction.create(
-        [
-          {
-            uid,
-            type: "withdraw",
-            amount: -amount,
-            description: destination || "Withdraw request",
-            txnId: generateTxnId(),
-            balanceAfter: newBalance,
-            status: "Pending",
-          },
-        ],
-        { session }
-      );
-
-      await session.commitTransaction();
-      session.endSession();
-
-      res.json({ success: true, balance: newBalance, txn });
-    } catch (err) {
-      await session.abortTransaction();
-      throw err;
-    }
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ----------------------------------------------
-// Backblaze B2
-// ----------------------------------------------
+// ---------------- Backblaze B2 (SAFE) ----------------
 const b2 = new B2({
   accountId: process.env.B2_KEY_ID,
   applicationKey: process.env.B2_APPLICATION_KEY,
 });
-await b2.authorize();
+
+async function authorizeB2() {
+  try {
+    const auth = await b2.authorize();
+    return auth.data;
+  } catch (err) {
+    console.error("❌ B2 Auth Error:", err.message);
+    throw err;
+  }
+}
 
 const upload = multer({ storage: multer.memoryStorage() });
 
@@ -223,6 +154,7 @@ app.post("/api/upload-b2", verifyFirebaseToken, upload.single("file"), async (re
     const file = req.file;
     if (!file) return res.status(400).json({ error: "No file uploaded" });
 
+    const auth = await authorizeB2();
     const uploadUrlResp = await b2.getUploadUrl({ bucketId: process.env.B2_BUCKET_ID });
 
     const uploadRes = await b2.uploadFile({
@@ -237,13 +169,12 @@ app.post("/api/upload-b2", verifyFirebaseToken, upload.single("file"), async (re
 
     res.json({ success: true, url: downloadUrl, fileName: file.originalname });
   } catch (err) {
+    console.error("❌ B2 Upload Error:", err.response?.data || err.message);
     res.status(500).json({ error: err.message });
   }
 });
 
-// ----------------------------------------------
-// WebRTC Signaling with Socket.IO
-// ----------------------------------------------
+// ---------------- WebRTC Signaling with Socket.IO ----------------
 const httpServer = http.createServer(app);
 const io = new Server(httpServer, { cors: { origin: "*" } });
 
@@ -255,50 +186,30 @@ io.on("connection", (socket) => {
   socket.on("join-room", ({ userId, room }) => {
     if (!rooms[room]) rooms[room] = [];
 
-    // notify existing users about the new one
-    rooms[room].forEach((id) =>
-      io.to(id).emit("new-participant", { from: socket.id })
-    );
+    rooms[room].forEach((id) => io.to(id).emit("new-participant", { from: socket.id }));
 
     rooms[room].push(socket.id);
     socket.room = room;
     socket.userId = userId;
-
     console.log(`👤 ${userId} joined room ${room}`);
   });
 
-  socket.on("offer", ({ to, offer }) =>
-    io.to(to).emit("offer", { from: socket.id, offer })
-  );
-
-  socket.on("answer", ({ to, answer }) =>
-    io.to(to).emit("answer", { from: socket.id, answer })
-  );
-
+  socket.on("offer", ({ to, offer }) => io.to(to).emit("offer", { from: socket.id, offer }));
+  socket.on("answer", ({ to, answer }) => io.to(to).emit("answer", { from: socket.id, answer }));
   socket.on("ice-candidate", ({ to, candidate }) =>
     io.to(to).emit("ice-candidate", { from: socket.id, candidate })
   );
 
   socket.on("disconnect", () => {
-    if (socket.room) {
-      rooms[socket.room] = rooms[socket.room].filter((id) => id !== socket.id);
-    }
+    if (socket.room) rooms[socket.room] = rooms[socket.room].filter((id) => id !== socket.id);
     console.log(`⚡ Disconnected: ${socket.id}`);
   });
 });
 
-// ----------------------------------------------
-// Serve Frontend
-// ----------------------------------------------
+// ---------------- Serve Frontend ----------------
 app.use(express.static(path.join(__dirname, "dist")));
-app.get("*", (req, res) =>
-  res.sendFile(path.join(__dirname, "dist/index.html"))
-);
+app.get("*", (req, res) => res.sendFile(path.join(__dirname, "dist/index.html")));
 
-// ----------------------------------------------
-// Start Server
-// ----------------------------------------------
+// ---------------- Start Server ----------------
 const PORT = process.env.PORT || 5000;
-httpServer.listen(PORT, () =>
-  console.log(`🚀 Server running on port ${PORT}`)
-);
+httpServer.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
