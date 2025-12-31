@@ -1,19 +1,14 @@
 {
   "name": "loechat",
-  "version": "1.0.0",
-  "type": "module",
   "private": true,
+  "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview",
-    "start": "node server.js",
-    "cap:copy": "npx cap copy",
-    "cap:open": "npx cap open android"
+    "start": "node server.js"
   },
   "dependencies": {
     "axios": "^1.6.0",
-    "backblaze-b2": "^1.7.1",
     "browser-image-compression": "^2.0.1",
     "cors": "^2.8.5",
     "date-fns": "^2.30.0",
@@ -26,31 +21,25 @@
     "lucide-react": "^0.441.0",
     "mongoose": "^7.5.0",
     "multer": "^1.4.5-lts.1",
-    "node-fetch": "^3.3.2",
-    "react": "19.2.1",
-    "react-dom": "19.2.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
     "react-firebase-hooks": "^5.1.1",
     "react-icons": "^5.3.0",
-    "react-router-dom": "7.10.1",
+    "react-router-dom": "^6.26.2",
     "react-sortablejs": "^6.1.4",
     "sortablejs": "^1.15.0",
     "stripe": "^14.23.0",
-    "@stripe/stripe-js": "^1.52.1",
     "wavesurfer.js": "^7.8.5",
-    "@aws-sdk/client-s3": "^3.658.0",
-    "@aws-sdk/credential-provider-cognito-identity": "^3.658.0",
-    "canvas-confetti": "^1.6.0",
-    "react-toastify": "^9.1.3",
     "socket.io": "^4.8.1",
     "socket.io-client": "^4.8.1",
-    "@heroicons/react": "^2.0.18"
+    "canvas-confetti": "^1.6.0",
+    "react-toastify": "^9.1.3"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.2.1",
-    "vite": "^5.4.0",
-    "@capacitor/cli": "^5.0.0"
+    "vite": "^5.4.0"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": "18.x"
   }
 }
