@@ -69,14 +69,14 @@ export default function App() {
     await updateDoc(ref, { coins: increment(amount) });
   };
 
-  /* ================= SERVICE WORKER ================= */
+  /* ================= SERVICE WORKER FOR OFFLINE ================= */
   useEffect(() => {
     if ("serviceWorker" in navigator) {
       window.addEventListener("load", () => {
         navigator.serviceWorker
-          .register("/monetag-sw.js")
-          .then((reg) => console.log("Monetag SW registered:", reg))
-          .catch((err) => console.error("Monetag SW failed:", err));
+          .register("/service-worker.js")
+          .then((reg) => console.log("Service Worker registered:", reg))
+          .catch((err) => console.error("SW registration failed:", err));
       });
     }
   }, []);
@@ -87,12 +87,12 @@ export default function App() {
       <div
         style={{
           height: "100vh",
-          background: "#000",
-          color: "#fff",
           display: "flex",
           flexDirection: "column",
           alignItems: "center",
           justifyContent: "center",
+          background: "#000",
+          color: "#fff",
         }}
       >
         <div
@@ -113,13 +113,13 @@ export default function App() {
             style={{
               fontSize: 36,
               fontWeight: "bold",
-              textShadow: "0 0 12px rgba(255,255,255,.8)",
+              textShadow: "0 0 12px rgba(255,255,255,0.8)",
             }}
           >
             LC
           </span>
         </div>
-        <p style={{ marginTop: 16, opacity: 0.8 }}>loechat is starting…</p>
+        <p style={{ marginTop: 16, opacity: 0.8 }}>LoeChat is starting…</p>
       </div>
     );
   }
